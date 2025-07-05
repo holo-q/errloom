@@ -1,5 +1,5 @@
 import verifiers as vf
-from verifiers.envs.reasoninggym_env import ReasoningGymEnv
+from verifiers.envs.reasoninggym_env import ReasoningGymLoom
 
 """
 inference:
@@ -13,7 +13,7 @@ size = '14B'
 model_name = f'willcb/Qwen3-{size}-Arc-1D-SFT'
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
 
-vf_env = ReasoningGymEnv(
+vf_loom = ReasoningGymLoom(
     gym="arc_1d",
     num_samples=4000,
     max_concurrent=128,
@@ -34,7 +34,7 @@ training_args.max_steps=500
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
 )
 trainer.train()

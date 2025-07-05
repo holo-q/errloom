@@ -6,7 +6,7 @@ from datasets import load_dataset
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.rubrics.judge_rubric import JudgeRubric
+from verifiers.attractors.judge_rubric import CorrectnessAttractor
 
 
 """
@@ -17,8 +17,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 vf-vllm --model willcb/Qwen3-8B-Wiki-Search-SFT
 CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config-file configs/zero3.yaml verifiers/examples/wiki_search.py
 """
 
-WIKI_DIR = "notebooks/data/wiki" 
-CHROMA_DB_DIR = "notebooks/.chroma_db" 
+WIKI_DIR = "notebooks/data/wiki"
+CHROMA_DB_DIR = "notebooks/.chroma_db"
 
 # Create embedding function using OpenAI
 
@@ -28,10 +28,10 @@ openai_ef = embedding_functions.OpenAIEmbeddingFunction(
 )
 db_client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
 collection = db_client.get_collection("wiki_titles", embedding_function=openai_ef) # type: ignore
- 
+
 def search_pages(query: str) -> list[dict]:
     """Search for top 10 relevant articles using title embedding similarity.
-    
+
     Args:
         query (str): The query to search for.
 
@@ -45,7 +45,7 @@ def search_pages(query: str) -> list[dict]:
         query_texts=[query],
         n_results=10
     )
-    
+
     # Format results
     output = []
     for i in range(len(results['ids'][0])):
@@ -53,7 +53,7 @@ def search_pages(query: str) -> list[dict]:
             "page_id": results['ids'][0][i],
             "title": results['metadatas'][0][i]['title'] # type: ignore
         })
-    
+
     return output
 
 # test search_pages
@@ -61,7 +61,7 @@ print(search_pages("basketball"))
 
 def view_sections(page_id: str) -> list[dict]:
     """View the sections of a page.
-    
+
     Args:
         page_id (str): The ID of the page to view.
 
@@ -75,15 +75,15 @@ def view_sections(page_id: str) -> list[dict]:
     results = collection.get(ids=[page_id])
     if not results['ids']:
         raise ValueError(f"Page not found: {page_id}")
-    
+
     filename = results['metadatas'][0]['title'] + '.md'  # type: ignore
     filepath = os.path.join(WIKI_DIR, filename) # type: ignore
-    
+
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
-    
+
     sections = []
-    
+
     lines = content.split('\n')
     for i, line in enumerate(lines):
         if line.startswith('#'):
@@ -96,7 +96,7 @@ def view_sections(page_id: str) -> list[dict]:
                 "section_name": section_name,
                 "start_line": i
             })
-    
+
     # If no sections found, return the whole page as one section
     if not sections:
         sections.append({
@@ -104,8 +104,8 @@ def view_sections(page_id: str) -> list[dict]:
             "section_name": "Full Page",
             "start_line": 0
         })
-    
-    return [{"section_id": s["section_id"], "section_name": s["section_name"]} 
+
+    return [{"section_id": s["section_id"], "section_name": s["section_name"]}
             for s in sections]
 
 # test view_sections
@@ -114,43 +114,43 @@ view_sections("baseball")
 
 def read_section(section_id: str) -> str:
     """Read a section of a page.
-    
+
     Args:
         section_id (str): The ID of the section to read.
 
     Returns:
         str: The content of the section.
-        
+
     Examples:
         "baseball:finnish_baseball" -> "Finnish baseball is a sport that is played in Finland..."
     """
     # Parse section_id
     if ':' not in section_id:
         raise ValueError("Invalid section_id format. Expected: page_id:section_name")
-    
+
     page_id, section_name_id = section_id.split(':', 1)
-    
+
     # Get the file
     results = collection.get(ids=[page_id])
     if not results['ids']:
         raise ValueError(f"Page not found: {page_id}")
-    
+
     filename = results['metadatas'][0]['title'] + '.md' # type: ignore
     filepath = os.path.join(WIKI_DIR, filename)
-    
+
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
-    
+
     lines = content.split('\n')
-    
+
     # Special case for "full" section
     if section_name_id == "full":
         return content
-    
+
     # Find the section
     section_start = None
     section_end = None
-    
+
     for i, line in enumerate(lines):
         if line.startswith('#'):
             current_section = line.lstrip('#').strip().lower().replace(' ', '_')
@@ -159,7 +159,7 @@ def read_section(section_id: str) -> str:
             elif section_start is not None and section_end is None:
                 section_end = i
                 break
-    
+
     # If section found
     if section_start is not None:
         if section_end is None:
@@ -167,7 +167,7 @@ def read_section(section_id: str) -> str:
         return '\n'.join(lines[section_start:section_end])
     else:
         raise ValueError(f"Section not found: {section_id}")
-    
+
 print(read_section("baseball:finnish_baseball"))
 
 
@@ -214,7 +214,7 @@ tools = [
 
 dataset = load_dataset("willcb/wiki-trivia-questions", split="train")
 
-vf_env = vf.ToolEnv(
+vf_loom = vf.ToolLoom(
     dataset=dataset,
     system_prompt=system_prompt,
     tools=tools,
@@ -224,12 +224,12 @@ vf_env = vf.ToolEnv(
 
 judge_client = OpenAI(base_url="http://0.0.0.0:8008/v1", api_key="EMPTY")
 judge_model = "Qwen/Qwen2.5-7B-Instruct"
-judge_rubric = JudgeRubric(
+judge_attractor = CorrectnessAttractor(
     judge_client=judge_client,
     judge_model=judge_model,
-    parser=vf_env.parser
+    parser=vf_loom.parser
 )
-vf_env.rubric = vf.RubricGroup(rubrics=[judge_rubric, vf_env.rubric])
+vf_loom.attractor = vf.RouterAttractor(attractors=[judge_attractor, vf_loom.attractor])
 
 
 model_name = "willcb/Qwen3-8B-Wiki-Search-SFT"
@@ -250,7 +250,7 @@ training_args.save_steps=100
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
 )
-trainer.train() 
+trainer.train()

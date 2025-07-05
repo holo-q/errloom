@@ -7,14 +7,14 @@ from reasoning_gym.composite import DatasetSpec
 from reasoning_gym.dataset import ProceduralDataset
 
 from verifiers.parsers import XMLParser
-from verifiers.rubrics import Rubric
-from verifiers.envs.singleturn_env import SingleTurnEnv
+from verifiers.attractors import Attractor
+from verifiers.envs.singleturn_env import SingleTurnLoom
 
-class ReasoningGymEnv(SingleTurnEnv):
+class ReasoningGymLoom(SingleTurnLoom):
     def __init__(self,
                  gym: str | List[str | dict],
                  num_samples: int = 1000,
-                 num_eval_samples: int = 100,   
+                 num_eval_samples: int = 100,
                  seed: int = 0,
                  **kwargs: Any):
         self.gym = gym
@@ -25,26 +25,26 @@ class ReasoningGymEnv(SingleTurnEnv):
         self.rg_dataset = self.build_rg_dataset(gym, num_samples=total_samples, seed=seed)
         dataset, eval_dataset = self.rg_to_hf(self.rg_dataset)
         parser = XMLParser(fields=['think', 'answer'])
-        rubric = Rubric(parser=parser) 
-        def check_answer_reward_func(completion, answer, **kwargs) -> float:
+        attractor = Attractor(parser=parser)
+        def check_answer_attraction_rule(completion, answer, **kwargs) -> float:
             entry = self.rg_dataset[answer]
             response = str(parser.parse_answer(completion)).strip()
             reward = self.rg_dataset.score_answer(answer=response, entry=entry)
             return reward
-        rubric.add_reward_func(check_answer_reward_func)
-        rubric.add_reward_func(parser.get_format_reward_func(), weight=0.2)
+        attractor.add_rule(check_answer_attraction_rule)
+        attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
         system_prompt = rg.utils.SYSTEM_PROMPTS["DeepSeekZero"] # type: ignore
         super().__init__(
             dataset=dataset,
             eval_dataset=eval_dataset,
             system_prompt=system_prompt,
             parser=parser,
-            rubric=rubric,
+            attractor=attractor,
             message_type='chat',
             **kwargs
         )
         self.parser = parser
-        self.rubric = rubric
+        self.attractor = attractor
 
     def build_rg_dataset(self, gym: str | List[str | dict], num_samples: int = 1000, seed: int = 0) -> ProceduralDataset:
         if isinstance(gym, str):

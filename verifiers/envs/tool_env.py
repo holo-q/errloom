@@ -2,21 +2,22 @@ import inspect
 import json
 from typing import List, Dict, Any, Callable, Tuple
 
-from verifiers import RewardFunc
-from verifiers.envs.multiturn_env import MultiTurnEnv
+from core_types import MessageList
+from verifiers import FnRule
+from verifiers.envs.multiturn_env import MultiTurnLoom
 from verifiers.parsers import XMLParser
 from verifiers.prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
-from verifiers.rubrics import ToolRubric
+from verifiers.attractors import ToolUserAttractor
 
 def infer_schema_from_function(func: Callable) -> Dict[str, Any]:
     """Infers a tool schema from a function's signature and docstring."""
     sig = inspect.signature(func)
     doc = inspect.getdoc(func) or ""
-    
+
     # Parse docstring sections
     doc_parts = doc.split("\n\n")
     description = doc_parts[0].strip()
-    
+
     # Extract examples if present
     examples = []
     return_description = ""
@@ -38,14 +39,14 @@ def infer_schema_from_function(func: Callable) -> Dict[str, Any]:
                 for line in part.split("\n")[1:]:
                     if line.strip().startswith(f"{name}:"):
                         param_doc = line.strip()[len(name)+1:].strip()
-        
+
         args[name] = {
             "type": str(param.annotation.__name__ if param.annotation != inspect.Parameter.empty else "any"),
             "description": param_doc,
         }
         if param.default != inspect.Parameter.empty:
             args[name]["default"] = param.default
-    
+
     return {
         "name": func.__name__,
         "description": description,
@@ -59,37 +60,37 @@ def format_tool_descriptions(schemas: List[Dict[str, Any]]) -> str:
     descriptions = []
     for schema in schemas:
         desc = [f"{schema['name']}: {schema['description']}"]
-        
+
         desc.append("\nArguments:")
         for arg_name, arg_info in schema['args'].items():
             default = f" (default: {arg_info['default']})" if 'default' in arg_info else ""
             desc.append(f"  - {arg_name}: {arg_info['description']}{default}")
-        
+
         if schema['examples']:
             desc.append("\nExamples:")
             for example in schema['examples']:
                 desc.append(f"  {example}")
-        
+
         if schema['returns']:
             desc.append(f"\nReturns: {schema['returns']}")
-        
+
         descriptions.append("\n".join(desc))
-    
+
     return "\n\n".join(descriptions)
 
-class ToolEnv(MultiTurnEnv):
+class ToolLoom(MultiTurnLoom):
     def __init__(self,
                  tools: List[Callable] = [],
                  system_prompt: str = DEFAULT_TOOL_PROMPT_TEMPLATE,
                  format_prompt: bool = True,
                  parser: XMLParser = XMLParser(fields=["think", ("tool", "answer")]),
-                 env_parser: XMLParser = XMLParser(fields=["result"]),
+                 loom_parser: XMLParser = XMLParser(fields=["result"]),
                  max_turns: int = 10, **kwargs):
         # Infer schemas from tool functions
-        rubric = ToolRubric(tools=tools, parser=parser, env_parser=env_parser)
+        attractor = ToolUserAttractor(tools=tools)
         self.tool_schemas = [infer_schema_from_function(tool) for tool in tools]
         self.tools = {tool.__name__: tool for tool in tools}
-        
+
         # Format the system prompt with tool descriptions
         if format_prompt:
             tool_descriptions = format_tool_descriptions(self.tool_schemas)
@@ -99,44 +100,44 @@ class ToolEnv(MultiTurnEnv):
         super().__init__(
             system_prompt=formatted_prompt,
             parser=parser,
-            rubric=rubric,
+            attractor=attractor,
             max_turns=max_turns,
             **kwargs
         )
-        self.env_parser = env_parser
+        self.env_parser = loom_parser
 
-    def get_reward_funcs(self, **kwargs: Any) -> List[RewardFunc]:
-        return self.rubric.get_reward_funcs()
-    
-    def get_reward_weights(self, **kwargs: Any) -> List[float]:
-        return self.rubric.get_reward_weights()
- 
+    def get_attraction_rules(self) -> List[FnRule]:
+        return self.attractor.get_rule_funcs()
+
+    def get_rule_weights(self, **kwargs: Any) -> List[float]:
+        return self.attractor.get_rule_weights()
+
     def is_completed(self,
-                     messages: List[Dict[str, str]],
+                     messages: MessageList,
                      state: Dict[str, Any],
                      **kwargs: Any) -> bool:
         return self.parser.parse_answer(messages) is not None
 
-    def call_tool(self, tool_json: str, max_chars: int = 1024, **kwargs: Any) -> str:
+    def call_tool(self, tool_json: str, max_chars: int = 1024) -> str:
         """Call a tool based on JSON command."""
         try:
             command = json.loads(tool_json)
             if not isinstance(command, dict):
                 return "Error: Tool command must be a JSON object, e.g. '{\"name\": \"tool_name\", \"args\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}'"
-            
+
             tool_name = command.get("name")
             if not tool_name:
                 return "Error: Tool command must specify 'name', e.g. '{\"name\": \"tool_name\", \"args\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}'"
-            
+
             if tool_name not in self.tools:
                 return f"Error: Unknown tool '{tool_name}. " + "Please format your tool call as '{\"name\": \"tool_name\", \"args\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}'"
-            
+
             tool_func = self.tools[tool_name]
             tool_args = command.get("args", {})
             if isinstance(tool_args, str):
                 tool_schema = next((schema['args'] for schema in self.tool_schemas if schema['name'] == tool_name), None)
-                return f"Error: Arguments for {tool_name} must be a JSON object with schema {tool_schema}, not a string." 
-            
+                return f"Error: Arguments for {tool_name} must be a JSON object with schema {tool_schema}, not a string."
+
             # Call the tool function with arguments
             result = tool_func(**tool_args)
             if max_chars > 0 and len(str(result)) > max_chars:
@@ -145,10 +146,10 @@ class ToolEnv(MultiTurnEnv):
         except Exception as e:
             return f"Error: {str(e)}. " + "Please format your tool call as '{{\"name\": \"tool_name\", \"args\": {{\"arg1\": \"value1\", \"arg2\": \"value2\"}}}}'"
 
-    def env_response(self,
-                     messages: List[Dict[str, str]], 
-                     state: Dict[str, Any],
-                     **kwargs: Any) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    def loom_response(self,
+                      messages: MessageList,
+                      state: Dict[str, Any],
+                      **kwargs: Any) -> Tuple[Dict[str, str], Dict[str, Any]]:
         try:
             parsed = self.parser.parse(messages[-1]['content'])
             # Check if we got a valid tool field (not just None from failed parsing)

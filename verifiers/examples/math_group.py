@@ -18,38 +18,38 @@ Then, give your final numerical answer inside \\boxed{{...}}.
 parser = vf.ThinkParser(extract_fn=extract_boxed_answer)
 
 # env 1: gsm8k
-def gsm8k_answer_reward_func(completion, answer, **kwargs):
+def gsm8k_answer_attraction_rule(completion, answer, **kwargs):
     response = parser.parse_answer(completion) or ''
     return 1.0 if response == answer else 0.0
-rubric1 = vf.Rubric(funcs=[
-    gsm8k_answer_reward_func,
-    parser.get_format_reward_func()
+attractor1 = vf.Attractor(funcs=[
+    gsm8k_answer_attraction_rule,
+    parser.get_format_attraction_rule()
 ], weights=[1.0, 0.2])
 dataset1 = load_example_dataset("gsm8k", split="train").select(range(1000))
-env1 = vf.SingleTurnEnv(
+loom1 = vf.SingleTurnLoom(
     dataset=dataset1,
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric1,
+    attractor=attractor1,
 )
 
 # env 2: math
-def math_answer_reward_func(completion, answer, **kwargs):
+def math_answer_attraction_rule(completion, answer, **kwargs):
     response = parser.parse_answer(completion) or ''
     return 1.0 if response == answer else 0.0
-rubric2 = vf.Rubric(funcs=[
-    math_answer_reward_func,
-    parser.get_format_reward_func()
+attractor2 = vf.Attractor(funcs=[
+    math_answer_attraction_rule,
+    parser.get_format_attraction_rule()
 ], weights=[1.0, 0.2])
 dataset2 = load_example_dataset("math", split="train").select(range(1000))
-env2 = vf.SingleTurnEnv(
+loom2 = vf.SingleTurnLoom(
     dataset=dataset2,
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric2,
+    attractor=attractor2,
 )
 
-vf_env = vf.EnvGroup([env1, env2], env_names=["gsm8k", "math"])
+vf_loom = vf.RouterLoom([loom1, loom2], loom_names=["gsm8k", "math"])
 
 model_name = "willcb/Qwen3-0.6B"
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
@@ -67,7 +67,7 @@ training_args.max_steps=100
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
 )
 trainer.train()

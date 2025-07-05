@@ -2,9 +2,9 @@ import json
 from typing import List, Any
 
 from verifiers.parsers.smola_parser import SmolaParser
-from verifiers.rubrics.tool_rubric import ToolRubric
+from verifiers.attractors.tool_rubric import ToolUserAttractor
 
-class SmolaToolRubric(ToolRubric):
+class SmolaToolAttractor(ToolUserAttractor):
     def __init__(self,
                  parser: SmolaParser = SmolaParser(fields=["reasoning", ("tool", "answer")]),
                  env_parser: SmolaParser = SmolaParser(fields=["result"]),
@@ -13,23 +13,23 @@ class SmolaToolRubric(ToolRubric):
         self.parser = parser
         self.env_parser = env_parser
         self.tools = {tool.name: tool for tool in tools}
-        self.reward_funcs = [
-            self.correct_answer_reward_func,
-            self.parser.get_format_reward_func(),
+        self.attraction_rules = [
+            self.rule_correct_answer,
+            self.parser.get_format_attraction_rule(),
         ]
-        self.reward_weights = [
+        self.rule_weights = [
             1.0,
             0.2,
         ]
         for tool_name in self.tools.keys():
-            self.add_reward_func(self.get_named_tool_reward_func(tool_name), weight=0.0)
+            self.add_rule(self.get_named_tool_attraction_rule(tool_name), weight=0.0)
 
     def evaluate_code(self, code_str, answer, **kwargs) -> float:
         import io
         import sys
         import signal
         from contextlib import redirect_stdout
-        
+
         try:
             test_cases = json.loads(answer)['test_cases']
         except:
@@ -50,10 +50,10 @@ class SmolaToolRubric(ToolRubric):
         def normalize_output(output):
             # Normalize line endings and whitespace
             return '\n'.join(line.strip() for line in output.splitlines())
-        
+
         total_cases = 0
         passed = 0
-        
+
         for test in test_cases:
             output = io.StringIO()
             sys.stdin = io.StringIO(test['input'])
@@ -73,10 +73,10 @@ class SmolaToolRubric(ToolRubric):
                 for a, e in zip(actual_lines, expected_lines):
                     if a == e:
                         passed += 1
-                    
+
             except Exception as e:
                 sys.stdin = sys.__stdin__
                 return 0.0
             sys.stdin = sys.__stdin__
-        
-        return passed / total_cases if total_cases else 0.0 
+
+        return passed / total_cases if total_cases else 0.0

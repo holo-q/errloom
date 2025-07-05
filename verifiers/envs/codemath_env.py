@@ -1,29 +1,30 @@
 import subprocess
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, Tuple
 
-from verifiers.envs.multiturn_env import MultiTurnEnv
+from core_types import MessageList
+from verifiers.envs.multiturn_env import MultiTurnLoom
 from verifiers.parsers import XMLParser
 from verifiers.prompts import CODE_PROMPT
-from verifiers.rubrics import CodeMathRubric
+from verifiers.attractors import CoderMathAttractor
 
-class CodeMathEnv(MultiTurnEnv):
+class CodeMathLoom(MultiTurnLoom):
     def __init__(self,
                  system_prompt: str = CODE_PROMPT,
                  max_turns: int = 5,
                  **kwargs):
         parser = XMLParser(fields=["think", ("code", "answer")])
         self.env_parser = XMLParser(fields=["output"])
-        rubric = CodeMathRubric(parser=parser, env_parser=self.env_parser)
+        attractor = CoderMathAttractor(parser=parser, env_parser=self.env_parser)
         super().__init__(
             system_prompt=system_prompt,
             parser=parser,
-            rubric=rubric,
+            attractor=attractor,
             max_turns=max_turns,
             **kwargs
         )
-    
+
     def is_completed(self,
-                    messages: List[Dict[str, str]],
+                    messages: MessageList,
                     state: Dict[str, Any],
                     **kwargs: Any) -> bool:
         try:
@@ -33,7 +34,7 @@ class CodeMathEnv(MultiTurnEnv):
         except Exception:
             return False
 
-    def run_code(self, code: str, **kwargs: Any) -> str:
+    def run_code(self, code: str) -> str:
         try:
             # Run the code block in subprocess with 10-second timeout
             result = subprocess.run(
@@ -49,10 +50,10 @@ class CodeMathEnv(MultiTurnEnv):
         except subprocess.TimeoutExpired:
             return "Error: Code execution timed out after 10 seconds"
 
-    def env_response(self,
-                     messages: List[Dict[str, str]],
-                     state: Dict[str, Any],
-                     **kwargs: Any) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    def loom_response(self,
+                      messages: MessageList,
+                      state: Dict[str, Any],
+                      **kwargs: Any) -> Tuple[Dict[str, str], Dict[str, Any]]:
         try:
             parsed = self.parser.parse(messages[-1]["content"])
             # Check if we got a valid code field (not just None from failed parsing)

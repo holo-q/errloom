@@ -23,7 +23,7 @@ system_prompt = f"""Reverse the given text.
 Respond in the following format:
 {parser.get_format_str()}"""
 
-def lcs_reward_func(completion, answer, **kwargs) -> float:
+def lcs_attraction_rule(completion, answer, **kwargs) -> float:
     """
     LCS ratio of the reversed prompt and the parsed completion.
     """
@@ -36,17 +36,17 @@ def lcs_reward_func(completion, answer, **kwargs) -> float:
     response = parser.parse_answer(completion) or ''
     return lcs_ratio(response, answer)
 
-rubric = vf.Rubric(funcs=[
-	lcs_reward_func,
-	parser.get_format_reward_func(),
+attractor = vf.Attractor(funcs=[
+	    lcs_attraction_rule,
+    parser.get_format_attraction_rule(),
 ], weights=[1.0, 0.2])
 
-vf_env = vf.SingleTurnEnv(
+vf_loom = vf.SingleTurnLoom(
     dataset=train_dataset, # type: ignore
     eval_dataset=eval_dataset, # type: ignore
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric
+    attractor=attractor
 )
 args = vf.grpo_defaults(run_name='reverse_text_warmup')
 args.num_iterations = 2
@@ -61,7 +61,7 @@ model, tokenizer = vf.get_model_and_tokenizer(model_name)
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     #peft_config=vf.lora_defaults(),
     args=args
 )

@@ -52,7 +52,7 @@ class VLLMClient(OpenAI):
         ```python
         >>> from trl.extras.vllm_client import VLLMClient
         >>> client = VLLMClient()
-        >>> client.generate(["Hello, AI!", "Tell me a joke"])
+        >>> client.unroll(["Hello, AI!", "Tell me a joke"])
         [[2980, 498, 1492, 752, 448, 264, 13027, 8645, 30, 358, 2776, 4460, 311, 3270, 264, 2025],
          [911, 7988, 1251, 382, 3838, 653, 498, 1618, 4325, 879, 2581, 20027, 264, 21428, 30, 362]]
 
@@ -84,7 +84,7 @@ class VLLMClient(OpenAI):
         )
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
-        
+
         self.host = host
         self.server_port = port # Renamed from server_port to port to match super init
         self.group_port = group_port
@@ -105,7 +105,7 @@ class VLLMClient(OpenAI):
         start_time = time.time()  # Record the start time
 
         while True:
-            try: 
+            try:
                 response = requests.get(url) # type: ignore
             except requests.exceptions.RequestException as exc: # type: ignore
                 # Check if the total timeout duration has passed
@@ -129,7 +129,7 @@ class VLLMClient(OpenAI):
         Initializes the weight update group in a distributed setup for model synchronization.
         """
         logger.info(f"[VLLM_CLIENT] Starting init_communicator")
-        
+
         # Get the world size from the server
         url = f"http://{self.host}:{self.server_port}/get_world_size/"
         logger.info(f"[VLLM_CLIENT] Getting world size from {url}")
@@ -139,7 +139,7 @@ class VLLMClient(OpenAI):
         except Exception as e:
             logger.error(f"[VLLM_CLIENT] Failed to get world size: {e}")
             raise
-            
+
         if response.status_code == 200:
             vllm_world_size = response.json()["world_size"]
             logger.info(f"[VLLM_CLIENT] vLLM world size: {vllm_world_size}")
@@ -160,7 +160,7 @@ class VLLMClient(OpenAI):
         except Exception as e:
             logger.error(f"[VLLM_CLIENT] Failed to init communicator: {e}")
             raise
-            
+
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
@@ -192,7 +192,7 @@ class VLLMClient(OpenAI):
         dtype, shape = str(weights.dtype), tuple(weights.shape)
         url = f"http://{self.host}:{self.server_port}/update_named_param/"
         logger.debug(f"[VLLM_CLIENT] Sending weight update request for {name}")
-        
+
         # Add timeout to prevent hanging on HTTP request
         try:
             response = self.session.post(url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=300.0)
@@ -202,7 +202,7 @@ class VLLMClient(OpenAI):
         except Exception as e:
             logger.error(f"[VLLM_CLIENT] Error sending request for {name}: {e}")
             raise
-            
+
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
         logger.debug(f"[VLLM_CLIENT] Server responded, starting NCCL broadcast for {name}")
@@ -228,12 +228,12 @@ class VLLMClient(OpenAI):
     def batch_update_model_params(self, model: nn.Module, batch_size: int = 50):
         """
         Updates all parameters of the given model in batches to reduce overhead and prevent overwhelming the server.
-        
+
         This method coordinates with the server to ensure proper NCCL synchronization:
         1. Send batch of parameter metadata to server
         2. Server notifies workers for each parameter
         3. Client broadcasts each parameter via NCCL after server confirmation
-        
+
         Args:
             model (`nn.Module`):
                 Model whose parameters (weights/biases) are to be updated.
@@ -243,13 +243,13 @@ class VLLMClient(OpenAI):
         # Collect all parameters
         all_params = list(model.named_parameters())
         total_params = len(all_params)
-        
+
         logger.info(f"[VLLM_CLIENT] Starting batch update of {total_params} parameters in batches of {batch_size}")
-        
+
         # Process in batches
         for batch_idx, i in enumerate(range(0, total_params, batch_size)):
             batch_params = all_params[i:i + batch_size]
-            
+
             # Prepare batch update request
             batch_updates = []
             for name, param in batch_params:
@@ -258,38 +258,38 @@ class VLLMClient(OpenAI):
                     "dtype": str(param.data.dtype),
                     "shape": list(param.data.shape)
                 })
-            
+
             # Send batch update request
             url = f"http://{self.host}:{self.server_port}/batch_update_named_params/"
             logger.debug(f"[VLLM_CLIENT] Sending batch {batch_idx + 1} with {len(batch_updates)} parameters")
-            
+
             try:
                 response = self.session.post(url, json={"updates": batch_updates}, timeout=600.0)
                 if response.status_code not in [200, 207]:  # 207 is Multi-Status
                     raise Exception(f"Batch request failed: {response.status_code}, {response.text}")
-                    
+
                 result = response.json()
-                
+
                 # Check for partial failures
                 if response.status_code == 207:
                     logger.warning(f"[VLLM_CLIENT] Batch had errors: {result.get('errors', [])}")
-                
+
                 # Get list of successfully notified parameters
                 successful_params = result.get('successful', [])
                 if not successful_params:
                     logger.error(f"[VLLM_CLIENT] No successful parameters in batch response")
                     continue
-                    
+
             except requests.exceptions.Timeout:
                 logger.error(f"[VLLM_CLIENT] Timeout waiting for batch response after 600s")
                 raise Exception(f"Batch request timeout after 600s")
             except Exception as e:
                 logger.error(f"[VLLM_CLIENT] Error sending batch request: {e}")
                 raise
-            
+
             # Now broadcast weights for successfully notified parameters
             logger.debug(f"[VLLM_CLIENT] Broadcasting weights for {len(successful_params)} parameters in batch {batch_idx + 1}")
-            
+
             for name, param in batch_params:
                 if name in successful_params:
                     try:
@@ -302,9 +302,9 @@ class VLLMClient(OpenAI):
                         raise
                 else:
                     logger.warning(f"[VLLM_CLIENT] Skipping broadcast for {name} - not in successful list")
-            
+
             logger.debug(f"[VLLM_CLIENT] Completed batch {batch_idx + 1}")
-        
+
         logger.info(f"[VLLM_CLIENT] Batch update complete for {total_params} parameters")
 
     def reset_prefix_cache(self):

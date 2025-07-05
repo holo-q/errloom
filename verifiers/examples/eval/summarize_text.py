@@ -14,16 +14,16 @@ system_prompt = f"""Respond in the following format:
 
 Summarize the given text in 3 sentences."""
 
-def sentence_reward_func(completion, **kwargs) -> float:
+def sentence_attraction_rule(completion, **kwargs) -> float:
     """
     Count the number of sentences in the completion.
     """
     response = parser.parse_answer(completion) or ''
     return 1.0 if len(response.split('.')) == 3 else 0.0
 
-def lcs_reward_func(completion, answer, **kwargs) -> float:
+def lcs_attraction_rule(completion, answer, **kwargs) -> float:
     """
-    LCS ratio of the prompt and the parsed completion.    
+    LCS ratio of the prompt and the parsed completion.
     """
     def lcs_ratio(x: str, y: str) -> float:
         """
@@ -34,21 +34,21 @@ def lcs_reward_func(completion, answer, **kwargs) -> float:
     response = parser.parse_answer(completion) or ''
     return lcs_ratio(response, answer)
 
-rubric = vf.Rubric(funcs=[
-    sentence_reward_func,
-    lcs_reward_func,
-    parser.get_format_reward_func(),
+attractor = vf.Attractor(funcs=[
+    sentence_attraction_rule,
+    lcs_attraction_rule,
+    parser.get_format_attraction_rule(),
 ], weights=[1.0, 0.2, 0.2])
 
-vf_env = vf.SingleTurnEnv(
+vf_loom = vf.SingleTurnLoom(
     eval_dataset=dataset,
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric,
+    attractor=attractor,
     max_concurrent=10
 )
 
-def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool):    
+def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool):
     # collect V3/R1 rollouts from API
     if api == "deepseek":
         base_url = "https://api.deepseek.com"
@@ -68,16 +68,22 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool):
     }
 
     # columns = ['prompt', 'completion', 'answer', 'reward']
-    results = vf_env.evaluate(
+    results = vf_loom.test(
         client=client,
         model=model_name,
         sampling_args=sampling_args,
         num_samples=num_samples
-    ) 
+    )
+
+    print('--- Example ---')
+    print('Prompt: ', results['prompt'][0])
+    print('Completion: ', results['completion'][0])
+    print('Answer: ', results['answer'][0])
     if save_dataset:
-        dataset = vf_env.make_dataset(results)
-        dataset.push_to_hub("V3-reverse-wiki-paragraphs-test")
-    
+        dataset = vf_loom.make_dataset(results)
+        # save to hub
+        dataset.push_to_hub("summarize-text-test")
+
 if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()

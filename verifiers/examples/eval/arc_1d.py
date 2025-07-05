@@ -2,11 +2,11 @@ import os
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.envs.reasoninggym_env import ReasoningGymEnv
+from verifiers.envs.reasoninggym_env import ReasoningGymLoom
 
-vf_env = ReasoningGymEnv(
+vf_loom = ReasoningGymLoom(
     gym="arc_1d",
-    num_samples=2000, 
+    num_samples=2000,
     num_eval_samples=2000,
     max_concurrent=256,
 )
@@ -21,7 +21,7 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     elif api == "openai":
         # just for testing :) not for distillation :)
         api_key = os.getenv("OPENAI_API_KEY")
-        model_name = "gpt-4.1" 
+        model_name = "gpt-4.1"
         client = OpenAI(api_key=api_key)
     else:
         raise ValueError(f"Invalid API: {api}")
@@ -30,9 +30,9 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     }
     # columns = ['prompt', 'completion', 'answer', 'reward', ...]
     # use deepseek-chat for multiturn rollouts (V3-0324)
-    results = vf_env.evaluate(
+    results = vf_loom.test(
         client=client,
-        model=model_name, 
+        model=model_name,
         sampling_args=sampling_args,
         num_samples=num_samples
     )
@@ -44,9 +44,9 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     print("--- Rewards ---")
     for k, v in results.items():
         if 'reward' in k:
-            print(k, '-', sum(v) / len(v)) 
+            print(k, '-', sum(v) / len(v))
     if save_dataset:
-        dataset_dsv3 = vf_env.make_dataset(results)
+        dataset_dsv3 = vf_loom.make_dataset(results)
         # filter to top half of rows by rewards
         dataset_dsv3 = dataset_dsv3.sort("reward", reverse=True).select(range(len(dataset_dsv3) // 2))
         # save to hub

@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.envs.textarena_env import TextArenaEnv
+from verifiers.envs.textarena_env import TextArenaLoom
 
 # first time:
 import nltk
@@ -10,9 +10,9 @@ nltk.download('words', quiet=True)
 nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 
 client = OpenAI()
-vf_env = TextArenaEnv(
+vf_loom = TextArenaLoom(
     game="Wordle-v0",
-    num_samples=2000, 
+    num_samples=2000,
     num_eval_samples=2000,
     max_concurrent=20,
 )
@@ -27,7 +27,7 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     elif api == "openai":
         # just for testing :) not for distillation :)
         api_key = os.getenv("OPENAI_API_KEY")
-        model_name = "gpt-4.1" 
+        model_name = "gpt-4.1"
         client = OpenAI(api_key=api_key)
     else:
         raise ValueError(f"Invalid API: {api}")
@@ -36,9 +36,9 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     }
     # columns = ['prompt', 'completion', 'answer', 'reward', ...]
     # use deepseek-chat for multiturn rollouts (V3-0324)
-    results = vf_env.evaluate(
+    results = vf_loom.test(
         client=client,
-        model=model_name, 
+        model=model_name,
         sampling_args=sampling_args,
         num_samples=num_samples
     )
@@ -50,9 +50,9 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     print("--- Rewards ---")
     for k, v in results.items():
         if 'reward' in k:
-            print(k, '-', sum(v) / len(v)) 
+            print(k, '-', sum(v) / len(v))
     if save_dataset:
-        dataset_dsv3 = vf_env.make_dataset(results)
+        dataset_dsv3 = vf_loom.make_dataset(results)
         # filter to top half of rows by rewards
         dataset_dsv3 = dataset_dsv3.sort("reward", reverse=True).select(range(len(dataset_dsv3) // 2))
         # save to hub

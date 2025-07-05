@@ -1,5 +1,5 @@
 import verifiers as vf
-from verifiers.envs.doublecheck_env import DoubleCheckEnv   
+from verifiers.envs.doublecheck_env import DoubleCheckLoom
 from verifiers.utils import load_example_dataset
 
 SIMPLE_PROMPT = """\
@@ -8,8 +8,8 @@ You are a helpful assistant. In each turn, think step-by-step inside <think>...<
 
 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
 dataset = load_example_dataset("math", "train", n=1000)
-vf_env = DoubleCheckEnv(
-    dataset=dataset,
+vf_loom = DoubleCheckLoom(
+    roll_dataset=dataset,
     system_prompt=SIMPLE_PROMPT,
     few_shot=[]
 )
@@ -18,7 +18,7 @@ args = vf.grpo_defaults(run_name="doublecheck-{}".format(model_name.split("/")[-
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=args,
 )
 trainer.train()

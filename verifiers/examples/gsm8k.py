@@ -20,21 +20,21 @@ Then, give your final numerical answer inside \\boxed{{...}}.
 """
 parser = vf.ThinkParser(extract_fn=extract_boxed_answer)
 
-def correct_answer_reward_func(completion, answer, **kwargs):
+def correct_answer_attraction_rule(completion, answer, **kwargs):
     response = parser.parse_answer(completion) or ''
     return 1.0 if response == answer else 0.0
 
-rubric = vf.Rubric(funcs=[
-    correct_answer_reward_func,
-    parser.get_format_reward_func()
+attractor = vf.Attractor(funcs=[
+    correct_answer_attraction_rule,
+    parser.get_format_attraction_rule()
 ], weights=[1.0, 0.2])
 
-vf_env = vf.SingleTurnEnv(
+vf_loom = vf.SingleTurnLoom(
     dataset=dataset,
     eval_dataset=eval_dataset,
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric,
+    attractor=attractor,
 )
 
 
@@ -58,11 +58,11 @@ training_args.save_total_limit=10
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
     peft_config=vf.lora_defaults()
 )
-trainer.train() 
+trainer.train()
 
 
 

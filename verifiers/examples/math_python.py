@@ -48,14 +48,14 @@ Let's submit the answer.
 
 dataset = load_example_dataset("math", split="train")
 
-vf_env = vf.ToolEnv(
+vf_loom = vf.ToolLoom(
     dataset=dataset,
     system_prompt=TOOL_PROMPT,
     few_shot=[],
     tools=[python],
     max_steps=3
 )
-print(vf_env.system_prompt)
+print(vf_loom.system_prompt)
 
 model_name = "willcb/Qwen2.5-7B-Math-Python-SFT"
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
@@ -70,7 +70,7 @@ training_args.gradient_accumulation_steps=2
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
 )
 trainer.train() 

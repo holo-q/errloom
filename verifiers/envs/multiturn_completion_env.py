@@ -4,10 +4,11 @@ from typing import List, Dict, Any, Tuple
 
 from openai import OpenAI
 
-from verifiers.envs.environment import Environment
+from verifiers.envs.loom import Loom
+from verifiers.output import Rollout
 
 
-class MultiTurnCompletionEnv(Environment):
+class MultiTurnCompletionLoom(Loom):
     def __init__(self, max_turns: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.max_turns = max_turns
@@ -29,28 +30,17 @@ class MultiTurnCompletionEnv(Environment):
         """
         pass
 
-    def rollout(self,
-                client: OpenAI,
-                model: str,
-                prompt: str | List[Dict[str, str]],
-                answer: str,
-                task: str = "default",
-                info: Dict[str, Any] = {},
-                sampling_args: Dict[str, Any] = {},
-                **kwargs: Any) -> Tuple[str, Dict[str, Any]]:
+    def run(self, state, sampling_args: Dict[str, Any] = {}, **kwargs: Dict[str, Any]) -> Rollout:
         is_completed = False
-        state = {'answer': answer}
-        assert isinstance(prompt, str)
-        input = deepcopy(prompt) 
+        state = {'answer': row["answer"]}
+        assert isinstance(row["prompt"], str)
+        input = deepcopy(row["prompt"])
         completion = ""
         turn = 0
         while not is_completed:
-            response = self.get_model_response(
-                prompt=input,
-                client=client,
-                model=model,
-                sampling_args=sampling_args,
-                message_type=self.message_type
+            response = self.sample(
+                context=input,
+                sampling_args=sampling_args
             )
             input = input + response
             completion += response
@@ -61,4 +51,4 @@ class MultiTurnCompletionEnv(Environment):
                 env_msg, state = self.env_response(input, state, **kwargs)
                 input = input + env_msg
                 completion += env_msg
-        return completion, state
+        return Rollout(row, samples=completion, answer=row["answer"])

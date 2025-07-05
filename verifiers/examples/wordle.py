@@ -1,5 +1,5 @@
 import verifiers as vf
-from verifiers.envs.textarena_env import TextArenaEnv
+from verifiers.envs.textarena_env import TextArenaLoom
 
 """
 first time:
@@ -18,7 +18,7 @@ size = '7B'
 model_name = f'willcb/Qwen2.5-{size}-Wordle-SFT'
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
 
-vf_env = TextArenaEnv(
+vf_loom = TextArenaLoom(
     game="Wordle-v0",
     num_samples=2000, 
     num_eval_samples=20
@@ -38,7 +38,7 @@ training_args.mask_env_responses=True
 trainer = vf.GRPOTrainer(
     model=model,
     processing_class=tokenizer,
-    env=vf_env,
+    loom=vf_loom,
     args=training_args,
 )
 trainer.train()

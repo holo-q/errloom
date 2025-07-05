@@ -1,15 +1,15 @@
-from .environment import Environment
+from .loom import Loom
 
-from .multiturn_env import MultiTurnEnv
-from .singleturn_env import SingleTurnEnv
+from .multiturn_env import MultiTurnLoom
+from .singleturn_env import SingleTurnLoom
 
-from .tool_env import ToolEnv
-from .env_group import EnvGroup
+from .tool_env import ToolLoom
+from .env_group import RouterLoom
 
 __all__ = [
-    'Environment',
-    'MultiTurnEnv',
-    'SingleTurnEnv',
-    'ToolEnv',
-    'EnvGroup',
+    'Loom',
+    'MultiTurnLoom',
+    'SingleTurnLoom',
+    'ToolLoom',
+    'RouterLoom',
 ]

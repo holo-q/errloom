@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 
 from verifiers.parsers import Parser
-from verifiers.rubrics.rubric import Rubric
+from verifiers.attractors.attractor import Attractor
 
 DEFAULT_JUDGE_PROMPT = """Given a ground truth answer \
 and a response, determine if the response is correct.
@@ -24,7 +24,7 @@ Response:
 
 Respond either "yes" or "no" only."""
 
-class JudgeRubric(Rubric):
+class CorrectnessAttractor(Attractor):
     def __init__(self,
                  judge_client: OpenAI | None = None,
                  judge_model: str = "gpt-4.1-nano",
@@ -36,9 +36,9 @@ class JudgeRubric(Rubric):
         self.judge_model = judge_model
         self.judge_prompt = judge_prompt
         self.parser = parser
-        self.add_reward_func(self.judge_reward_func)
+        self.add_rule(self.judge_attraction_rule)
 
-    def judge_reward_func(self, prompt, completion, answer, **kwargs) -> float:
+    def judge_attraction_rule(self, prompt, completion, answer, **kwargs) -> float:
         response = self.parser.parse_answer(completion)
         # check which fields are present in judge prompt template
         # get question from answer:
@@ -66,7 +66,6 @@ class JudgeRubric(Rubric):
         else:
             # extract float from judge_response
             return float(judge_response)
-    
 
 
-    
+

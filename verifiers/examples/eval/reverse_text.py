@@ -14,9 +14,9 @@ system_prompt = f"""Respond in the following format:
 
 Reverse the given text character-by-character."""
 
-def lcs_reward_func(completion, answer, **kwargs) -> float:
+def lcs_attraction_rule(completion, answer, **kwargs) -> float:
     """
-    LCS ratio of the reversed prompt and the parsed completion.    
+    LCS ratio of the reversed prompt and the parsed completion.
     """
     def lcs_ratio(x: str, y: str) -> float:
         """
@@ -27,16 +27,16 @@ def lcs_reward_func(completion, answer, **kwargs) -> float:
     response = parser.parse_answer(completion) or ''
     return lcs_ratio(response, answer)
 
-rubric = vf.Rubric(funcs=[
-    lcs_reward_func,
-    parser.get_format_reward_func(),
+attractor = vf.Attractor(funcs=[
+    lcs_attraction_rule,
+    parser.get_format_attraction_rule(),
 ], weights=[1.0, 0.2])
 
-vf_env = vf.SingleTurnEnv(
+vf_loom = vf.SingleTurnLoom(
     eval_dataset=dataset,
     system_prompt=system_prompt,
     parser=parser,
-    rubric=rubric,
+    attractor=attractor,
     max_concurrent=10
 )
 
@@ -50,7 +50,7 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     elif api == "openai":
         # just for testing :) not for distillation :)
         api_key = os.getenv("OPENAI_API_KEY")
-        model_name = "gpt-4.1" 
+        model_name = "gpt-4.1"
         client = OpenAI(api_key=api_key)
     else:
         raise ValueError(f"Invalid API: {api}")
@@ -59,25 +59,25 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     }
     # columns = ['prompt', 'completion', 'answer', 'reward', ...]
     # use deepseek-chat for multiturn rollouts (V3-0324)
-    results = vf_env.evaluate(
-        client=client, model=model_name, 
+    results = vf_loom.test(
+        client=client, model=model_name,
         sampling_args=sampling_args, num_samples=num_samples)
 
     print('--- Example ---')
     print('Prompt: ', results['prompt'][0])
     print('Completion: ', results['completion'][0])
     print('Answer: ', results['answer'][0])
-    print("--- Rewards ---")
+    print("--- Gravities ---")
     for k, v in results.items():
         if 'reward' in k:
-            print(k, '-', sum(v) / len(v)) 
+            print(k, '-', sum(v) / len(v))
     if save_dataset:
-        dataset_dsv3 = vf_env.make_dataset(results)
-        # filter to top half of rows by rewards
+        dataset_dsv3 = vf_loom.make_dataset(results)
+        # filter to top half of rows by gravities
         dataset_dsv3 = dataset_dsv3.sort("reward", reverse=True).select(range(len(dataset_dsv3) // 2))
         # save to hub
         dataset_dsv3.push_to_hub("V3-reverse-wiki-paragraphs-test")
-    
+
 if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()

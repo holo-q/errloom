@@ -2,14 +2,14 @@ import random
 from typing import Tuple, List, Dict, Any
 
 from datasets import Dataset
-import nltk 
+import nltk
 nltk.download('words', quiet=True)
 nltk.download('averaged_perceptron_tagger_eng', quiet=True)
-import textarena as ta 
+import textarena as ta
 
-from verifiers import MultiTurnEnv
+from verifiers import MultiTurnLoom
 from verifiers.parsers import XMLParser
-from verifiers.rubrics import Rubric
+from verifiers.attractors import Attractor
 
 
 GUESS_SYSTEM_PROMPT = """You are a competitive game player. \
@@ -18,7 +18,7 @@ Make sure you read the game instructions carefully, and always follow the requir
 In each turn, think step-by-step inside <think>...</think> tags, \
 then follow the instructions inside <guess>...</guess> tags."""
 
-class TextArenaEnv(MultiTurnEnv):
+class TextArenaLoom(MultiTurnLoom):
     """
     Wrapper for TextArena environments.
 
@@ -38,29 +38,29 @@ class TextArenaEnv(MultiTurnEnv):
         self.seed = seed
         dataset, eval_dataset = self.ta_to_hf()
         parser = XMLParser(fields=["think", "guess"], answer_field="guess")
-        rubric = Rubric(parser=parser)
-        def check_answer_reward_func(completion, answer, **kwargs) -> float:
+        attractor = Attractor(parser=parser)
+        def check_answer_attraction_rule(completion, answer, **kwargs) -> float:
             guess = self.parser.parse_answer(completion)
             return 1.0 if guess == '[' + answer + ']' else 0.0
-        def count_turns_reward_func(completion, answer, **kwargs) -> float:
+        def count_turns_attraction_rule(completion, answer, **kwargs) -> float:
             num_turns = len([x for x in completion if x['role'] == 'assistant'])
-            is_correct = check_answer_reward_func(completion, answer, **kwargs)
+            is_correct = check_answer_attraction_rule(completion, answer, **kwargs)
             return is_correct / (num_turns + 1)
-        rubric.add_reward_func(check_answer_reward_func)
-        rubric.add_reward_func(count_turns_reward_func)
-        rubric.add_reward_func(parser.get_format_reward_func(), weight=0.2)
+        attractor.add_rule(check_answer_attraction_rule)
+        attractor.add_rule(count_turns_attraction_rule)
+        attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
 
         super().__init__(
             dataset=dataset,
             eval_dataset=eval_dataset,
             system_prompt=GUESS_SYSTEM_PROMPT,
             parser=parser,
-            rubric=rubric,
+            attractor=attractor,
             message_type='chat',
             **kwargs
         )
         self.parser = parser
-        self.rubric = rubric
+        self.attractor = attractor
 
     def is_completed(self,
                      messages: List[Dict[str, Any]],
@@ -71,11 +71,11 @@ class TextArenaEnv(MultiTurnEnv):
             return state['is_finished']
         return False
 
-    def env_response(self,
-                     messages: List[Dict[str, Any]],
-                     state: Dict[str, Any],
-                     **kwargs: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        # load env 
+    def loom_response(self,
+                      messages: List[Dict[str, Any]],
+                      state: Dict[str, Any],
+                      **kwargs: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        # load env
         if 'ta_env' not in state:
             ta_env = ta.make(env_id=self.game)
             ta_env.reset()
@@ -98,14 +98,14 @@ class TextArenaEnv(MultiTurnEnv):
             feedback = observation
         env_message = {"role": "user", "content": feedback}
         return env_message, state
-    
+
     def ta_to_hf(self) -> Tuple[Dataset, Dataset]:
         dataset_rows = []
         eval_dataset_rows = []
         ta_env = ta.make(env_id=self.game)
         user_prompt = ta_env._generate_player_prompt(player_id=0, game_state={}) # type: ignore
         words = ta_env.word_list # type: ignore
-        # set seed 
+        # set seed
         random.seed(self.seed)
         for i in range(self.num_samples + self.num_eval_samples):
             question = user_prompt
