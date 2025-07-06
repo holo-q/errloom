@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Optional
 from rich.console import Console
 from rich.panel import Panel
 
+from errloom.utils.logging_utils import ellipsis
+
 if TYPE_CHECKING:
     from errloom.holoware import ClassSpan
     from errloom.holophore import Holophore
@@ -40,7 +42,7 @@ class BingoAttractor:
 
         # In a real run, this would call an LLM to decompose the goal.
         # For now, we'll just log that it's happening.
-        logger.info(f"Decomposing BingoAttractor goal: {goal_prompt}")
+        logger.debug(f"Decomposing BingoAttractor goal: {ellipsis(goal_prompt)}")
         self.heuristics = ["use_abbreviations", "mix_languages", "utilize_unicode"]
         self.seed_prompt = "compress"
 
@@ -64,4 +66,4 @@ class BingoAttractor:
         """
         Called at the end of the holoware execution.
         """
-        logger.debug(f"BingoAttractor finished for span {self.span.id}") 
+        logger.debug(f"BingoAttractor finished for span {self.span.uuid}") 

@@ -64,7 +64,7 @@ class HoloSpan:
     - Variable keyword arguments
     - Type-specific attributes defined in subclasses
     """
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
     var_args: list[str] = field(default_factory=list)
     var_kwargs: dict[str, str] = field(default_factory=dict)
 
@@ -238,8 +238,8 @@ class Holoware:
             elif isinstance(span, SamplerSpan):
                 text.append("SamplerSpan (", style="bold green")
                 parts = []
-                if span.id:
-                    parts.append(f"id={span.id}")
+                if span.uuid:
+                    parts.append(f"id={span.uuid}")
                 if span.goal:
                     parts.append(f"goal={span.display_goal}...")
                 if span.fence:
@@ -283,7 +283,7 @@ class Holoware:
         from errloom.holoware_parse import HolowareParser
         return HolowareParser(content).parse()
 
-    def __call__(self, roll: Rollout, sample_callback: Callable, env: dict[str, Any] = None):
+    def __call__(self, roll: Rollout, sample_callback: Callable, env: Optional[dict[str, Any]] = None):
         from errloom.holophore import Holophore
         from errloom.rollout import Context
         import logging
@@ -296,6 +296,8 @@ class Holoware:
         holophore = Holophore(roll, env)
         holophore.contexts.append(Context())
 
+        span_map = {span.uuid: span for span in self.spans}
+
         def _get_span_args(span):
             args = [holophore, span] + span.var_args
             kwargs = span.var_kwargs.copy()
@@ -303,6 +305,8 @@ class Holoware:
 
         # --- Holo Lifecycle: Start ---
         # ----------------------------------------
+        errors = 0
+
         for span in self.spans:
             kspan, kwspan = _get_span_args(span)
             if isinstance(span, ClassSpan):
@@ -315,18 +319,23 @@ class Holoware:
                         Class = BingoAttractor
                         env[ClassName] = Class
                     else:
-                        logging.warning(f"Class '{ClassName}' not found in environment.")
+                        logging.error(f"Class '{ClassName}' not found in environment.")
+                        errors += 1
                         continue
 
                 try:
                     inst = Class(*kspan, **kwspan)
-                    holophore.context.class_instances[span] = inst
+                    holophore.context.class_instances[span.uuid] = inst
 
                     if hasattr(inst, '__holo_start__'):
                         inst.__holo_start__()
 
                 except Exception as e:
                     logging.error(f"Failed to instantiate or run __holo_start__ for {ClassName}: {e}", exc_info=True)
+                    errors += 1
+
+        if errors > 0:
+            raise RuntimeError(f"Failed to instantiate {errors} classes.")
 
         # STATE MANAGEMENT
         # ----------------------------------------
@@ -389,9 +398,9 @@ class Holoware:
                         holophore.context.messages.append({'role': 'assistant', 'content': text})
 
             elif isinstance(span, ClassSpan):
-                inst = holophore.context.class_instances.get(span)
+                inst = holophore.context.class_instances.get(span.uuid)
                 if not inst:
-                    logging.warning(f"No instance found for ClassSpan {span.class_name} ({span.id})")
+                    logging.warning(f"No instance found for ClassSpan {span.class_name} ({span.uuid})")
                     continue
 
                 if hasattr(inst, '__holo__'):
@@ -419,11 +428,12 @@ class Holoware:
 
         # --- Holo Lifecycle: End ---
         # ----------------------------------------
-        for span, inst in holophore.context.class_instances.items():
+        for span_id, inst in holophore.context.class_instances.items():
+            span = span_map[span_id]
             kspan, kwspan = _get_span_args(span)
             if hasattr(inst, '__holo_end__'):
                 try:
-                    inst.__holo_end__(kspan, kwspan)
+                    inst.__holo_end__(*kspan, **kwspan)
                 except Exception as e:
                     logging.error(f"Failed to execute __holo_end__ for {inst.__class__.__name__}: {e}", exc_info=True)
 

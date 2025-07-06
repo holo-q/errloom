@@ -119,3 +119,12 @@ def print_prompt_completions_sample(
 
     panel = Panel(table, expand=False, title=f"Step {step}", border_style="bold white")
     console.print(panel)
+
+
+def ellipsis(text: str, max_length: int = 50) -> str:
+    """
+    Truncates a string to a maximum length and adds an ellipsis if it's too long.
+    """
+    if len(text) > max_length:
+        return text[:max_length] + '...'
+    return text

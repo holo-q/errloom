@@ -33,11 +33,11 @@ def _create_role_or_sampler_span(base_tag, node_attrs, positional_args) -> list[
     spans = []
     if has_sampler_attrs:
         spans.append(EgoSpan(ego=role))
-        sampler_span = SamplerSpan(id=node_id.strip())
+        sampler_span = SamplerSpan(uuid=node_id.strip())
         sampler_span.apply_arguments(node_attrs, {}, positional_args)
         spans.append(sampler_span)
     else:
-        role_span = EgoSpan(id=node_id.strip(), ego=role)
+        role_span = EgoSpan(uuid=node_id.strip(), ego=role)
         role_span.apply_arguments(node_attrs, {}, positional_args)
         spans.append(role_span)
     return spans
@@ -158,12 +158,12 @@ class HolowareParser:
 
         return inner_holoware, start_pos + consumed_chars
 
-    def _parse_prompt(self, content: str) -> "Holoware":
+    def _parse_prompt(self, content: str) -> Holoware:
         """
         Parse a string containing the prompt DSL into a PromptTemplate object.
         Uses manual string parsing instead of regex for better maintainability.
         """
-        ret = Holoware()
+        ware = Holoware()
         pos = 0
         content_len = len(content)
 
@@ -257,7 +257,7 @@ class HolowareParser:
             spans_to_commit = []
             for span in out:
                 is_text = isinstance(span, TextSpan)
-                last_span = (ret.spans or spans_to_commit or [None])[-1]
+                last_span = (ware.spans or spans_to_commit or [None])[-1]
 
                 # Implicitly create a system role if there's text content before any role is set.
                 if not role and is_text and span.text.strip():
@@ -291,9 +291,9 @@ class HolowareParser:
 
                 spans_to_commit.append(span)
 
-            ret.spans.extend(spans_to_commit)
+            ware.spans.extend(spans_to_commit)
 
-        return ret
+        return ware
 
 _holo_classes_cache = {}
 _cache_valid = False

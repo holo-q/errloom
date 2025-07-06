@@ -5,7 +5,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 import re
 
-from errloom.holoware import ClassSpan
 from errloom.utils.openai_chat import MessageList
 
 @dataclass
@@ -16,7 +15,7 @@ class Context:
     text: str = ""
     messages: MessageList = field(default_factory=list)
     attractors: List[Any] = field(default_factory=list)
-    class_instances: dict[ClassSpan, Any] = field(default_factory=dict)
+    class_instances: dict[Any, Any] = field(default_factory=dict)
 
     @property
     def text_rich(self):
