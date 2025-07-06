@@ -3,10 +3,10 @@ from typing import List, Dict, Any, Tuple
 from datasets import Dataset
 from openai import OpenAI
 
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
-from errloom.envs.multiturn_env import MultiTurnLoom
-from errloom.prompts import SIMPLE_PROMPT
+from errloom.looms.multiturn_loom import MultiTurnLoom
+from errloom.hol.system_prompts import SIMPLE_PROMPT
 from errloom.attractors import MathAttractor
 
 class DoubleCheckLoom(MultiTurnLoom):

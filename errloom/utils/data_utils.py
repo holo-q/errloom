@@ -1,8 +1,7 @@
 # NOTE: Helper functions for example datasets. Not intended for core functionality.
 
 import random
-import json
-from typing import List, Dict, Callable, Any
+from typing import Dict, Callable, Any
 
 from datasets import Dataset, load_dataset, concatenate_datasets # type: ignore
 
@@ -25,10 +24,10 @@ def extract_boxed_answer(text: str) -> str:
     # Find the content between the braces
     content_start = boxed_start + 7  # len('\\boxed{')
     closing_brace = find_matching_brace(text, content_start)
-    
+
     if closing_brace == -1:
         return text
-    
+
     return text[content_start:closing_brace]
 
 def strip_non_numeric(text: str) -> str:
@@ -39,7 +38,7 @@ def extract_hash_answer(text: str) -> str:
         return text
     return text.split("####")[1].strip()
 
-def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]: 
+def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]:
     if name == "aime2024":
         def preprocess_aime2024(x: Dict[str, Any]) -> Dict[str, Any]:
             return {
@@ -66,7 +65,7 @@ def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]:
             q = x["Question"]
             letters = ["A", "B", "C", "D"]
             random.shuffle(letters)
-            itos = {k: v for k, v in enumerate(letters)} 
+            itos = {k: v for k, v in enumerate(letters)}
             ans = {
                 itos[0]: x["Correct Answer"],
                 itos[1]: x["Incorrect Answer 1"],
@@ -80,7 +79,7 @@ def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]:
             question += f"D: {ans['D']}"
 
             return {
-                "question": question, 
+                "question": question,
                 "answer": itos[0],
             }
         return preprocess_gpqa
@@ -135,11 +134,11 @@ def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]:
         def preprocess_openbookqa(x: Dict[str, Any]) -> Dict[str, Any]:
             choices_texts = x['choices']['text']
             choices_labels = x['choices']['label']
-            
+
             formatted_choices = []
             for i in range(len(choices_labels)):
                 formatted_choices.append(f"{choices_labels[i]}. {choices_texts[i]}")
-            
+
             question = f"Question: {x['question_stem']}\n\nChoices:\n" + "\n".join(formatted_choices)
             return {
                 "question": question,
@@ -235,7 +234,7 @@ def load_example_dataset(name: str = "gsm8k",
     else:
         raise ValueError(f"Dataset {name} not supported for preprocess_dataset. \
 Please ensure that the dataset is formatted with 'prompt' (str) and 'answer' (str) keys.")
-    
+
     preprocess_fn = get_preprocess_fn(name)
     if n is not None and n > 0:
         dataset = dataset.shuffle(seed=seed).select(range(n)) # type: ignore

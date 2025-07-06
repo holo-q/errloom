@@ -6,9 +6,9 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
-from errloom.holoware.openai_chat import extract_fence
+from errloom.utils.openai_chat import extract_fence
 from errloom.log import cl
-from errloom.states import Context, Rollout
+from errloom.rollout import Context, Rollout
 
 
 class Holophore(Rollout):

@@ -1,7 +1,7 @@
 import logging
-from typing import Any, List, Dict, Callable
+from typing import Any, Callable
 
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 
 class Parser:
     """
@@ -13,7 +13,7 @@ class Parser:
     """
 
     def __init__(self, **kwargs):
-        self.logger = logging.getLogger(f"verifiers.parsers.{self.__class__.__name__}")
+        self.logger = logging.getLogger(f"errloom.parsers.{self.__class__.__name__}")
         for key, value in kwargs.items():
             setattr(self, key, value)
 

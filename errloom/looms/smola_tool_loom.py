@@ -3,12 +3,12 @@ from typing import Any, Callable, Dict, List
 
 from datasets import Dataset
 
-from errloom.holoware.holophore import Holophore
-from errloom.holoware.holoware import ClassSpan
-from errloom.holoware.openai_chat import MessageList
+from errloom.holophore import Holophore
+from errloom.holoware import ClassSpan
+from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
 from errloom.parsers.smola_parser import SmolaParser
-from errloom.prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
+from errloom.hol.system_prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
 from errloom.attractors.smola_tool_attractor import SmolaToolAttractor
 from errloom.looms.multiturn_loom import MultiTurnLoom
 
@@ -20,21 +20,21 @@ class SmolaToolLoom(MultiTurnLoom):
                  system_prompt: str = DEFAULT_TOOL_PROMPT_TEMPLATE,
                  few_shot: MessageList = [],
                  mask_env_response: bool = True,
-                 max_steps: int = 10, **kwargs):
+                 max_turns: int = 10, **kwargs):
         # Format the system prompt with tool descriptions
         tool_descriptions = self._format_tool_descriptions(tools)
         formatted_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
         super().__init__(
-            dataset=roll_dataset,
+            roll_dataset=roll_dataset,
             eval_dataset=eval_dataset,
             system_prompt=formatted_prompt,
             few_shot=few_shot,
             mask_env_response=mask_env_response,
-            max_steps=max_steps,
+            max_turns=max_turns,
             **kwargs
         )
         self.dataset_name = roll_dataset
-        self.max_steps = max_steps
+        self.max_turns = max_turns
         self.tools = {tool.name: tool for tool in tools}
         self.attractor = SmolaToolAttractor(tools=tools)
         self.llm_parser = SmolaParser(fields=["reasoning", ("tool", "answer")])
@@ -84,7 +84,7 @@ class SmolaToolLoom(MultiTurnLoom):
         try:
             # Check if we've hit max steps by counting tool uses in the message history
             step_count = self._get_step_count(messages)
-            if step_count > self.max_steps:
+            if step_count > self.max_turns:
                 return True
 
             parsed = self.llm_parser.parse(messages[-1]["content"])
@@ -171,7 +171,7 @@ class CorrectAnswerRule(HoloRule):
         """
         if not messages or messages[-1]["role"] != "assistant":
             return 0.0
-        
+
         try:
             parsed = self.llm_parser.parse(messages[-1]["content"])
             if hasattr(parsed, 'answer') and parsed.answer is not None:
@@ -194,7 +194,7 @@ class ToolRule(HoloRule):
         """
         if not messages or messages[-1]["role"] != "assistant":
             return 0.0
-        
+
         try:
             parsed = self.llm_parser.parse(messages[-1]["content"])
             if hasattr(parsed, 'tool') and parsed.tool is not None:
@@ -268,7 +268,7 @@ class ToolTurns:
                 break
 
             response_content = sample_fn(context=messages)
-            
+
             assistant_message = {"role": "assistant", "content": response_content}
             messages.append(assistant_message)
             completion_messages.append(assistant_message)
@@ -297,7 +297,7 @@ class ToolTurns:
             tool_name = command.get("name")
             if tool_name not in self.tools:
                 return f"Error: Unknown tool '{tool_name}'."
-            
+
             tool = self.tools[tool_name]
             tool_args = command.get("args", {})
             result = tool(**tool_args)

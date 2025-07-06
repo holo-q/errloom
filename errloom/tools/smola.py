@@ -1,4 +1,4 @@
-from errloom.holoware.holoware import Holophore, ClassSpan
+from errloom.holoware import Holophore, ClassSpan
 
 class ToolPrompt:
     def __holo__(self, holophore: Holophore, node: ClassSpan, *args, **kwargs) -> str:

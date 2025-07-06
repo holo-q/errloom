@@ -2,9 +2,9 @@ from typing import Any, Dict, List
 
 from datasets import concatenate_datasets
 
-from errloom.envs.loom import Loom
-from errloom.states import Rollout, Rollouts
-from errloom.attractors.attractor import Attractor
+from errloom.loom import Loom
+from errloom.rollout import Rollout, Rollouts
+from errloom.attractor import Attractor
 
 
 class RouterLoomAttractor(Attractor):

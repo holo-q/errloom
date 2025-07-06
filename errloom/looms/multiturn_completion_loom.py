@@ -4,8 +4,8 @@ from typing import List, Dict, Any, Tuple
 
 from openai import OpenAI
 
-from errloom.envs.loom import Loom
-from errloom.states import Rollout
+from errloom.loom import Loom
+from errloom.rollout import Rollout
 
 
 class MultiTurnCompletionLoom(Loom):
@@ -30,8 +30,9 @@ class MultiTurnCompletionLoom(Loom):
         """
         pass
 
-    def run(self, state, sampling_args: Dict[str, Any] = {}, **kwargs: Dict[str, Any]) -> Rollout:
+    def run(self, rollout: Rollout) -> Rollout:
         is_completed = False
+        row = rollout.row
         state = {'answer': row["answer"]}
         assert isinstance(row["prompt"], str)
         input = deepcopy(row["prompt"])
@@ -39,16 +40,18 @@ class MultiTurnCompletionLoom(Loom):
         turn = 0
         while not is_completed:
             response = self.sample(
-                context=input,
-                sampling_args=sampling_args
+                rollout=rollout,
             )
             input = input + response
             completion += response
             turn += 1
-            if self.is_completed(input, state, **kwargs) or turn >= self.max_turns:
+            if self.is_completed(input, state) or turn >= self.max_turns:
                 is_completed = True
             else:
-                env_msg, state = self.env_response(input, state, **kwargs)
+                env_msg, state = self.env_response(input, state)
                 input = input + env_msg
                 completion += env_msg
-        return Rollout(row, samples=completion, answer=row["answer"])
+        
+        rollout.samples = completion
+        rollout.extra = state
+        return rollout

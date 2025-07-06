@@ -5,10 +5,10 @@ import logging
 from asyncio import Semaphore
 from typing import Callable, List
 
-from errloom.holoware.holophore import Holophore
-from errloom.holoware.holoware import ObjSpan
-from errloom.states import Rollout, Rollouts
-from errloom.parsers import Parser
+from errloom.holophore import Holophore
+from errloom.holoware import ObjSpan
+from errloom.parsers.parser import Parser
+from errloom.rollout import Rollout, Rollouts
 
 FnRule = Callable[..., float]
 
@@ -34,23 +34,23 @@ class Attractor:
                  funcs: List[FnRule] = [],
                  weights: List[float] = [],
                  parser: Parser = Parser()):
-        self.logger = logging.getLogger(f"verifiers.attractors.{self.__class__.__name__}")
+        self.logger = logging.getLogger(f"errloom.attractors.{self.__class__.__name__}")
         self.parser = parser
         self.rule_funcs = funcs
         self.rule_weights = weights
         if not self.rule_weights:
             self.rule_weights = [1.0] * len(self.rule_funcs)
 
-    # TODO why not property?
-    def get_rule_names(self) -> List[str]:
+    @property
+    def rule_names(self) -> List[str]:
         return [func.__name__ for func in self.rule_funcs]
 
-    # TODO why not field?
-    def get_rule_weights(self) -> List[float]:
+    @property
+    def rule_weights(self) -> List[float]:
         return self.rule_weights  # type: ignore
 
-    # TODO why not field?
-    def get_rule_funcs(self) -> List[FnRule]:
+    @property
+    def rule_funcs(self) -> List[FnRule]:
         return self.rule_funcs  # type: ignore
 
     def add_rule(self, func: FnRule, weight: float = 1.0):
@@ -170,8 +170,8 @@ class Attractor:
         """
         futures = [
             asyncio.to_thread(self._evaluate_rule, func, rollout)
-            for func in self.get_rule_funcs()
+            for func in self.rule_funcs
         ]
         gravities = await asyncio.gather(*futures)
-        return {func.__name__: gravity for func, gravity in zip(self.get_rule_funcs(), gravities)}
+        return {func.__name__: gravity for func, gravity in zip(self.rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])

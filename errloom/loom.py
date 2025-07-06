@@ -6,14 +6,13 @@ from asyncio import Semaphore
 from copy import deepcopy
 from typing import Any, Dict, List, Literal
 
-from datasets import Dataset
 from openai import OpenAI
 
-from errloom import FnRule
-from errloom.inference import MockClient
-from errloom.states import Rollout, Rollouts
-from errloom.parsers import Parser
-from errloom.attractors import Attractor
+from errloom import Data
+from errloom.attractor import Attractor, FnRule
+from errloom.interop.mock_client import MockClient
+from errloom.parsers.parser import Parser
+from errloom.rollout import Rollout, Rollouts
 
 DEFAULT_MAX_CONCURRENT = 512
 DATASET_MAX_CONCURRENT = 32
@@ -28,8 +27,8 @@ class Loom(ABC):
     def __init__(self,
                  client: OpenAI | None = None,
                  model: str | None = None,
-                 roll_dataset: Dataset | None = None,
-                 eval_dataset: Dataset | None = None,
+                 roll_dataset: Data | None = None,
+                 eval_dataset: Data | None = None,
                  system_prompt: str | None = None,
                  parser: Parser = Parser(),
                  attractor: Attractor = Attractor(),
@@ -70,7 +69,7 @@ class Loom(ABC):
         for k, v in sampling_args.items():
             if k != 'extra_body':
                 self.client_args[k] = v
-        self.logger = logging.getLogger(f'verifiers.envs.{self.__class__.__name__}')
+        self.logger = logging.getLogger(f'errloom.looms.{self.__class__.__name__}')
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -85,12 +84,12 @@ class Loom(ABC):
         """
         pass
 
-    def get_dataset(self, n: int = -1, seed: int = 0) -> Dataset | None:
+    def get_dataset(self, n: int = -1, seed: int = 0) -> Data | None:
         if n > 0 and self.dataset is not None:
             return self.dataset.shuffle(seed=seed).select(range(n))  # type: ignore
         return self.dataset
 
-    def get_eval_dataset(self, n: int = -1, seed: int = 0) -> Dataset | None:
+    def get_eval_dataset(self, n: int = -1, seed: int = 0) -> Data | None:
         if n > 0 and self.eval_dataset is not None:
             return self.eval_dataset.shuffle(seed=seed).select(range(n))  # type: ignore
         return self.eval_dataset
@@ -112,12 +111,12 @@ class Loom(ABC):
             return sanitized_args
         return sampling_args
 
-    def unroll(self, rows: Dataset) -> Rollouts:
+    def unroll(self, rows: Data) -> Rollouts:
         """
         Generate rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
-        # TODO This used to take Dataset or dict[str, List[Any]] and im not down with that.
-        # TODO convert to Dataset on the way in and let the linter blow up
+        # TODO This used to take DataDict or dict[str, List[Any]] and im not down with that.
+        # TODO convert to DataDict on the way in and let the linter blow up
         """
 
         # sample_args = deepcopy(self.client_args)  # TODO this feels poor performance for no reason
@@ -268,7 +267,7 @@ class Loom(ABC):
                      hub_name: str | None = None,
                      num_samples: int = -1,
                      state_columns: List[str] = [],
-                     extra_columns: List[str] = []) -> Dataset:
+                     extra_columns: List[str] = []) -> Data:
         """
         Make a dataset from the evaluation results.
         """
@@ -297,7 +296,7 @@ class Loom(ABC):
                 cols.append(col)
             else:
                 self.logger.warning(f'Column {col} not found in results, skipping from dataset.')
-        dataset = Dataset.from_dict({col: results[col] for col in cols})
+        dataset = Data.from_dict({col: results[col] for col in cols})
         if push_to_hub:
             assert hub_name is not None
             dataset.push_to_hub(hub_name)
@@ -327,10 +326,10 @@ class Loom(ABC):
         TODO doccument this few_show argument - wtf is that?
         """
 
-        def _format(dataset: Dataset,
+        def _format(dataset: Data,
                     system_prompt: str | None = None,
                     question_key: str = "question",
-                    answer_key: str = "answer") -> Dataset:
+                    answer_key: str = "answer") -> Data:
             # skip if "prompt" already exists
             if "prompt" in dataset.column_names:
                 return dataset

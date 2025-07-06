@@ -28,7 +28,7 @@ from trl.trainer.utils import (
     selective_log_softmax
 )
 
-from errloom import Loom
+from errloom.loom import Loom
 from errloom.trainers.async_batch_generator import AsyncBatchGenerator, BatchRequest
 from errloom.trainers.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.trainers.grpo_config import GRPOConfig

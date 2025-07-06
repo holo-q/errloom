@@ -1,8 +1,8 @@
 from typing import Any, List
 
-from errloom import FnRule
-from errloom.states import Rollouts
-from errloom.attractors.attractor import Attractor
+from errloom.attractor import FnRule
+from errloom.rollout import Rollouts
+from errloom.attractor import Attractor
 
 
 # TODO why this instead of composing the many individual attraction rules? this can lead to duplicated gravities for the same semantics. this obscures attractor dynamics

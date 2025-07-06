@@ -2,7 +2,8 @@ import json
 
 from pydantic import BaseModel
 
-from errloom.holoware.holoware import Holophore, ObjSpan
+from errloom.holophore import Holophore
+from errloom.holoware import ClassSpan
 
 class CommModel(BaseModel):
     """
@@ -63,6 +64,6 @@ class CommModel(BaseModel):
         return "{\n" + "\n".join(lines) + "\n}"
 
     @classmethod
-    def __holo__(cls, holophore: Holophore, span: ObjSpan) -> str:
+    def __holo__(cls, holophore: Holophore, span: ClassSpan) -> str:
         """Special method for holoware to inject content. Returns a compact schema."""
         return cls.get_compact_schema(include_descriptions=True)

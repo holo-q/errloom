@@ -9,7 +9,7 @@ from rich.text import Text
 from rich.panel import Panel
 
 def setup_logging(
-    level: str = "INFO",
+    level: str = "DEBUG",
     logger_name: str = "errloom"
 ) -> None:
     """
@@ -25,13 +25,17 @@ def setup_logging(
     logger = logging.getLogger(logger_name)
     logger.setLevel(level.upper())
     
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    
     # Create a RichHandler
-    handler = RichHandler(rich_tracebacks=True, show_path=False)
+    console = Console(force_terminal=True)
+    handler = RichHandler(rich_tracebacks=True, show_path=False, console=console)
     
     logger.addHandler(handler)
 
     # Prevent the logger from propagating messages to the root logger
-    logger.propagate = False 
+    # logger.propagate = False 
 
 
 def print_prompt_completions_sample(

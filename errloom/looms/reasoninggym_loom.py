@@ -8,9 +8,9 @@ from reasoning_gym.dataset import ProceduralDataset
 
 from errloom.parsers import XMLParser
 from errloom.attractors import Attractor
-from errloom.envs.singleturn_env import SingleTurnLoom
+from errloom.looms.qa_loom import QuestionAnswerLoom
 
-class ReasoningGymLoom(SingleTurnLoom):
+class ReasoningGymLoom(QuestionAnswerLoom):
     def __init__(self,
                  gym: str | List[str | dict],
                  num_samples: int = 1000,
@@ -35,7 +35,7 @@ class ReasoningGymLoom(SingleTurnLoom):
         attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
         system_prompt = rg.utils.SYSTEM_PROMPTS["DeepSeekZero"] # type: ignore
         super().__init__(
-            dataset=dataset,
+            roll_dataset=dataset,
             eval_dataset=eval_dataset,
             system_prompt=system_prompt,
             parser=parser,

@@ -11,8 +11,8 @@ from datasets import Dataset
 from openai import OpenAI
 from transformers import PreTrainedTokenizerBase
 
-from errloom import Loom
-from errloom.states import Rollout, Rollouts
+from errloom.loom import Loom
+from errloom.rollout import Rollout, Rollouts
 
 logger = logging.getLogger(__name__)
 

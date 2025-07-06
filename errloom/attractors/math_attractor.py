@@ -1,8 +1,8 @@
 from typing import List
 
 from errloom.parsers import XMLParser
-from errloom.attractors import Attractor
-from errloom.attractors.attractor import FnRule
+from errloom.attractor import Attractor
+from errloom.attractor import FnRule
 
 think_answer_parser = XMLParser(fields=["think", "answer"])
 

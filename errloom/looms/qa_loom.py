@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Tuple, Union
 
 from datasets import Dataset
 
-from errloom.envs.loom import Loom
-from errloom.states import Rollout
+from errloom.loom import Loom
+from errloom.rollout import Rollout
 
 class QuestionAnswerLoom(Loom):
     """
@@ -83,28 +83,21 @@ class QuestionAnswerLoom(Loom):
         # for completion, we expect 'prompt' and 'answer'
         return dataset
 
-    def run(self, state, sampling_args: Dict[str, Any] = {}, **kwargs: Dict[str, Any]) -> Rollout:
+    def run(self, rollout: Rollout) -> Rollout:
         """
         Returns completion (str or message list) and null state.
         This is the generic QA rollout.
-        :param state:
+        :param rollout:
         """
-        prompt = row["prompt"]
         completion = self.sample(
-            context=prompt,
-            sampling_args=sampling_args
+            rollout=rollout,
         )
         if self.message_type == 'chat':
-            return Rollout(row,
-                samples=[{'role': 'assistant', 'content': completion}],
-                qa=Rollout.QA()
-            )
-
-        return Rollout(
-            row,
-            samples=completion,
-            qa=Rollout.QA()
-        )
+            rollout.samples = [{'role': 'assistant', 'content': completion}]
+        else:
+            rollout.samples = completion
+        
+        return rollout
 
 
     # def generate(self,

@@ -278,12 +278,12 @@ class Holoware:
         Returns:
             A Holoware object representing the parsed template
         """
-        from errloom.holoware.holoware_parse import HolowareParser
+        from errloom.holoware_parse import HolowareParser
         return HolowareParser(content).parse()
 
     def __call__(self, state, sample_callback, env=None):
-        from errloom.holoware.holophore import Holophore
-        from errloom.states import Context
+        from errloom.holophore import Holophore
+        from errloom.rollout import Context
         import logging
 
         if env is None:

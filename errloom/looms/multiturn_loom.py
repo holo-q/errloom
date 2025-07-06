@@ -4,8 +4,8 @@ from typing import List, Dict, Any, Tuple, Union
 
 from openai import OpenAI
 
-from errloom.looms.loom import Loom
-from errloom.states import Rollout
+from errloom.loom import Loom
+from errloom.rollout import Rollout
 
 
 class MultiTurnLoom(Loom):
@@ -30,33 +30,36 @@ class MultiTurnLoom(Loom):
         """
         pass
 
-    def run(self, state, sampling_args: Dict[str, Any] = {}, **kwargs: Dict[str, Any]) -> Rollout:
+    def run(self, rollout: Rollout) -> Rollout:
         """
         Generate a multi-turn rollout with the environment (messages, state).
-        :param state:
+        :param rollout:
         """
         is_completed = False
+        row = rollout.row
         state = {'answer': row["answer"]}
         assert isinstance(row["prompt"], list)
         messages = deepcopy(row["prompt"])
         completion = []
         turn = 0
         while not is_completed:
-            if self.is_completed(messages, state, **kwargs):
+            if self.is_completed(messages, state):
                 is_completed = True
                 break
             response = self.sample(
-                context=messages,
-                sampling_args=sampling_args,
+                rollout=rollout,
             )
             has_error = response.startswith("[ERROR]")
             messages.append({"role": "assistant", "content": response})
             completion.append({"role": "assistant", "content": response})
             turn += 1
-            if self.is_completed(messages, state, **kwargs) or turn >= self.max_turns or has_error:
+            if self.is_completed(messages, state) or turn >= self.max_turns or has_error:
                 is_completed = True
             else:
-                env_msg, state = self.loom_response(messages, state, **kwargs)
+                env_msg, state = self.loom_response(messages, state)
                 messages.append(env_msg)
                 completion.append(env_msg)
-        return Rollout(samples=completion, answer=row["answer"])
+
+        rollout.samples = completion
+        rollout.extra = state
+        return rollout

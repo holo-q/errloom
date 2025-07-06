@@ -7,7 +7,7 @@ nltk.download('words', quiet=True)
 nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 import textarena as ta
 
-from errloom import MultiTurnLoom
+from errloom.looms.multiturn_loom import MultiTurnLoom
 from errloom.parsers import XMLParser
 from errloom.attractors import Attractor
 
@@ -51,7 +51,7 @@ class TextArenaLoom(MultiTurnLoom):
         attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
 
         super().__init__(
-            dataset=dataset,
+            roll_dataset=dataset,
             eval_dataset=eval_dataset,
             system_prompt=GUESS_SYSTEM_PROMPT,
             parser=parser,

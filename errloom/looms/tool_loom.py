@@ -2,11 +2,11 @@ import inspect
 import json
 from typing import List, Dict, Any, Callable, Tuple
 
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
-from errloom.envs.multiturn_env import MultiTurnLoom
+from errloom.looms.multiturn_loom import MultiTurnLoom
 from errloom.parsers import XMLParser
-from errloom.prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
+from errloom.hol.system_prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
 from errloom.attractors import ToolUserAttractor
 
 def infer_schema_from_function(func: Callable) -> Dict[str, Any]:

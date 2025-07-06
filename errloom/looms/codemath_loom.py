@@ -1,10 +1,10 @@
 import subprocess
 from typing import Any, Dict, Tuple
 
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 from errloom.looms.multiturn_loom import MultiTurnLoom
 from errloom.parsers import XMLParser
-from errloom.prompts import CODE_PROMPT
+from errloom.hol.system_prompts import CODE_PROMPT
 from errloom.attractors import CoderMathAttractor
 
 class CodeMathLoom(MultiTurnLoom):

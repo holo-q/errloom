@@ -11,10 +11,13 @@ from requests.adapters import HTTPAdapter
 from openai import OpenAI
 import torch
 from torch import nn
-from trl.import_utils import is_requests_available, is_vllm_available
 
-from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator # type: ignore
-from vllm.distributed.utils import StatelessProcessGroup # type: ignore
+try:
+    from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator # type: ignore
+    from vllm.distributed.utils import StatelessProcessGroup # type: ignore
+except ImportError:
+    PyNcclCommunicator = None
+    StatelessProcessGroup = None
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +71,11 @@ class VLLMClient(OpenAI):
         port: int = 8000,
         group_port: int = 51216, connection_timeout: float = 0.0
     ):
-        if not is_requests_available():
+        try:
+            import requests
+        except ImportError:
             raise ImportError("requests is not installed. Please install it with `pip install requests`.")
-        if not is_vllm_available():
+        if PyNcclCommunicator is None:
             raise ImportError("vLLM is not installed. Please install it with `pip install vllm`.")
 
         super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")

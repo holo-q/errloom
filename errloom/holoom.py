@@ -6,12 +6,12 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+from errloom import holoware_load
 from errloom.log import cl
-from errloom.attractors.attractor import Attractor
-from errloom.looms import Loom
-from errloom.holoware import holoware_loader
-from errloom.holoware.holoware_loader import HolowareLoader
-from errloom.states import Rollout
+from errloom.attractor import Attractor
+from errloom.loom import Loom
+from errloom.holoware_load import HolowareLoader
+from errloom.rollout import Rollout
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class HolowareLoom(Loom):
         **kwargs
     ):
         self.prompt_lib = HolowareLoader()
-        self.holoware = holoware_loader.load_holoware(path)
+        self.holoware = holoware_load.load_holoware(path)
         self.message_type = 'completion'
 
         # if not self.dry_run:

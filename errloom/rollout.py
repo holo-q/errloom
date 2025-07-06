@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 
 @dataclass
 class Context:

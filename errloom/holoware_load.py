@@ -1,8 +1,8 @@
 import logging
 import os
-from typing import List, Union
+from typing import List
 
-from errloom.holoware.holoware import Holoware
+from errloom.holoware import Holoware
 
 logger = logging.getLogger(__name__)
 _default_loader = None
@@ -20,7 +20,7 @@ class HolowareLoader:
         """
         Load a prompt from file and parse it if it uses the DSL.
         """
-        import verifiers.holoware.holoware_parse
+        from errloom import holoware_parse
 
         if filename in self._cache:
             return self._cache[filename]
@@ -61,6 +61,6 @@ def get_default_loader(prompts_dir: str = "prompts") -> HolowareLoader:
         _default_loader = HolowareLoader(prompts_dir)
     return _default_loader
 
-def load_holoware(filename: str, prompts_dir: str = "prompts") -> Union[Holoware, str]:
+def load_holoware(filename: str, prompts_dir: str = "prompts") -> Holoware:
     """Convenience function to load a prompt using the default library."""
     return get_default_loader(prompts_dir).load_holoware(filename)

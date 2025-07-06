@@ -6,8 +6,8 @@ from typing import Dict, Optional, Tuple
 
 from rich.panel import Panel
 
-from errloom.holoware.holophore import Holophore
-from errloom.holoware.holoware import ClassSpan, ContextResetSpan, HoloSpan, Holoware, ObjSpan, EgoSpan, SamplerSpan, TextSpan
+from errloom.holophore import Holophore
+from errloom.holoware import ClassSpan, ContextResetSpan, HoloSpan, Holoware, ObjSpan, EgoSpan, SamplerSpan, TextSpan
 
 logger = logging.getLogger(__name__)
 

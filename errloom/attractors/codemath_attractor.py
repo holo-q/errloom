@@ -1,8 +1,8 @@
-from typing import List, Dict
+from typing import List
 
-from errloom.attractors.attractor import FnRule
+from errloom.attractor import FnRule
 from errloom.attractors.math_attractor import MathAttractor
-from errloom.holoware.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList
 from errloom.parsers import XMLParser
 
 
