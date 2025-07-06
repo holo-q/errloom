@@ -1,0 +1,19 @@
+# TODO we need to completely obsolete the python implementation
+# TODO we should add support for a metadata section at the top of which specifies required env inputs
+# For this one we'd require few_shot and query (not sure what is query though - if that's a dataset row value we don't need anything special that's already brought in with the rollout)
+
+<|+++|>
+<|o_o|>
+<|ToolPrompt|>
+<|few_shot|>
+<|query|>
+
+# TurnsSpan is a base class with a __holo__ method that can run multiple turns
+# Implementations like ToolTurns can implement a function that is run at the start and
+# end of each turn, and choose to exit, continue, and process the output of the turn to
+# ToolTurns scans the output for the tool call (whose format should be aligned by the few-shot prompt)
+<|ToolTurns max=10|>
+    <|@_@|>
+    <|@_@ <>think|>
+
+<|SmolaToolAttractor|>

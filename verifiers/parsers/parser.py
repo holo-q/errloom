@@ -1,7 +1,7 @@
 import logging
 from typing import Any, List, Dict, Callable
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 
 class Parser:
     """

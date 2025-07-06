@@ -1,6 +1,6 @@
-from .grpo_config import GRPOConfig
-from .grpo_trainer import GRPOTrainer
 from peft import LoraConfig
+
+from verifiers.trainers.grpo_config import GRPOConfig
 
 def grpo_defaults(run_name: str) -> GRPOConfig:
     return GRPOConfig(
@@ -36,5 +36,3 @@ def lora_defaults(r = 8, alpha = 16) -> LoraConfig:
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
         task_type="CAUSAL_LM",
     )
-
-__all__ = ["GRPOConfig", "GRPOTrainer", "grpo_defaults", "lora_defaults"]

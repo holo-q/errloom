@@ -6,7 +6,7 @@ from datasets import load_dataset
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.attractors.judge_rubric import CorrectnessAttractor
+from verifiers.attractors.judge_loom import CorrectnessAttractor
 
 
 """
@@ -229,7 +229,7 @@ judge_attractor = CorrectnessAttractor(
     judge_model=judge_model,
     parser=vf_loom.parser
 )
-vf_loom.attractor = vf.RouterAttractor(attractors=[judge_attractor, vf_loom.attractor])
+vf_loom.attractor = vf.MultiAttractor(attractors=[judge_attractor, vf_loom.attractor])
 
 
 model_name = "willcb/Qwen3-8B-Wiki-Search-SFT"

@@ -48,23 +48,13 @@ Let's submit the answer.
 </answer>
 """
 
-dataset = load_example_dataset("gsm8k", split="train")
-vf_loom = vf.ToolLoom(
-    eval_dataset=dataset,
-    system_prompt=TOOL_PROMPT,
-    llm_fields=["think", ("tool", "answer")],
-    env_fields=["result"],
-    few_shot=[],
-    tools=[python],
-    max_steps=3
-)
 
 def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False):
     # collect V3/R1 rollouts from API
     if api == "deepseek":
         base_url = "https://api.deepseek.com"
         api_key = os.getenv("DEEPSEEK_API_KEY")
-        model_name = "deepseek-chat" # DeepSeek V3-0324
+        model_name = "deepseek-chat"  # DeepSeek V3-0324
         client = OpenAI(base_url=base_url, api_key=api_key)
     elif api == "openai":
         # just for testing :) not for distillation :)
@@ -74,14 +64,26 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
     else:
         raise ValueError(f"Invalid API: {api}")
     sampling_args = {
-        "max_tokens": max_tokens,
+        "max_tokens":  max_tokens,
         "temperature": 0.7,
     }
+
+    dataset = load_example_dataset("gsm8k", split="train")
+    vf_loom = vf.ToolLoom(
+        eval_dataset=dataset,
+        system_prompt=TOOL_PROMPT,
+        llm_fields=["think", ("tool", "answer")],
+        env_fields=["result"],
+        few_shot=[],
+        tools=[python],
+        max_steps=3,
+        client=client,
+        client_model=model_name,
+        client_args=sampling_args
+    )
     # columns = ['prompt', 'completion', 'answer', 'reward']
     # use deepseek-chat for multiturn rollouts (V3-0324)
-    results = vf_loom.test(
-        client=client, model=model_name,
-        sampling_args=sampling_args, num_samples=num_samples)
+    results = vf_loom.test(num_samples=num_samples)
     print("Rewards:")
     for k, v in results.items():
         if 'reward' in k:
@@ -95,6 +97,7 @@ def main(api: str, num_samples: int, max_tokens: int, save_dataset: bool = False
 
 if __name__ == "__main__":
     import argparse
+
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--api", "-a", type=str, default="openai")
     argparser.add_argument("--num-samples", "-n", type=int, default=10)

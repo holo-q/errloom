@@ -2,7 +2,7 @@ import re
 from typing import List, Dict, Any, Union, Tuple, Optional, Callable
 from types import SimpleNamespace
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers.parsers import Parser
 
 

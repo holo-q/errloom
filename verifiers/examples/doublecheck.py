@@ -1,5 +1,5 @@
 import verifiers as vf
-from verifiers.envs.doublecheck_env import DoubleCheckLoom
+from verifiers.looms.doublecheck_loom import DoubleCheckLoom
 from verifiers.utils import load_example_dataset
 
 SIMPLE_PROMPT = """\

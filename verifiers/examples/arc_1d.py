@@ -1,5 +1,5 @@
 import verifiers as vf
-from verifiers.envs.reasoninggym_env import ReasoningGymLoom
+from verifiers.looms.reasoninggym_loom import ReasoningGymLoom
 
 """
 inference:

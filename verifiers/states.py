@@ -4,7 +4,27 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
+
+@dataclass
+class Context:
+    """
+    Represents a conversation context with messages and related data.
+    """
+    text: str = ""
+    messages: MessageList = field(default_factory=list)
+    attractors: List[Any] = field(default_factory=list)
+
+    @property
+    def text_rich(self):
+        """Rich text representation of the context."""
+        from rich.text import Text
+        text = Text()
+        for msg in self.messages:
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            text.append(f"{role}: {content}\n")
+        return text
 
 def _truncate_long_strings(data: Any, max_len: int = 128) -> Any:
     """Recursively truncate long strings in a data structure."""
@@ -33,10 +53,10 @@ def _pretty_repr(obj: Any) -> str:
 class Rollout:
     """
     Work state for a rollout and final returned output.
-    Reward work also occurs in this state and mutates it.
+    Gravity work also occurs in this state and mutates it.
     """
     row: Dict[str, Any]
-    context: str | MessageList = field(default_factory=list)
+    contexts: list[Context] = field(default_factory=lambda: [Context()])
     mask: list[bool] = field(default_factory=list)
     samples: list[str] = field(default_factory=list)
     gravity: float = 0.0
@@ -50,13 +70,17 @@ class Rollout:
             f"Rollout(",
             f"  • row: {_truncate_long_strings(self.row)}",
             f"  • samples: {_truncate_long_strings(self.samples)}",
-            f"  • reward: {self.gravity}",
-            f"  • rewards: {_truncate_long_strings(self.gravities)}",
+            f"  • gravity: {self.gravity}",
+            f"  • gravities: {_truncate_long_strings(self.gravities)}",
             f"  • extra: {_truncate_long_strings(self.extra)}",
             f")"
         ]
         return "\n".join(lines)
 
+
+    @property
+    def context(self) -> Context:
+        return self.contexts[-1]
 
 @dataclass
 class Rollouts:
@@ -70,6 +94,7 @@ class Rollouts:
     """
     rollouts: List[Rollout]
     task: str = "default"
+    max_concurrent: int = 128
 
     def __repr__(self) -> str:  # noqa: D401
         return _pretty_repr(self)

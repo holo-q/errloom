@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.envs.reasoninggym_env import ReasoningGymLoom
+from verifiers.looms.reasoninggym_loom import ReasoningGymLoom
 
 vf_loom = ReasoningGymLoom(
     gym="arc_1d",

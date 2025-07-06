@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Tuple
 from openai import OpenAI
 
 from verifiers.envs.loom import Loom
-from verifiers.output import Rollout
+from verifiers.states import Rollout
 
 
 class MultiTurnCompletionLoom(Loom):

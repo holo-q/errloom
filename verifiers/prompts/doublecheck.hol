@@ -1,0 +1,32 @@
+# prompts/doublecheck.hol
+
+<|+++|>
+# System prompt section, derived from SIMPLE_PROMPT.
+<|o_o|>
+Respond in the following format, using careful step-by-step reasoning.
+
+<reasoning>
+...
+</reasoning>
+<answer>
+...
+</answer>
+
+<|few_shot|>
+
+# This is the initial user query.
+<|@_@|>
+<|query|>
+
+# --- First Assistant Turn ---
+# The model provides its initial answer.
+<|@_@:initial_answer <>think|>
+
+# --- Double Check Turn ---
+# The loom provides a fixed "Are you sure?" prompt.
+<|o_o|>
+Are you sure?
+
+# --- Final Assistant Turn ---
+# The model provides its final, double-checked answer.
+<|@_@:final_answer <>think|> 

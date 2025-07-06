@@ -4,8 +4,8 @@ from typing import List, Dict, Any, Tuple, Union
 
 from openai import OpenAI
 
-from verifiers.envs.loom import Loom
-from verifiers.output import Rollout
+from verifiers.looms.loom import Loom
+from verifiers.states import Rollout
 
 
 class MultiTurnLoom(Loom):

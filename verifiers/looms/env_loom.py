@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 from datasets import concatenate_datasets
 
 from verifiers.envs.loom import Loom
-from verifiers.output import Rollout, Rollouts
+from verifiers.states import Rollout, Rollouts
 from verifiers.attractors.attractor import Attractor
 
 
@@ -28,7 +28,7 @@ class RouterLoomAttractor(Attractor):
         """Return all unique rule function names across all environments."""
         return self.all_rule_names
 
-    async def feel_rollout(self, out: Rollout, **kwargs) -> Dict[str, float]:
+    async def feel(self, out: Rollout, **kwargs) -> Dict[str, float]:
         """
         Route scoring to the appropriate environment's attractor based on task.
 
@@ -46,7 +46,7 @@ class RouterLoomAttractor(Attractor):
             return results
 
         # Score with the environment's attractor
-        env_results = await env.attractor.feel_rollout(out)
+        env_results = await env.attractor.feel(out)
         print(env_results.keys())
         print(env_results['rule'])
 

@@ -3,12 +3,12 @@ from typing import Any, Dict, List
 
 from datasets import Dataset
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers import FnRule
-from verifiers.envs.multiturn_env import MultiTurnLoom
 from verifiers.parsers.smola_parser import SmolaParser
 from verifiers.prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
-from verifiers.attractors.smola_tool_rubric import SmolaToolAttractor
+from verifiers.attractors.smola_tool_attractor import SmolaToolAttractor
+from verifiers.looms.multiturn_loom import MultiTurnLoom
 
 class SmolaToolLoom(MultiTurnLoom):
     def __init__(self,

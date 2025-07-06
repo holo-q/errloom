@@ -1,12 +1,12 @@
 from typing import Any, List
 
 from verifiers import FnRule
-from verifiers.output import Rollouts
+from verifiers.states import Rollouts
 from verifiers.attractors.attractor import Attractor
 
 
 # TODO why this instead of composing the many individual attraction rules? this can lead to duplicated gravities for the same semantics. this obscures attractor dynamics
-class RouterAttractor(Attractor):
+class MultiAttractor(Attractor):
     """
     Class for aggregating multiple attractors.
     """
@@ -40,7 +40,7 @@ class RouterAttractor(Attractor):
         self.logger.warning("Adding attraction rule to the first attractor in the group.")
         self.attractors[0].add_rule(func, weight)
 
-    def feel_rollouts(self, rollouts: Rollouts, max_concurrent: int = 1024, **kwargs: List[Any]):
+    def feels(self, rollouts: Rollouts, max_concurrent: int = 1024, **kwargs: List[Any]):
         """
         Run all attractors sequentially and return the aggregated gravities.
 
@@ -48,7 +48,7 @@ class RouterAttractor(Attractor):
         """
         all_gravities = {}
         for attractor in self.attractors:
-            attractor_gravities = attractor.feel_rollouts(rollouts, max_concurrent=max_concurrent)
+            attractor_gravities = attractor.feels(rollouts, max_concurrent=max_concurrent)
             for key, value in attractor_gravities.items():
                 if key in all_gravities:
                     all_gravities[key] = [a + b for a, b in zip(all_gravities[key], value)]

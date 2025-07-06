@@ -1,0 +1,29 @@
+{
+  "name": "holoware-syntax",
+  "displayName": "Holoware Syntax",
+  "description": "Syntax highlighting for Holoware DSL (.hol files)",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "holoware",
+        "aliases": ["Holoware", "holoware"],
+        "extensions": [".hol"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "holoware",
+        "scopeName": "source.holoware",
+        "path": "./syntaxes/holoware.tmLanguage.json"
+      }
+    ]
+  }
+} 

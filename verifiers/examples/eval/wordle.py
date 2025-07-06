@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 
 import verifiers as vf
-from verifiers.envs.textarena_env import TextArenaLoom
+from verifiers.looms.textarena_loom import TextArenaLoom
 
 # first time:
 import nltk

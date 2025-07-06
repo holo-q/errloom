@@ -11,7 +11,7 @@ from openai import OpenAI
 
 from verifiers import FnRule
 from verifiers.inference import MockClient
-from verifiers.output import Rollout, Rollouts
+from verifiers.states import Rollout, Rollouts
 from verifiers.parsers import Parser
 from verifiers.attractors import Attractor
 
@@ -24,6 +24,7 @@ class Loom(ABC):
     Base class for all looms.
     A loom generates threads and tapestries of text.
     """
+
     def __init__(self,
                  client: OpenAI | None = None,
                  model: str | None = None,
@@ -111,13 +112,14 @@ class Loom(ABC):
             return sanitized_args
         return sampling_args
 
-    def unroll(self, inputs: Dataset) -> Rollouts:
+    def unroll(self, rows: Dataset) -> Rollouts:
         """
         Generate rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
         # TODO This used to take Dataset or dict[str, List[Any]] and im not down with that.
         # TODO convert to Dataset on the way in and let the linter blow up
         """
+
         # sample_args = deepcopy(self.client_args)  # TODO this feels poor performance for no reason
         # sample_args.update(sampling_args)  # TODO we should probably configure this on the env beforehand
 
@@ -147,15 +149,15 @@ class Loom(ABC):
             semaphore = Semaphore(self.max_concurrent)
             rollout_tasks = []
             rollouts = []
-            for row in inputs:
+            for row in rows:
                 rollout = Rollout(dict(row), sampling_args=self.client_args)
                 rollouts.append(rollout)
                 rollout_tasks.append(run_row(semaphore, rollout))
 
             await tqdm_asyncio.gather(
                 *rollout_tasks,
-                total=inputs.num_rows,
-                desc=f'Running {inputs.num_rows} rollouts'
+                total=rows.num_rows,
+                desc=f'Running {rows.num_rows} rollouts'
             )
             return rollouts
 
@@ -178,7 +180,8 @@ class Loom(ABC):
             setup_executor(loop)
             rollouts = Rollouts(loop.run_until_complete(coro))
 
-        self.attractor.feel_rollouts(rollouts, max_concurrent=self.max_concurrent)
+        rollouts.max_concurrent = self.max_concurrent
+        self.attractor.feels(rollouts)
 
         # ---------------------------------------
 
@@ -193,7 +196,7 @@ class Loom(ABC):
 
         return rollouts
 
-    def test(self, sampling_args: Dict[str, Any] = {}, num_samples: int = -1) -> Rollouts:
+    def test(self, num_samples: int = -1) -> Rollouts:
         """
         Evaluate model on the Environment evaluation dataset.
         TODO this needs better definition... like, what exactly is this doing? running one round of inference? one batch? etc. we can see that it calls generate, and this should be better emphasized somehow
@@ -232,23 +235,15 @@ class Loom(ABC):
         def _sample():
             try:
                 if self.message_type == 'chat':
-                    assert isinstance(rollout.context, list)
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=rollout.context,  # type: ignore
-                        **sanitized_args
-                    )
+                    assert isinstance(rollout.context.messages, list)
+                    response = client.chat.completions.create(model=model, messages=rollout.context.messages, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
                     if response.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
                     return response.choices[0].message.content  # type: ignore
                 elif self.message_type == 'completion':
-                    assert isinstance(rollout.context, str)
-                    response = client.completions.create(
-                        model=model,
-                        prompt=rollout.context,
-                        **sanitized_args
-                    )
+                    assert isinstance(rollout.context.text, str)
+                    response = client.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
                     if response.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
@@ -272,7 +267,6 @@ class Loom(ABC):
                      push_to_hub: bool = False,
                      hub_name: str | None = None,
                      num_samples: int = -1,
-                     sampling_args: Dict[str, Any] = {'temperature': 0.6},
                      state_columns: List[str] = [],
                      extra_columns: List[str] = []) -> Dataset:
         """
@@ -286,7 +280,7 @@ class Loom(ABC):
         if results is None:
             assert self.client is not None
             assert self.model is not None
-            results = self.test(sampling_args, num_samples)
+            results = self.test(num_samples)
 
         cols = ['prompt', 'completion', 'answer', 'gravity']
         if results['task'][0] is not None:

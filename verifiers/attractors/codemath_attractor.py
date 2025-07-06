@@ -1,6 +1,6 @@
 from typing import List, Dict
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers import FnRule
 from verifiers.parsers import XMLParser
 from verifiers.attractors import MathAttractor

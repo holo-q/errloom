@@ -5,7 +5,8 @@ import logging
 from asyncio import Semaphore
 from typing import Callable, List
 
-from verifiers.output import Rollout, Rollouts
+from verifiers.holoware.holoware import Holophore, ObjSpan
+from verifiers.states import Rollout, Rollouts
 from verifiers.parsers import Parser
 
 FnRule = Callable[..., float]
@@ -55,6 +56,16 @@ class Attractor:
         self.rule_funcs.append(func)
         self.rule_weights.append(weight)
 
+    @classmethod
+    def __holo__(cls, holophore:Holophore, span:ObjSpan):
+        # The span contains var_args and var_kwargs that can be used to configure the attractor
+        # For now, we create a default instance, but this could be enhanced to use span.var_args/var_kwargs
+        attractor = cls(*span.var_args, **span.var_kwargs)
+        attractor.feel(holophore.rollout)
+
+        holophore.contexts[-1].attractors.append(attractor)
+        return None
+
     def _evaluate_rule(self, func: FnRule, roll: Rollout, **kwargs) -> float:
         """
         Invoke `func` with only the required arguments.
@@ -95,7 +106,7 @@ class Attractor:
 
     async def _evaluate_single(self, semaphore, rollout: Rollout):
         async with semaphore:
-            await self.feel_rollout(rollout)
+            await self.feel(rollout)
 
     async def _evaluate_all(self, rollouts: Rollouts, max_concurrent: int = 1024):
         from tqdm.asyncio import tqdm
@@ -112,7 +123,7 @@ class Attractor:
         ):
             await future
 
-    def feel_rollouts(self, rollouts: Rollouts, max_concurrent: int = 1024):
+    def feels(self, rollouts: Rollouts):
         """
         Compute attraction gravities for a group of rollouts.
 
@@ -124,16 +135,15 @@ class Attractor:
         - inter-group comparisons (voting, ranking, Elo, etc.)
         - gravities computed using global state stored in Attractor class
         :param rollouts:
-        :param max_concurrent:
         """
 
         # Set up custom executor for the event loop if needed
         def setup_executor(loop):
             if loop._default_executor is None:
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent)
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=rollouts.max_concurrent)
                 loop.set_default_executor(executor)
 
-        coro = self._evaluate_all(rollouts, max_concurrent=max_concurrent)
+        coro = self._evaluate_all(rollouts, max_concurrent=rollouts.max_concurrent)
         try:
             # Create new event loop with custom executor
             loop = asyncio.new_event_loop()
@@ -152,7 +162,7 @@ class Attractor:
             setup_executor(loop)
             return loop.run_until_complete(coro)
 
-    async def feel_rollout(self, rollout: Rollout):
+    async def feel(self, rollout: Rollout) -> dict[str, float] | float:
         """
         Evaluate all attraction functions asynchronously for a single rollout.
         :param rollout:
@@ -162,5 +172,5 @@ class Attractor:
             for func in self.get_rule_funcs()
         ]
         gravities = await asyncio.gather(*futures)
-        rollout.gravities = {func.__name__: gravity for func, gravity in zip(self.get_rule_funcs(), gravities)}
+        return {func.__name__: gravity for func, gravity in zip(self.get_rule_funcs(), gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])

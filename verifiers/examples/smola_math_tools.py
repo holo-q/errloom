@@ -4,10 +4,10 @@ import verifiers as vf
 from verifiers.utils import load_example_dataset
 from verifiers.prompts.system_prompts import MATH_SMOLA_PROMPT_TEMPLATE
 from verifiers.prompts.few_shots import CALCULATOR_SMOLA_FEW_SHOTS
-from verifiers.envs.smola_tool_env import SmolaToolLoom
+from verifiers.looms.smola_tool_loom import SmolaToolLoom
 
 try:
-    from smolagents.default_tools import PythonInterpreterTool # type: ignore
+    from smolagents.default_tools import PythonInterpreterTool  # type: ignore
     from verifiers.tools.smolagents import CalculatorTool
 except ImportError:
     raise ImportError("Please install smolagents to use SmolAgents tools.")
@@ -35,10 +35,7 @@ eval_aime25 = load_example_dataset("aime2025", n=30)
 eval_dataset = concatenate_datasets([eval_aime24, eval_aime25]).shuffle(seed=0)
 
 # Use SmolaAgents' PythonInterpreterTool as a replacement for the python tool
-python_tool = PythonInterpreterTool(
-    authorized_imports=["math", "sympy", "numpy"]
-)
-# Add our custom calculator tool
+python_tool = PythonInterpreterTool(authorized_imports=["math", "sympy", "numpy"])
 calculator_tool = CalculatorTool()
 
 vf_loom = SmolaToolLoom(

@@ -2,7 +2,7 @@ import inspect
 import json
 from typing import List, Dict, Any, Callable, Tuple
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers import FnRule
 from verifiers.envs.multiturn_env import MultiTurnLoom
 from verifiers.parsers import XMLParser

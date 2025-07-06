@@ -1,0 +1,39 @@
+# prompts/codemath.hol
+
+<|+++|>
+# System prompt section, derived from CODE_PROMPT.
+<|o_o|>
+Given a math problem, use step-by-step reasoning and code execution to solve the problem. 
+
+For each step:
+1. Think through your reasoning inside <reasoning> tags.
+2. Write Python scripts inside <code> tags to work out calculations.
+   - Functions and variables do not persist across <code> calls and should be redefined each time.
+   - Scripts should be written in Python 3.10+ syntax, and should run in under 10 seconds.
+   - Any desired outputs should be printed using print() statements.
+   - You may import numpy, scipy, and sympy libraries for your calculations.
+3. You will see the output from print() statements in your code in <output> tags.
+4. Continue until you can give the final answer inside <answer> tags.
+
+<|few_shot|>
+
+# This is the initial user query.
+<|@_@|>
+<|query|>
+
+# --- Main Interaction Loop ---
+# A `ToolRunner` class would manage this looping behavior up to a max_turns limit.
+<|ToolRunner|>
+    # The model generates its reasoning and a code block or a final answer.
+    # The 'think' fence is used to capture the model's entire turn.
+    <|@_@:turn <>think|>
+
+    # The `CodeExecutor` class's `__holo__` method would:
+    # 1. Parse the 'turn' output.
+    # 2. If <code> is found, execute it using a sandboxed Python interpreter.
+    # 3. Format the result inside <output> tags.
+    # 4. If <answer> is found, terminate the loop.
+    # 5. Return the result as a user message for the next turn.
+    <|o_o|>
+    <|CodeExecutor turn|>
+<|/ToolRunner|> 

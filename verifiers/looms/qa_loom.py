@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple, Union
 from datasets import Dataset
 
 from verifiers.envs.loom import Loom
-from verifiers.output import Rollout
+from verifiers.states import Rollout
 
 class QuestionAnswerLoom(Loom):
     """

@@ -12,7 +12,7 @@ from openai import OpenAI
 from transformers import PreTrainedTokenizerBase
 
 from verifiers import Loom
-from verifiers.output import Rollout, Rollouts
+from verifiers.states import Rollout, Rollouts
 
 logger = logging.getLogger(__name__)
 

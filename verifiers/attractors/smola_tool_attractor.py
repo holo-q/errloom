@@ -2,7 +2,7 @@ import json
 from typing import List, Any
 
 from verifiers.parsers.smola_parser import SmolaParser
-from verifiers.attractors.tool_rubric import ToolUserAttractor
+from verifiers.attractors.tool_attractor import ToolUserAttractor
 
 class SmolaToolAttractor(ToolUserAttractor):
     def __init__(self,

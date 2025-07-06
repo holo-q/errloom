@@ -1,0 +1,18 @@
+# prompts/qa.hol
+
+<|+++|>
+# A generic system prompt can be placed here.
+# The HolowareLoom would be configured with a default system prompt
+# or it could be specified here directly.
+<|o_o|>
+<|system_prompt|>
+
+# Few-shot examples can be injected here from the environment.
+<|few_shot|>
+
+# The user's question from the dataset.
+<|@_@|>
+<|question|>
+
+# The model generates a single direct answer.
+<|@_@:answer <>think|> 

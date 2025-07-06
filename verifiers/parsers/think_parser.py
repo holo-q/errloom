@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict, Tuple, Union, Callable
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers.parsers import Parser
 from verifiers.utils.data_utils import extract_boxed_answer
 

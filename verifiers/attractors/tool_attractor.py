@@ -1,7 +1,7 @@
 import json
 from typing import Callable, List
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers.parsers import Parser, XMLParser
 from verifiers.attractors import Attractor
 
@@ -9,14 +9,15 @@ tool_use_parser = XMLParser(fields=["reasoning", ("tool", "answer")])
 result_parser = XMLParser(fields=["result"])
 
 def rule_correct_answer(self, completion, answer, **kwargs) -> float:
-    """Attraction rule that checks if the final answer matches the expected answer."""
+    """
+    Gravitate towards the correct answer.
+    """
     response = str(tool_use_parser.parse_answer(completion))
     return 1.0 if answer == response else 0.0
 
 def rule_executes_tool(completion: MessageList, **kwargs) -> float:
     """
-    Attraction rule that checks tool execution success.
-
+    Gravitate towards tool usage, with regards to correctness and success.
     Uses XMLParser to identify proper tool calls.
     """
     tool_attempts = 0

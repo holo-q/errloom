@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Tuple
 from datasets import Dataset
 from openai import OpenAI
 
-from core_types import MessageList
+from verifiers.holoware.openai_chat import MessageList
 from verifiers import FnRule
 from verifiers.envs.multiturn_env import MultiTurnLoom
 from verifiers.prompts import SIMPLE_PROMPT

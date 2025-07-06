@@ -1,8 +1,8 @@
 import subprocess
 from typing import Any, Dict, Tuple
 
-from core_types import MessageList
-from verifiers.envs.multiturn_env import MultiTurnLoom
+from verifiers.holoware.openai_chat import MessageList
+from verifiers.looms.multiturn_loom import MultiTurnLoom
 from verifiers.parsers import XMLParser
 from verifiers.prompts import CODE_PROMPT
 from verifiers.attractors import CoderMathAttractor
