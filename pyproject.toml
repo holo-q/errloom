@@ -1,14 +1,15 @@
 [project]
-name = "verifiers"
+name = "Errloom"
 authors = [
+    {name = "Nicolas Martel"},
     {name = "William Brown", email = "williambrown97@gmail.com"},
 ]
 version = "0.1.1"
-description = "Verifiers for reinforcement learning with LLMs"
+description = "Errloom for context engineering, reinforcement learning, and loom coding with LLMs"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11,<3.13"
-keywords = ["reinforcement-learning", "llm", "rl", "grpo", "verifiable-environments", "multi-turn"]
+keywords = ["reinforcement-learning", "llm", "rl", "grpo", "prompt engineering", "verifiable-environments", "multi-turn"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -63,10 +64,10 @@ tests = [
 ]
 
 [project.scripts]
-vf-vllm = "verifiers.inference.vllm_server:cli_main"
+vf-vllm = "errloom.inference.vllm_server:cli_main"
 
 [tool.setuptools]
-packages = ["verifiers"]
+packages = ["errloom"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
@@ -79,7 +80,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/willccbb/verifiers"
-Documentation = "https://github.com/willccbb/verifiers"
-Repository = "https://github.com/willccbb/verifiers.git"
-Issues = "https://github.com/willccbb/verifiers/issues"
+Homepage = "https://github.com/holo-q/errloom"
+Documentation = "https://github.com/holo-q/errloom"
+Repository = "https://github.com/holo-q/errloom.git"
+Issues = "https://github.com/holo-q/errloom/issues"
