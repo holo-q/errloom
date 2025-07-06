@@ -17,15 +17,10 @@ class Holophore(Rollout):
     All rollout field access and modifications are delegated to the original rollout object.
     """
 
-    def __init__(self, rollout: Rollout, contexts: Optional[list[Context]] = None, env: Optional[dict[str, Any]] = None):
+    def __init__(self, rollout: Rollout, env: Optional[dict[str, Any]] = None):
         # Store reference to original rollout for delegation
         self._rollout = rollout
         self.env = env or {}
-        # Initialize contexts if provided, otherwise use rollout's contexts
-        if contexts is not None:
-            self._contexts = contexts
-        else:
-            self._contexts = rollout.contexts if hasattr(rollout, 'contexts') else []
 
     def __getattr__(self, name):
         # Delegate all attribute access to the original rollout
@@ -41,11 +36,7 @@ class Holophore(Rollout):
 
     @property
     def contexts(self) -> list[Context]:
-        return self._contexts
-
-    @contexts.setter
-    def contexts(self, value: list[Context]):
-        self._contexts = value
+        return self.rollout.contexts
 
     @property
     def rollout(self) -> Rollout:

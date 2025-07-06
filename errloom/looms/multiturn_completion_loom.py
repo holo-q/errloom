@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from copy import deepcopy
-from typing import List, Dict, Any, Tuple
+from typing import Dict, Any, Tuple
 
 from openai import OpenAI
 

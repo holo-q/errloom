@@ -208,8 +208,16 @@ class HolowareParser:
                     out.extend(spans)
                     return
 
-            # Fallback to ObjSpan if no other rule matches
-            spans = _create_obj_span(tag, node_attrs, positional_args)
+            # Fallback for ObjSpans or unhandled ClassSpans
+            if base_tag and base_tag.isidentifier():
+                if base_tag[0].isupper():
+                    spans = _create_class_span(base_tag, node_attrs, positional_args)
+                else:
+                    spans = _create_obj_span(tag, node_attrs, positional_args)
+            else:
+                # Fallback to ObjSpan if no other rule matches
+                spans = _create_obj_span(tag, node_attrs, positional_args)
+
             out.extend(spans)
 
         def read_text_content() -> str:
@@ -275,7 +283,7 @@ class HolowareParser:
 
                 # Remove leading whitespace from text that follows any tag to keep it clean.
                 if is_text and not isinstance(last_span, TextSpan) and last_span is not None:
-                    span.text = span.text.lstrip()
+                    span.text = span.text.lstrip(' \t')
 
                 # Don't add text spans that are only whitespace.
                 if is_text and not span.text.strip():

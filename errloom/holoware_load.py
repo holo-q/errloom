@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List
+from typing import List, Optional
 
 from errloom.holoware import Holoware
 
@@ -12,9 +12,33 @@ class HolowareLoader:
     Utility class for loading, parsing, and formatting prompt templates.
     """
 
-    def __init__(self, prompts_dir: str = "prompts"):
-        self.prompts_dir = prompts_dir
+    def __init__(self, search_paths: List[str] = ["prompts", "hol"]):
+        self.search_paths = search_paths
         self._cache = {}
+
+    def find_holoware_path(self, filename: str) -> Optional[str]:
+        """
+        Find the absolute path for a given holoware filename.
+        Resolution order:
+        1. Absolute path
+        2. Relative path from current working directory
+        3. Search in predefined library folders
+        """
+        # 1. Absolute path
+        if os.path.isabs(filename) and os.path.exists(filename):
+            return filename
+
+        # 2. Relative path from CWD
+        if os.path.sep in filename and os.path.exists(filename):
+            return filename
+
+        # 3. Search in library folders
+        for search_path in self.search_paths:
+            full_path = os.path.join(search_path, filename)
+            if os.path.exists(full_path):
+                return full_path
+
+        return None
 
     def load_holoware(self, filename: str) -> Holoware:
         """
@@ -25,13 +49,16 @@ class HolowareLoader:
         if filename in self._cache:
             return self._cache[filename]
 
-        prompt_path = os.path.join(self.prompts_dir, filename)
+        prompt_path = self.find_holoware_path(filename)
+        if not prompt_path:
+            logger.error(f"Holoware file not found: {filename} (searched in {self.search_paths})")
+            raise FileNotFoundError(f"[Errno 2] No such file or directory: '{filename}'")
+
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 text = f.read()
 
-            # First, filter out comment lines
-            text = holoware_parse.filter_comments(text)  # TODO do this as part of _parse_prompt
+            text = holoware_parse.filter_comments(text)
             tpl = Holoware.parse(text)
 
             self._cache[filename] = tpl
@@ -48,19 +75,21 @@ class HolowareLoader:
         self._cache.clear()
 
     def list_prompts(self) -> List[str]:
-        try:
-            return [f for f in os.listdir(self.prompts_dir) if f.endswith('.txt')]
-        except OSError:
-            logger.warning(f"Could not list prompts directory: {self.prompts_dir}")
-            return []
+        all_prompts = []
+        for search_dir in self.search_paths:
+            try:
+                all_prompts.extend([f for f in os.listdir(search_dir) if f.endswith('.hol')])
+            except OSError:
+                logger.warning(f"Could not list prompts directory: {search_dir}")
+        return list(set(all_prompts))
 
-def get_default_loader(prompts_dir: str = "prompts") -> HolowareLoader:
+def get_default_loader(search_paths: List[str] = ["prompts", "hol"]) -> HolowareLoader:
     """Get or create the default prompt library instance."""
     global _default_loader
-    if _default_loader is None or _default_loader.prompts_dir != prompts_dir:
-        _default_loader = HolowareLoader(prompts_dir)
+    if _default_loader is None or _default_loader.search_paths != search_paths:
+        _default_loader = HolowareLoader(search_paths)
     return _default_loader
 
-def load_holoware(filename: str, prompts_dir: str = "prompts") -> Holoware:
+def load_holoware(filename: str, search_paths: List[str] = ["prompts", "hol"]) -> Holoware:
     """Convenience function to load a prompt using the default library."""
-    return get_default_loader(prompts_dir).load_holoware(filename)
+    return get_default_loader(search_paths).load_holoware(filename)

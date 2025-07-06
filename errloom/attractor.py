@@ -36,26 +36,26 @@ class Attractor:
                  parser: Parser = Parser()):
         self.logger = logging.getLogger(f"errloom.attractors.{self.__class__.__name__}")
         self.parser = parser
-        self.rule_funcs = funcs
-        self.rule_weights = weights
-        if not self.rule_weights:
-            self.rule_weights = [1.0] * len(self.rule_funcs)
+        self._rule_funcs = funcs
+        self._rule_weights = weights
+        if not self._rule_weights:
+            self._rule_weights = [1.0] * len(self._rule_funcs)
 
     @property
     def rule_names(self) -> List[str]:
-        return [func.__name__ for func in self.rule_funcs]
+        return [func.__name__ for func in self._rule_funcs]
 
     @property
     def rule_weights(self) -> List[float]:
-        return self.rule_weights  # type: ignore
+        return self._rule_weights  # type: ignore
 
     @property
     def rule_funcs(self) -> List[FnRule]:
-        return self.rule_funcs  # type: ignore
+        return self._rule_funcs  # type: ignore
 
     def add_rule(self, func: FnRule, weight: float = 1.0):
-        self.rule_funcs.append(func)
-        self.rule_weights.append(weight)
+        self._rule_funcs.append(func)
+        self._rule_weights.append(weight)
 
     @classmethod
     def __holo__(cls, holophore:Holophore, span:ObjSpan):
@@ -170,8 +170,8 @@ class Attractor:
         """
         futures = [
             asyncio.to_thread(self._evaluate_rule, func, rollout)
-            for func in self.rule_funcs
+            for func in self._rule_funcs
         ]
         gravities = await asyncio.gather(*futures)
-        return {func.__name__: gravity for func, gravity in zip(self.rule_funcs, gravities)}
+        return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])

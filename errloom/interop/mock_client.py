@@ -47,7 +47,7 @@ class MockChat(Chat):
 
 
 class MockClient(OpenAI):
-    def __init__(self, placeholder: str = "[MOCK]", **kwargs):
+    def __init__(self, placeholder: str = "MOCK", **kwargs):
         super().__init__(api_key="mock-key", base_url="http://mock.url/v1")
         self.placeholder = placeholder
         self._chat_mock = MockChat(self, placeholder)

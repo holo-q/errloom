@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 
 from datasets import Dataset
@@ -82,7 +83,7 @@ class HolowareLoom(Loom):
     def run(self, state: Rollout):
         row = state.row
 
-        def _sample_callback(messages):
+        def _sample_callback():
             return self.sample(state)
 
         env = {
