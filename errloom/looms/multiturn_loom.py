@@ -30,7 +30,7 @@ class MultiTurnLoom(Loom):
         """
         pass
 
-    def run(self, rollout: Rollout) -> Rollout:
+    def rollout(self, rollout: Rollout) -> Rollout:
         """
         Generate a multi-turn rollout with the environment (messages, state).
         :param rollout:

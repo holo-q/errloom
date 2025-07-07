@@ -39,8 +39,8 @@ python_tool = PythonInterpreterTool(authorized_imports=["math", "sympy", "numpy"
 calculator_tool = CalculatorTool()
 
 vf_loom = SmolaToolLoom(
-    roll_dataset=dataset,
-    eval_dataset=eval_dataset,
+    train_data=dataset,
+    bench_data=eval_dataset,
     system_prompt=MATH_SMOLA_PROMPT_TEMPLATE,
     few_shot=CALCULATOR_SMOLA_FEW_SHOTS,
     tools=[python_tool, calculator_tool],

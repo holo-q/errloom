@@ -35,7 +35,7 @@ class HolowareLoom(Loom):
         self,
         path: str,
         dataset: Dataset,
-        eval_dataset: Optional[Dataset] = None,
+        bench_data: Optional[Dataset] = None,
         eval_model: str = "Qwen/Qwen2.5-7B-Instruct",
         max_concurrent: int = 64,
         **kwargs
@@ -72,8 +72,8 @@ class HolowareLoom(Loom):
 
         attractor = Attractor(funcs=[], weights=[])
         super().__init__(
-            roll_dataset=dataset,
-            eval_dataset=eval_dataset,
+            train_data=dataset,
+            bench_data=bench_data,
             system_prompt="",
             attractor=attractor,
             max_concurrent=max_concurrent,
@@ -81,56 +81,11 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-    def run(self, state: Rollout) -> Rollout:
-        if self.dry:
-            return self._dry_run(state)
-
-        # The environment for the holoware is the row from the dataset
-        env = deepcopy(state.row)
-
-        # Create a callback for the holoware to sample from the model
-        def _sample_callback():
-            return self.sample(state)
-
-        # TODO the holoware should be able to run N trials
-        # and we should be able to configure which trial to use for the reward
-        holophore = self.holoware(self, state, env=env)
-
-        # Process the results from the holoware run
-        state = self._process_holophore(holophore)
-        return state
-
-    def _dry_run(self, state: Rollout) -> Rollout:
-        # The environment for the holoware is the row from the dataset
-        env = deepcopy(state.row)
-
-        # Create a callback for the holoware to sample from the model
-        def _sample_callback():
-            # In a dry run, we don't actually call the model.
-            # We can return a mock response.
-            return "[mock_response]"
-
-        holophore = self.holoware(self, state, env=env)
-        state = self._process_holophore(holophore)
-        return state
-
-    def _process_holophore(self, holophore: Holophore) -> Rollout:
-        if self.dry:
-            cl.print(Panel(
-                holophore.to_rich(),
-                title="[bold yellow]Dry Run: Full Conversation Flow[/]",
-                border_style="yellow",
-                box=box.ROUNDED,
-                title_align="left"
-            ))
-
-        assert len(holophore.contexts) >= 2, "Expected at least 2 contexts in rollout, but found fewer."
-
-        compressed = holophore.extract_fence("compress") or ""
-        decompressed = holophore.extract_fence("decompress") or ""
-        state = holophore.row
-        state.extra = {"compressed": compressed, "decompressed": decompressed, }
-        return state
+    def rollout(self, roll: Rollout):
+        env = deepcopy(roll.row)
+        holophore = Holophore(self, roll, env)
+        self.holoware(holophore)
+        return roll
 
 # def generate(self,
 #              inputs: Dict[str, List[Any]] | Dataset | List[Any] | None = None,

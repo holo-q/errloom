@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from asyncio import Semaphore
 from copy import deepcopy
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from openai import OpenAI
 from rich.progress import (BarColumn, Progress, SpinnerColumn, TextColumn,
@@ -24,18 +24,26 @@ logger = logging.getLogger(__file__)
 # noinspection PyDefaultArgument
 class Loom(ABC):
     """
-    Base class for all looms.
-    A loom generates threads and tapestries of text.
+    The loom is a machine to process a batch of entry data.
+    The weave function is called to weave the tapestry of
+    rollout threads.
+
+    The base weave function handles multi-thread processing of the
+    different threads in parallel.
+
+    TODO we should add LoomDaemon which runs a loom in the background and aims to refill a pool of rollouts to N that end users draw out of in batches of whatever desired size M
+    Subclass implementations of the loom focus implement the rollout function for one rollout in isolation.
+    Cross-rollout interaction is not possible, but happy to consider if there is a potent use case leading
+    to nauseating levels of intelligence acceleration.
     """
 
     def __init__(self,
                  client: OpenAI | None = None,
                  model: str | None = None,
-                 roll_dataset: Data | None = None,
-                 eval_dataset: Data | None = None,
+                 data: Optional[Data] = None,
+                 train_data: Optional[Data] = None,
+                 bench_data: Optional[Data] = None,
                  system_prompt: str | None = None,
-                 parser: Parser = Parser(),
-                 attractor: Attractor = Attractor(),
                  sampling_args: Dict[str, Any] = {},
                  max_concurrent: int = DEFAULT_MAX_CONCURRENT,
                  message_type: Literal['chat', 'completion'] = 'chat',
@@ -44,12 +52,10 @@ class Loom(ABC):
         self.client = client or MockClient()
         self.model = model or "mock-model"
         self.message_type: Literal['chat', 'completion'] = message_type
-        self.system_prompt = system_prompt  # optional; environments can use this or do their own thing
         self.max_concurrent = max_concurrent
-        self.dataset = roll_dataset
-        self.eval_dataset = eval_dataset
-        self.parser = parser
-        self.attractor = attractor
+        self.train_data = train_data
+        self.bench_data = bench_data
+        self.system_prompt = system_prompt  # optional; environments can use this or do their own thing
         self.dry = dry
 
         # Ensure asyncio.to_thread doesn't hit default 32 thread limit
@@ -77,47 +83,19 @@ class Loom(ABC):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        if self.dataset is None and self.eval_dataset is None:
+        if self.train_data is None and self.bench_data is None:
             raise ValueError('Either dataset or eval_dataset must be provided')
 
     @abstractmethod
-    def run(self, state: Rollout) -> Rollout:
+    def rollout(self, roll: Rollout) -> Rollout:
         """
-        Run a rollout for a given prompt.
         Returns a tuple of (completion, state).
         """
         pass
 
-    def get_dataset(self, n: int = -1, seed: int = 0) -> Data | None:
-        if n > 0 and self.dataset is not None:
-            return self.dataset.shuffle(seed=seed).select(range(n))  # type: ignore
-        return self.dataset
-
-    def get_eval_dataset(self, n: int = -1, seed: int = 0) -> Data | None:
-        if n > 0 and self.eval_dataset is not None:
-            return self.eval_dataset.shuffle(seed=seed).select(range(n))  # type: ignore
-        return self.eval_dataset
-
-    def get_rule_funcs(self) -> List[FnRule]:
-        return self.attractor.rule_funcs
-
-    def get_rule_weights(self) -> List[float]:
-        return self.attractor.rule_weights
-
-    def sanitize_sampling_args(self, client: OpenAI, sampling_args: Dict[str, Any]) -> Dict[str, Any]:
-        from urllib.parse import urlparse
-        url = urlparse(str(client.base_url))
-        # check if url is not localhost/127.0.0.1/0.0.0.0
-        if url.netloc not in ["localhost", "127.0.0.1", "0.0.0.0"]:
-            sanitized_args = deepcopy(sampling_args)
-            # remove extra_body
-            sanitized_args.pop('extra_body', None)
-            return sanitized_args
-        return sampling_args
-
-    def unroll(self, rows: Data) -> Rollouts:
+    def weave(self, rows: Data) -> Rollouts:
         """
-        Generate rollouts for the input dataset slice (batch of rows)
+        Weave rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
         # TODO This used to take DataDict or dict[str, List[Any]] and im not down with that.
         # TODO convert to DataDict on the way in and let the linter blow up
@@ -142,7 +120,7 @@ class Loom(ABC):
             Returns a tuple of (completion, state).
             """
             async with semaphore:
-                return await asyncio.to_thread(self.run, state)
+                return await asyncio.to_thread(self.rollout, state)
 
         async def run_rows() -> List[Rollout]:
             """
@@ -153,7 +131,7 @@ class Loom(ABC):
             rollouts = []
 
             for row in rows:
-                rollout = Rollout(dict(row), sampling_args=self.client_args, dry=self.dry)
+                rollout = Rollout(dict(row), sampling_args=self.client_args)
                 rollouts.append(rollout)
                 rollout_tasks.append(run_row(semaphore, rollout))
 
@@ -182,7 +160,9 @@ class Loom(ABC):
         #     rollouts = Rollouts(loop.run_until_complete(coro))
 
         rollouts.max_concurrent = self.max_concurrent
-        self.attractor.feels(rollouts)
+
+        # TODO decide what we wanna do, probably just delete and leave it up to implementator
+        # self.attractor.feels(rollouts)
 
         # ---------------------------------------
 
@@ -197,6 +177,34 @@ class Loom(ABC):
 
         return rollouts
 
+    def get_train_data(self, n: int = -1, seed: int = 0) -> Data | None:
+        if n > 0 and self.train_data is not None:
+            return self.train_data.shuffle(seed=seed).select(range(n))  # type: ignore
+        return self.train_data
+
+    def get_bench_data(self, n: int = -1, seed: int = 0) -> Data | None:
+        if n > 0 and self.bench_data is not None:
+            return self.bench_data.shuffle(seed=seed).select(range(n))  # type: ignore
+        return self.bench_data
+
+    # def get_rule_funcs(self) -> List[FnRule]:
+    #     return self.attractor.rule_funcs
+    #
+    # def get_rule_weights(self) -> List[float]:
+    #     return self.attractor.rule_weights
+
+    def sanitize_sampling_args(self, client: OpenAI, sampling_args: Dict[str, Any]) -> Dict[str, Any]:
+        from urllib.parse import urlparse
+        url = urlparse(str(client.base_url))
+        # check if url is not localhost/127.0.0.1/0.0.0.0
+        if url.netloc not in ["localhost", "127.0.0.1", "0.0.0.0"]:
+            sanitized_args = deepcopy(sampling_args)
+            # remove extra_body
+            sanitized_args.pop('extra_body', None)
+            return sanitized_args
+        return sampling_args
+
+
     def test(self, num_samples: int = -1) -> Rollouts:
         """
         Evaluate model on the Environment evaluation dataset.
@@ -206,16 +214,16 @@ class Loom(ABC):
         assert self.client is not None
         assert self.model is not None
 
-        if self.eval_dataset is None:
+        if self.bench_data is None:
             self.logger.info('eval_dataset is not set, falling back to train dataset')
-            assert self.dataset is not None
-            inputs = self.dataset
+            assert self.train_data is not None
+            inputs = self.train_data
         else:
-            inputs = self.eval_dataset
+            inputs = self.bench_data
         if num_samples > 0:
             inputs = inputs.select(range(num_samples))
 
-        return self.unroll(inputs)
+        return self.weave(inputs)
 
     def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True) -> str:
         """
@@ -356,18 +364,18 @@ class Loom(ABC):
                     "answer": x[answer_key]
                 }, num_proc=min(self.max_concurrent, DATASET_MAX_CONCURRENT))
 
-        dataset = self.dataset
-        eval_dataset = self.eval_dataset
+        dtrain = self.get_train_data()
+        dbench = self.get_bench_data()
 
         if self.message_type == 'chat':
-            if dataset is not None:
-                self.dataset = _format(dataset, self.system_prompt)
+            if dtrain is not None:
+                self.train_data = _format(dtrain, self.system_prompt)
             else:
-                self.dataset = None
-            if eval_dataset is not None:
-                self.eval_dataset = _format(eval_dataset, self.system_prompt)
+                self.train_data = None
+            if dbench is not None:
+                self.bench_data = _format(dbench, self.system_prompt)
             else:
-                self.eval_dataset = None
+                self.bench_data = None
         else:
             if self.system_prompt or few_shot:
                 raise ValueError(
@@ -375,8 +383,8 @@ class Loom(ABC):
                     'Please use message_type="chat" instead, or pre-format your dataset '
                     'to contain "prompt" and "answer" columns.'
                 )
-            self.dataset = dataset
-            self.eval_dataset = eval_dataset
+            self.train_data = dtrain
+            self.bench_data = dbench
 
     # def process_item(self,
     #                  item: Any,

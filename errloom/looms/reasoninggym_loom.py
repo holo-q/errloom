@@ -35,8 +35,8 @@ class ReasoningGymLoom(QuestionAnswerLoom):
         attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
         system_prompt = rg.utils.SYSTEM_PROMPTS["DeepSeekZero"] # type: ignore
         super().__init__(
-            roll_dataset=dataset,
-            eval_dataset=eval_dataset,
+            train_data=dataset,
+            bench_data=eval_dataset,
             system_prompt=system_prompt,
             parser=parser,
             attractor=attractor,

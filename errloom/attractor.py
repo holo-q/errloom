@@ -57,19 +57,15 @@ class Attractor:
         self._rule_funcs.append(func)
         self._rule_weights.append(weight)
 
-    @classmethod
-    def __holo_init__(cls, holophore:Holophore, span:ClassSpan)->'Attractor':
-        if isinstance(cls, type):
-            ret = cls()
+    def __holo_init__(self, holophore:Holophore, span:ClassSpan)->'Attractor':
+        # TODO you know the drill
+        pass
 
-        return ret
-
-    @classmethod
-    def __holo__(cls, holophore:Holophore, span:ClassSpan, instance: 'Attractor'):
+    def __holo__(self, holophore:Holophore, span:ClassSpan):
         # The span contains var_args and var_kwargs that can be used to configure the attractor
         # For now, we create a default instance, but this could be enhanced to use span.var_args/var_kwargs
         # attractor = cls(*span.var_args, **span.var_kwargs)
-        instance.feel(holophore.rollout)
+        self.feel(holophore.rollout)
 
     def _evaluate_rule(self, func: FnRule, roll: Rollout) -> float:
         """
@@ -110,7 +106,7 @@ class Attractor:
 
     async def _evaluate_single(self, semaphore, rollout: Rollout):
         async with semaphore:
-            await self.feel(rollout)
+            self.feel(rollout)
 
     async def _evaluate_all(self, rollouts: Rollouts, max_concurrent: int = 1024):
         from tqdm.asyncio import tqdm

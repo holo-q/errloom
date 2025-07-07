@@ -9,7 +9,7 @@ You are a helpful assistant. In each turn, think step-by-step inside <think>...<
 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
 dataset = load_example_dataset("math", "train", n=1000)
 vf_loom = DoubleCheckLoom(
-    roll_dataset=dataset,
+    train_data=dataset,
     system_prompt=SIMPLE_PROMPT,
     few_shot=[]
 )

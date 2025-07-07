@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import typing
 
 from rich import box
 from rich.console import Group
@@ -6,19 +7,20 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
-from errloom.loom import Loom
 from errloom.utils.openai_chat import extract_fence
 from errloom.utils.logging_utils import cl
 from errloom.rollout import Context, Rollout
 
+if typing.TYPE_CHECKING:
+    from errloom.loom import Loom
 
 class Holophore:
     """
-    Extension wrapper around Rollout that provides additional holoware functionality.
-    All rollout field access and modifications are delegated to the original rollout object.
+    Binding delegator around Loom and Rollout as a superset execution context for an holoware.
+    All field access and modifications are delegated to the original loom and rollout object.
     """
 
-    def __init__(self, loom: Loom, rollout: Rollout, env: Optional[dict[str, Any]] = None):
+    def __init__(self, loom: 'Loom', rollout: Rollout, env: Optional[dict[str, Any]] = None):
         # Store reference to original loom and rollout for delegation
         self._loom = loom
         self._rollout = rollout
@@ -47,7 +49,7 @@ class Holophore:
         return self._rollout.contexts
 
     @property
-    def loom(self) -> Loom:
+    def loom(self) -> 'Loom':
         """Returns the original loom object."""
         return self._loom
 

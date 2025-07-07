@@ -55,7 +55,7 @@ class VLLMClient(OpenAI):
         ```python
         >>> from trl.extras.vllm_client import VLLMClient
         >>> client = VLLMClient()
-        >>> client.unroll(["Hello, AI!", "Tell me a joke"])
+        >>> client.weave(["Hello, AI!", "Tell me a joke"])
         [[2980, 498, 1492, 752, 448, 264, 13027, 8645, 30, 358, 2776, 4460, 311, 3270, 264, 2025],
          [911, 7988, 1251, 382, 3838, 653, 498, 1618, 4325, 879, 2581, 20027, 264, 21428, 30, 362]]
 

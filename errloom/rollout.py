@@ -15,7 +15,7 @@ class Context:
     text: str = ""
     messages: MessageList = field(default_factory=list)
     # attractors: List[Any] = field(default_factory=list)
-    class_instances: dict[Any, Any] = field(default_factory=dict)
+    holofunc_targets: dict[str, Any] = field(default_factory=dict)
 
     @property
     def text_rich(self):
@@ -141,6 +141,7 @@ class Rollout:
 @dataclass
 class Rollouts:
     """
+    A tapestry of rollouts woven by a loom.
     Structured return type for ``Environment.generate``.
 
     This replaces the loosely–typed ``Dict[str, Any]`` contract previously used

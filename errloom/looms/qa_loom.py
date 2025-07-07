@@ -12,13 +12,13 @@ class QuestionAnswerLoom(Loom):
     """
 
     def __init__(self,
-                 roll_dataset: Dataset | None = None,
-                 eval_dataset: Dataset | None = None,
+                 train_data: Dataset | None = None,
+                 bench_data: Dataset | None = None,
                  question_key: str = "question",
                  answer_key: str = "answer",
                  few_shot: list[dict[str, Any]] | None = None,
                  **kwargs: Any):
-        super().__init__(roll_dataset=roll_dataset, eval_dataset=eval_dataset, **kwargs)
+        super().__init__(train_data=train_data, bench_data=bench_data, **kwargs)
 
         if few_shot is None:
             few_shot = []
@@ -36,8 +36,8 @@ class QuestionAnswerLoom(Loom):
                     'Please use message_type="chat" instead, or pre-format your dataset ' \
                     'to contain "prompt" and "answer" columns.'
                 )
-            self.dataset = roll_dataset
-            self.eval_dataset = eval_dataset
+            self.dataset = train_data
+            self.eval_dataset = bench_data
 
 
     def format_prompt(self,
@@ -83,7 +83,7 @@ class QuestionAnswerLoom(Loom):
         # for completion, we expect 'prompt' and 'answer'
         return dataset
 
-    def run(self, rollout: Rollout) -> Rollout:
+    def rollout(self, rollout: Rollout) -> Rollout:
         """
         Returns completion (str or message list) and null state.
         This is the generic QA rollout.
@@ -96,7 +96,7 @@ class QuestionAnswerLoom(Loom):
             rollout.samples = [{'role': 'assistant', 'content': completion}]
         else:
             rollout.samples = completion
-        
+
         return rollout
 
 

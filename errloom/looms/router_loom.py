@@ -100,12 +100,12 @@ class RouterLoom(Loom):
             def add_task(example):
                 example['task'] = name
                 return example
-            env_dataset = env.get_dataset()
+            env_dataset = env.get_train_data()
             if env_dataset is not None and 'task' not in env_dataset.column_names:
                 env_dataset = env_dataset.map(add_task)
             if env_dataset is not None:
                 datasets.append(env_dataset)
-            env_eval_dataset = env.get_eval_dataset()
+            env_eval_dataset = env.get_bench_data()
             if env_eval_dataset is not None and 'task' not in env_eval_dataset.column_names:
                 env_eval_dataset = env_eval_dataset.map(add_task)
             if env_eval_dataset is not None:
@@ -117,14 +117,14 @@ class RouterLoom(Loom):
 
         # initialize parent Loom
         super().__init__(
-            roll_dataset=dataset,
-            eval_dataset=eval_dataset,
+            train_data=dataset,
+            bench_data=eval_dataset,
             attractor=attractor,
             **kwargs
         )
         self.logger.info(f"Initialized LoomGroup with {len(envs)} looms: {self.loom_names}")
 
-    def run(self, state) -> Rollout:
+    def rollout(self, roll) -> Rollout:
         """
         Route rollout to the appropriate sub-environment based on task.
 
@@ -132,14 +132,14 @@ class RouterLoom(Loom):
         1. kwargs['task']
         2. info['task']
         3. First environment name (default)
-        :param state:
+        :param roll:
         """
         # Route to appropriate environment
-        task = state.row["task"]
+        task = roll.row["task"]
         env = self.env_map[task]
 
         # Pass through all arguments
-        return env.run(state)
+        return env.rollout(roll)
 
     def get_loom_for_task(self, task: str) -> Loom:
         """Get the environment instance for a given task name."""

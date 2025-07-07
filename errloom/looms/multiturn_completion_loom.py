@@ -30,7 +30,7 @@ class MultiTurnCompletionLoom(Loom):
         """
         pass
 
-    def run(self, rollout: Rollout) -> Rollout:
+    def rollout(self, rollout: Rollout) -> Rollout:
         is_completed = False
         row = rollout.row
         state = {'answer': row["answer"]}
@@ -51,7 +51,7 @@ class MultiTurnCompletionLoom(Loom):
                 env_msg, state = self.env_response(input, state)
                 input = input + env_msg
                 completion += env_msg
-        
+
         rollout.samples = completion
         rollout.extra = state
         return rollout

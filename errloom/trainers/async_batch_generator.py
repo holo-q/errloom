@@ -232,7 +232,7 @@ class AsyncBatchGenerator:
         Generate a single batch. This runs in the worker thread.
         """
         # Call environment generation
-        loom_results = self.loom.unroll(
+        loom_results = self.loom.weave(
             request.rows,
             # model=self.model_name,
             # base_url=self.base_url,

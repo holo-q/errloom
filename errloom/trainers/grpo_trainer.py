@@ -293,10 +293,10 @@ class GRPOTrainer(Trainer):
 
         # Data
         self.shuffle_dataset = args.shuffle_dataset
-        train_dataset = loom.get_dataset()
+        train_dataset = loom.get_train_data()
         assert train_dataset is not None
 
-        eval_dataset = loom.get_eval_dataset()
+        eval_dataset = loom.get_bench_data()
 
         # Filter out prompts that are too long if max_prompt_length is set
         if self.max_prompt_length is not None:

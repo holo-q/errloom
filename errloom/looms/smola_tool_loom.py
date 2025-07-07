@@ -14,8 +14,8 @@ from errloom.looms.multiturn_loom import MultiTurnLoom
 
 class SmolaToolLoom(MultiTurnLoom):
     def __init__(self,
-                 roll_dataset: Dataset | None = None,
-                 eval_dataset: Dataset | None = None,
+                 train_data: Dataset | None = None,
+                 bench_data: Dataset | None = None,
                  tools: List[Any] = [],
                  system_prompt: str = DEFAULT_TOOL_PROMPT_TEMPLATE,
                  few_shot: MessageList = [],
@@ -25,15 +25,15 @@ class SmolaToolLoom(MultiTurnLoom):
         tool_descriptions = self._format_tool_descriptions(tools)
         formatted_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
         super().__init__(
-            roll_dataset=roll_dataset,
-            eval_dataset=eval_dataset,
+            roll_dataset=train_data,
+            eval_dataset=bench_data,
             system_prompt=formatted_prompt,
             few_shot=few_shot,
             mask_env_response=mask_env_response,
             max_turns=max_turns,
             **kwargs
         )
-        self.dataset_name = roll_dataset
+        self.dataset_name = train_data
         self.max_turns = max_turns
         self.tools = {tool.name: tool for tool in tools}
         self.attractor = SmolaToolAttractor(tools=tools)

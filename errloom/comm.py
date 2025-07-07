@@ -2,9 +2,9 @@ import json
 
 from pydantic import BaseModel
 
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan
+from errloom.holoware import holostatic
 
+@holostatic
 class CommModel(BaseModel):
     """
     A well-defined data object / schema for communication with a LLM.
@@ -12,6 +12,10 @@ class CommModel(BaseModel):
     We can dump the schema and pass it to the LLM to declare the critique fields to
     generate.
     """
+
+    def __holo__(self) -> str:
+        """Special method for holoware to inject content. Returns a compact schema."""
+        return self.get_compact_schema(include_descriptions=True)
 
     @classmethod
     def get_json_schema(cls, indent=2) -> str:
@@ -62,8 +66,3 @@ class CommModel(BaseModel):
             lines.append(line)
 
         return "{\n" + "\n".join(lines) + "\n}"
-
-    @classmethod
-    def __holo__(cls) -> str:
-        """Special method for holoware to inject content. Returns a compact schema."""
-        return cls.get_compact_schema(include_descriptions=True)
