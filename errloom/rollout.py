@@ -120,6 +120,7 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
+    dry: bool = False
 
     def __repr__(self) -> str:  # noqa: D401
         lines = [

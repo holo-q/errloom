@@ -153,7 +153,7 @@ class Loom(ABC):
             rollouts = []
 
             for row in rows:
-                rollout = Rollout(dict(row), sampling_args=self.client_args)
+                rollout = Rollout(dict(row), sampling_args=self.client_args, dry=self.dry)
                 rollouts.append(rollout)
                 rollout_tasks.append(run_row(semaphore, rollout))
 
