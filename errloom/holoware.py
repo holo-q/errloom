@@ -297,16 +297,19 @@ class Holoware:
 
     def __call__(self, holophore: "Holophore"):
         from errloom.rollout import Context
+
         # it is require since up above its only imported for type_checking whith ""
+        # it is literally the case that both pyright and pycharm's own inspections
+        # simply miss this and do not understand it. Behold the failures of modern
+        # software engineering:
         # noinspection PyUnresolvedReferences
-        from errloom.holophore import Holophore
+        from errloom.holophore import Holophore  # noqa: F401
 
         # TODO we should move the span handler code to SpanHandlers - we want to keep the code separate from the data structure to keep the emphasis and clarity from both angles
-
         # holophore = Holophore(loom, roll, env)
         holophore.contexts.append(Context())
 
-        span_map = {span.uuid: span for span in self.spans}
+        _span_by_uuid:dict[str, HoloSpan] = {span.uuid: span for span in self.spans}
 
         def _call_holofunc(target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
             """
@@ -343,7 +346,7 @@ class Holoware:
 
             return None
 
-        def _get_holofunc_args(span: ClassSpan):
+        def _get_holofunc_args(span: HoloSpan):
             return [holophore, span], {}
 
         # --- Holo Lifecycle: Start ---
@@ -475,8 +478,8 @@ class Holoware:
 
         # --- Holo Lifecycle: End ---
         # ----------------------------------------
-        for span_id, target in holophore.context.holofunc_targets.items():
-            span = span_map[span_id]
+        for uid, target in holophore.context.holofunc_targets.items():
+            span = _span_by_uuid[uid]
             kspan, kwspan = _get_holofunc_args(span)
             if hasattr(target, '__holo_end__'):
                 try:
