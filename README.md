@@ -1,4 +1,4 @@
-# Errloom: Reinforcement Learning with LLMs in Verifiable Environments
+<!-- # Errloom: Reinforcement Learning with LLMs in Verifiable Environments -->
 
 ## Overview
 
@@ -94,21 +94,21 @@ This example illustrates how a complex agentic loop is expressed declaratively. 
 
 ## Getting Started
 
-### Setup
+### Setup 
 
 To use the latest `main` branch, do:
 ```bash
-git clone https://github.com/willccbb/errloom.git # Assuming this is the new repo
+git clone git@github.com:holo-q/errloom.git # Assuming this is the new repo
 cd errloom
 uv sync --extra all && uv pip install flash-attn --no-build-isolation
 ```
 
 **Troubleshooting:**
-- Ensure your `wandb` and `huggingface-cli` logins are set up (or set `report_to=None` in `training_args`). You should also have something set as your `OPENAI_API_KEY` in your environment (can be a dummy key for vLLM).
+- Ensure your `wandb` and `huggingface-cli` logins are set up (or set `report_to=None` in `training_args`). You should also have something set as your `OPENAI_API_KEY` in your environment (can be a dummy key for vLLM). 
 - On some setups, inter-GPU communication can hang. Try setting `NCCL_P2P_DISABLE=1` in your environment.
 
 ### Levels of Exploration
-
+ 
 **Level 0:** Inspect and run the included examples.
 - `errloom/examples/`: Find scripts that use different environments.
 - `errloom/hol/`: Explore the different Holoware templates.
