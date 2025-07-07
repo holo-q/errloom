@@ -286,7 +286,6 @@ class Holoware:
     def __call__(self, roll: Rollout, sample_callback: Callable, env: Optional[dict[str, Any]] = None):
         from errloom.holophore import Holophore
         from errloom.rollout import Context
-        import logging
 
         if env is None:
             env = {}
@@ -313,25 +312,22 @@ class Holoware:
                 ClassName = span.class_name
                 Class = env.get(ClassName)
                 if not Class:
-                    # Try to resolve the class from the errloom.attractors module if not in env
-                    if ClassName == "BingoAttractor":
-                        from errloom.attractors import BingoAttractor
-                        Class = BingoAttractor
-                        env[ClassName] = Class
-                    else:
-                        logging.error(f"Class '{ClassName}' not found in environment.")
-                        errors += 1
-                        continue
+                    from errloom.discovery import get_class
+                    Class = get_class(ClassName)
+
+                if not Class:
+                    logger.error(f"Class '{ClassName}' not found in environment or registry.")
+                    errors += 1
+                    continue
 
                 try:
-                    inst = Class(*kspan, **kwspan)
-                    holophore.context.class_instances[span.uuid] = inst
-
-                    if hasattr(inst, '__holo_start__'):
-                        inst.__holo_start__()
+                    if hasattr(Class, '__holo_init__'):
+                        inst = Class.__holo_init__(*kspan, kwspan)
+                        if inst:
+                            holophore.context.class_instances[span.uuid] = inst
 
                 except Exception as e:
-                    logging.error(f"Failed to instantiate or run __holo_start__ for {ClassName}: {e}", exc_info=True)
+                    logger.error(f"Failed to instantiate or run __holo_start__ for {ClassName}: {e}", exc_info=True)
                     errors += 1
 
         if errors > 0:
@@ -400,7 +396,7 @@ class Holoware:
             elif isinstance(span, ClassSpan):
                 inst = holophore.context.class_instances.get(span.uuid)
                 if not inst:
-                    logging.warning(f"No instance found for ClassSpan {span.class_name} ({span.uuid})")
+                    logger.warning(f"No instance found for ClassSpan {span.class_name} ({span.uuid})")
                     continue
 
                 if hasattr(inst, '__holo__'):
@@ -422,7 +418,7 @@ class Holoware:
                                 holophore.extra['holo_results'] = []
                             holophore.extra['holo_results'].append({span.class_name: result})
                     except Exception as e:
-                        logging.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
+                        logger.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
 
         flush()
 
@@ -435,7 +431,7 @@ class Holoware:
                 try:
                     inst.__holo_end__(*kspan, **kwspan)
                 except Exception as e:
-                    logging.error(f"Failed to execute __holo_end__ for {inst.__class__.__name__}: {e}", exc_info=True)
+                    logger.error(f"Failed to execute __holo_end__ for {inst.__class__.__name__}: {e}", exc_info=True)
 
         return holophore
 

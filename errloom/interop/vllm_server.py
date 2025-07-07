@@ -14,12 +14,12 @@ Supports:
 import argparse
 import logging
 import os
-import time 
-import asyncio 
+import time
+import asyncio
 import threading
-import inspect 
+import inspect
 from collections.abc import Sequence
-from collections import defaultdict 
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -31,7 +31,7 @@ from uuid import uuid4
 import traceback
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse, StreamingResponse 
+from fastapi.responses import JSONResponse, StreamingResponse
 import torch
 from pydantic import BaseModel
 import uvicorn
@@ -44,7 +44,7 @@ from vllm.utils import get_open_port
 from transformers import AutoTokenizer
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__) # Ensure logger is defined
 
 # We use CUDA with multiprocessing, so we must use the 'spawn' start method. Otherwise, we will get the following
@@ -98,7 +98,7 @@ class OAChatCompletionRequest(BaseModel):
     n: int | None = 1
     stop: str | list[str] | None = None
     stream: bool = False # not supported
-    extra_body: dict | None = None 
+    extra_body: dict | None = None
     # supported by vLLM:
     # guided_decoding, include_stop_str_in_output, skip_special_tokens, spaces_between_special_tokens
 
@@ -117,7 +117,7 @@ class OAChatCompletionResponse(BaseModel):
 # -------- OpenAI /v1/completions Pydantic Models ---------- #
 class OACompletionRequest(BaseModel):
     model: str
-    prompt: str | list[str] 
+    prompt: str | list[str]
     temperature: float | None = 0.7
     top_p: float | None = 1.0
     presence_penalty: float | None = 0.0
@@ -131,8 +131,8 @@ class OACompletionRequest(BaseModel):
 class OACompletionChoice(BaseModel):
     index: int
     text: str
-    logprobs: dict | None = None 
-    finish_reason: str | None = "length" 
+    logprobs: dict | None = None
+    finish_reason: str | None = "length"
 
 class OACompletionResponse(BaseModel):
     id: str
@@ -152,7 +152,7 @@ def send_and_recv(conn: MPConnection, payload: dict):
 async def async_send_and_recv(conn: MPConnection, payload: dict, timeout: float = 30.0):
     """Async helper to send a payload and receive a response with timeout."""
     loop = asyncio.get_running_loop()
-    
+
     # Send the payload in a thread to avoid blocking
     async with asyncio.timeout(timeout):
         try:
@@ -160,7 +160,7 @@ async def async_send_and_recv(conn: MPConnection, payload: dict, timeout: float 
             await loop.run_in_executor(None, lambda: pipe_lock.acquire())
             try:
                 await loop.run_in_executor(None, conn.send, payload)
-                
+
                 # Poll for response with timeout
                 start_time = asyncio.get_event_loop().time()
                 while asyncio.get_event_loop().time() - start_time < timeout:
@@ -168,7 +168,7 @@ async def async_send_and_recv(conn: MPConnection, payload: dict, timeout: float 
                         result = await loop.run_in_executor(None, conn.recv)
                         return result
                     await asyncio.sleep(0.05)  # Small sleep to avoid busy waiting
-                
+
                 raise asyncio.TimeoutError(f"Worker did not respond within {timeout} seconds")
             finally:
                 await loop.run_in_executor(None, lambda: pipe_lock.release())
@@ -212,7 +212,7 @@ class WeightSyncWorkerExtension:
 
         # Get the rank of the current worker in the global world group.
         rank = get_world_group().rank
-        
+
         # Log device information for debugging
         logger.info(f"[WORKER] Initializing communicator: rank={rank}, device={self.device}, world_size={world_size}") # type: ignore
 
@@ -240,7 +240,7 @@ class WeightSyncWorkerExtension:
         import logging
         logger = logging.getLogger(__name__)
         logger.debug(f"[WORKER] Received weight update request for {name}, dtype={dtype}, shape={shape}")
-        
+
         if self.pynccl_comm is None:
             raise RuntimeError("Communicator not initialized. Call `init_communicator` first.")
 
@@ -249,7 +249,7 @@ class WeightSyncWorkerExtension:
 
         logger.debug(f"[WORKER] Starting NCCL broadcast for {name}")
         # Use NCCL to broadcast the updated weights from the client (src) to all workers.
-        self.pynccl_comm.broadcast(weight, src=self.client_rank) # type: ignore 
+        self.pynccl_comm.broadcast(weight, src=self.client_rank) # type: ignore
         logger.debug(f"[WORKER] NCCL broadcast complete, waiting at barrier for {name}")
         self.pynccl_comm.group.barrier()
         logger.debug(f"[WORKER] Barrier passed, loading weights for {name}")
@@ -417,48 +417,48 @@ class PoolSignature:
     sampling_params_tuple: tuple[tuple[str, AnyType], ...]
     extra_body_params_tuple: tuple[tuple[str, AnyType], ...]
 
-@dataclass 
+@dataclass
 class PooledRequestState:
     original_request: AnyType # OAChatCompletionRequest or OACompletionRequest
     completion_event: asyncio.Event
-    result_container: list 
-    request_id: str 
+    result_container: list
+    request_id: str
     request_type: Literal["chat", "completion"]
     pool_signature: PoolSignature # Store the signature for quick checks
     effective_max_tokens: int
     accumulated_content: str = ""
     generated_token_count: int = 0
     original_chat_messages: Optional[list[OAChatMessage]] = None
-    original_prompt: Optional[str | list[str]] = None 
-    error: Optional[Exception] = None 
+    original_prompt: Optional[str | list[str]] = None
+    error: Optional[Exception] = None
     finish_reason: Optional[str] = None
     completed_and_signaled: bool = False
     timed_out: bool = False
-    
+
     @property
     def is_complete(self) -> bool:
         """Single source of truth for whether this request is complete and should not be processed further."""
         # Already finalized
         if self.completed_and_signaled:
             return True
-            
+
         # Error state
         if self.error is not None:
             return True
-            
+
         # Reached token limit
         if self.generated_token_count >= self.effective_max_tokens:
             return True
-            
+
         # Not enough room for meaningful generation (less than 1 token)
         tokens_remaining = self.effective_max_tokens - self.generated_token_count
         if tokens_remaining < 1:
             return True
-            
+
         # vLLM indicated completion - but ignore "length" as that's just the chunk limit
         if self.finish_reason is not None and self.finish_reason != "length":
             return True
-            
+
         return False
 
 pending_requests_by_signature: defaultdict[PoolSignature, list[PooledRequestState]] = defaultdict(list)
@@ -479,14 +479,14 @@ def create_pool_signature(
     extra_body: Optional[dict[str, AnyType]]
 ) -> PoolSignature:
     valid_sampling_keys = _get_sampling_param_names()
-    
+
     sig_sampling_items = []
     key_openai_to_vllm_map = {
-        "temperature": "temperature", "top_p": "top_p", "n": "n", 
+        "temperature": "temperature", "top_p": "top_p", "n": "n",
         "presence_penalty": "presence_penalty", "frequency_penalty": "frequency_penalty",
         "stop": "stop", "seed": "seed", "ignore_eos": "ignore_eos", "min_tokens": "min_tokens",
     }
-    
+
     # Use defaults from Pydantic models if not provided in request
     param_defaults_for_sig = {
         "temperature": OAChatCompletionRequest.model_fields["temperature"].default,
@@ -506,7 +506,7 @@ def create_pool_signature(
                 value = tuple(value)
             if value is not None: # Only add if value is meaningfully set or defaulted for signature
                  sig_sampling_items.append((vllm_key, value))
-    
+
     # Sort for stable signature
     sig_sampling_items.sort(key=lambda item: item[0])
 
@@ -516,9 +516,9 @@ def create_pool_signature(
             # Only include extra_body items that are NOT already part of vLLM SamplingParams
             # to avoid them influencing signature if they are just alternative ways to pass standard params.
             # This primarily targets things like 'guided_decoding_regex'.
-            if k not in valid_sampling_keys: 
+            if k not in valid_sampling_keys:
                  filtered_extra_body_items.append((k,v))
-                 
+
     return PoolSignature(
         model_name=model_name,
         request_type=request_type,
@@ -563,19 +563,19 @@ def llm_worker(
         if command["type"] in ["call", "fire_and_forget"]:
             method_name = command["method"]
             args, kwargs = command.get("args", ()), command.get("kwargs", {})
-            
+
             # Add debugging
             logger.debug(f"[WORKER {data_parallel_rank}] Received command: {method_name}")
-            
+
             try:
                 method = getattr(llm, method_name)
                 logger.debug(f"[WORKER {data_parallel_rank}] Calling {method_name} with kwargs keys: {list(kwargs.keys()) if kwargs else 'none'}")
-                
+
                 # Call the method
                 result = method(*args, **kwargs)
-                
+
                 logger.debug(f"[WORKER {data_parallel_rank}] {method_name} completed, result type: {type(result)}")
-                
+
                 if command["type"] == "call":
                     # Send result back
                     logger.debug(f"[WORKER {data_parallel_rank}] Sending result back")
@@ -607,8 +607,8 @@ def chunk_list(lst: list, n: int) -> list[list]:
     return [lst[i * k + min(i, r) : (i + 1) * k + min(i + 1, r)] for i in range(n)]
 
 async def batch_processing_loop(
-    script_args: ScriptArguments, 
-    connections: list[AnyType], 
+    script_args: ScriptArguments,
+    connections: list[AnyType],
     queue: asyncio.Queue, # This queue now receives PooledRequestState
     logger_instance: logging.Logger
 ):
@@ -642,7 +642,7 @@ async def batch_processing_loop(
                 if available_signatures:
                     active_pool_signature = available_signatures[0] # Pick one
                     active_pool_requests = pending_requests_by_signature.pop(active_pool_signature)
-            
+
             # 3. Merge new matching requests into the active pool
             if active_pool_signature and active_pool_signature in pending_requests_by_signature:
                 newly_matching_requests = pending_requests_by_signature.pop(active_pool_signature)
@@ -654,27 +654,27 @@ async def batch_processing_loop(
                 # Take a sub-batch from the active pool
                 # If active_pool_requests is not empty, active_pool_signature must be set.
                 assert active_pool_signature is not None, "active_pool_signature cannot be None if active_pool_requests is populated"
-                
+
                 # Filter out already-completed requests before selecting sub-batch
                 available_requests = [req for req in active_pool_requests if not req.is_complete]
-                
+
                 # Log the state of requests in the pool
                 logger_instance.debug(f"Active pool has {len(active_pool_requests)} total requests, {len(available_requests)} available for processing")
                 for req in active_pool_requests:
                     logger_instance.debug(f"  Request {req.request_id}: tokens={req.generated_token_count}/{req.effective_max_tokens}, "
                                         f"is_complete={req.is_complete}, finish_reason={req.finish_reason}")
-                
+
                 if not available_requests:
                     # All requests in active pool are already completed, clear the pool
                     logger_instance.info(f"All requests in active pool {active_pool_signature} are already completed. Clearing pool.")
                     active_pool_requests.clear()
                     active_pool_signature = None
                     continue
-                
+
                 sub_batch_to_process: list[PooledRequestState] = []
                 sub_batch_size = min(len(available_requests), script_args.max_batch_size)
                 sub_batch_to_process = available_requests[:sub_batch_size]
-                
+
                 logger_instance.debug(f"[BATCH_PROCESSOR] Processing sub-batch of {len(sub_batch_to_process)} for sig: {active_pool_signature}")
 
                 # Track active generation
@@ -686,7 +686,7 @@ async def batch_processing_loop(
                     # Prepare inputs for LLM
                     # All requests in sub_batch_to_process share active_pool_signature
                     # So, sampling params (except max_tokens) are the same.
-                    
+
                     # Construct SamplingParams from the active_pool_signature
                     # The signature stores param tuples. Convert back to dict for SamplingParams.
                     sig_sampling_dict = dict(active_pool_signature.sampling_params_tuple)
@@ -697,23 +697,23 @@ async def batch_processing_loop(
                     original_n = sig_sampling_dict.get('n', 1)
                     if original_n != 1:
                         logger_instance.warning(f"Pool {active_pool_signature}: Original 'n={original_n}' overridden to n=1 for chunked generation.")
-                    
+
                     # Calculate the minimum tokens remaining across all requests in the batch
                     min_tokens_remaining = min(
-                        req.effective_max_tokens - req.generated_token_count 
+                        req.effective_max_tokens - req.generated_token_count
                         for req in sub_batch_to_process
                     )
-                    
+
                     # Log token calculations
                     logger_instance.debug(f"[CHUNK_CALC] Calculating chunk size for {len(sub_batch_to_process)} requests:")
                     for req in sub_batch_to_process:
                         tokens_left = req.effective_max_tokens - req.generated_token_count
                         logger_instance.debug(f"[CHUNK_CALC]   Request {req.request_id}: {req.generated_token_count}/{req.effective_max_tokens} tokens, {tokens_left} remaining")
-                    
+
                     # Limit chunk size to available room
                     chunk_size = min(script_args.token_chunk_size, min_tokens_remaining)
                     logger_instance.debug(f"[CHUNK_CALC] Final chunk size: {chunk_size} (configured: {script_args.token_chunk_size}, min_remaining: {min_tokens_remaining})")
-                    
+
                     # CRITICAL: Ensure chunk_size is at least 1 to avoid vLLM issues
                     if chunk_size <= 0:
                         logger_instance.error(f"Invalid chunk size {chunk_size} calculated. Min remaining: {min_tokens_remaining}")
@@ -723,12 +723,12 @@ async def batch_processing_loop(
                                 req_state.finish_reason = "length"
                                 logger_instance.info(f"Request {req_state.request_id} marked complete due to no room for generation")
                         continue  # Skip this iteration
-                    
+
                     logger_instance.debug(f"Chunk size for batch: {chunk_size} (min remaining: {min_tokens_remaining}, configured: {script_args.token_chunk_size})")
-                    
+
                     # Create a new dict for **kwargs, excluding 'n' as it's set explicitly
                     kwargs_for_sampling_params = {k: v for k, v in sig_sampling_dict.items() if k != 'n'}
-                    
+
                     vllm_sampling_params = SamplingParams(
                         **kwargs_for_sampling_params,
                         n=1, # Generate one sequence continuation per request in the chunk
@@ -752,7 +752,7 @@ async def batch_processing_loop(
                             current_messages = []
                             if req_state.original_chat_messages:
                                 current_messages.extend([m.model_dump() for m in req_state.original_chat_messages])
-                            
+
                             # For continuing generation, we need to ensure there's an assistant message to continue
                             if req_state.generated_token_count == 0:
                                 # First chunk - ensure we have a valid message sequence ending with user
@@ -800,7 +800,7 @@ async def batch_processing_loop(
                                     continue
                                 active_first_states.append(req_state)
                                 active_first_inputs.append(first_chunk_inputs[i])
-                            
+
                             if not active_first_states:
                                 logger_instance.debug("All first chunk requests are already completed, skipping LLM call")
                                 processed_states = []
@@ -809,7 +809,7 @@ async def batch_processing_loop(
                                 # Pre-check token lengths before sending to vLLM
                                 length_filtered_states = []
                                 length_filtered_inputs = []
-                                
+
                                 if proxy_tokenizer is not None:
                                     # First, apply chat templates to all messages
                                     prompts_to_tokenize = []
@@ -820,11 +820,11 @@ async def batch_processing_loop(
                                             add_generation_prompt=True
                                         )
                                         prompts_to_tokenize.append(prompt)
-                                    
+
                                     # Batch tokenize all prompts at once
                                     tokenized = proxy_tokenizer(prompts_to_tokenize, return_tensors=None, add_special_tokens=False)
                                     token_counts = [len(tokens) for tokens in tokenized['input_ids']]
-                                    
+
                                     # Check lengths and filter
                                     for i, (req_state, messages, token_count) in enumerate(zip(active_first_states, active_first_inputs, token_counts)):
                                         # Check if prompt would exceed model's max length after leaving room for generation
@@ -836,14 +836,14 @@ async def batch_processing_loop(
                                         else:
                                             length_filtered_states.append(req_state)
                                             length_filtered_inputs.append(messages)
-                                    
+
                                     # Update to use filtered lists
                                     active_first_states = length_filtered_states
                                     active_first_inputs = length_filtered_inputs
                                 else:
                                     # No tokenizer available, skip pre-check
                                     logger_instance.debug("Proxy tokenizer not available, skipping length pre-check")
-                                
+
                                 if not active_first_states:
                                     logger_instance.debug("All first chunk requests exceeded length limit, skipping LLM call")
                                     processed_states = []
@@ -860,7 +860,7 @@ async def batch_processing_loop(
                                         },
                                     }
                                     logger_instance.debug(f"Sending first-chunk chat request to LLM with {len(active_first_inputs)} messages")
-                                    
+
                                     worker_idx = -1  # Initialize to avoid unbound variable
                                     try:
                                         worker_idx, worker_conn = await get_next_worker_connection(connections)
@@ -891,18 +891,18 @@ async def batch_processing_loop(
                                 current_messages = []
                                 if req_state.original_chat_messages:
                                     current_messages.extend([m.model_dump() for m in req_state.original_chat_messages])
-                                
+
                                 # Must have accumulated content to continue
                                 if not req_state.accumulated_content:
                                     logger_instance.error(f"Request {req_state.request_id} has no accumulated content for continuation")
                                     req_state.error = ValueError("No content to continue generation")
                                     active_continue_states.remove(req_state)  # Remove from active list
                                     continue
-                                
+
                                 # Add the accumulated content as the assistant message to continue
                                 current_messages.append({"role": "assistant", "content": req_state.accumulated_content})
                                 continue_chunk_inputs.append(current_messages)
-                            
+
                             if not active_continue_states:
                                 logger_instance.debug("All continue chunk requests are already completed, skipping LLM call")
                                 processed_states = []
@@ -912,7 +912,7 @@ async def batch_processing_loop(
                                 if proxy_tokenizer is not None:
                                     length_filtered_states = []
                                     length_filtered_inputs = []
-                                    
+
                                     # First, apply chat templates to all messages
                                     prompts_to_tokenize = []
                                     for messages in continue_chunk_inputs:
@@ -923,11 +923,11 @@ async def batch_processing_loop(
                                             continue_final_message=True
                                         )
                                         prompts_to_tokenize.append(prompt)
-                                    
+
                                     # Batch tokenize all prompts at once
                                     tokenized = proxy_tokenizer(prompts_to_tokenize, return_tensors=None, add_special_tokens=False)
                                     token_counts = [len(tokens) for tokens in tokenized['input_ids']]
-                                    
+
                                     # Check lengths and filter
                                     for i, (req_state, messages, token_count) in enumerate(zip(active_continue_states, continue_chunk_inputs, token_counts)):
                                         # Check if prompt would exceed model's max length after leaving room for generation
@@ -939,13 +939,13 @@ async def batch_processing_loop(
                                         else:
                                             length_filtered_states.append(req_state)
                                             length_filtered_inputs.append(messages)
-                                    
+
                                     # Update to use filtered lists
                                     active_continue_states = length_filtered_states
                                     continue_chunk_inputs = length_filtered_inputs
                                 else:
                                     logger_instance.debug("Proxy tokenizer not available, skipping length pre-check for continuations")
-                                
+
                                 if not active_continue_states:
                                     logger_instance.debug("All continue chunk requests exceeded length limit, skipping LLM call")
                                     processed_states = []
@@ -962,7 +962,7 @@ async def batch_processing_loop(
                                         },
                                     }
                                     logger_instance.debug(f"Sending continue-chunk chat request to LLM with {len(continue_chunk_inputs)} messages")
-                                    
+
                                     worker_idx = -1  # Initialize to avoid unbound variable
                                     try:
                                         worker_idx, worker_conn = await get_next_worker_connection(connections)
@@ -988,16 +988,16 @@ async def batch_processing_loop(
                     else:
                         # completion – unchanged
                         loop = asyncio.get_running_loop()
-                        
+
                         # Pre-check token lengths before sending to vLLM
                         if proxy_tokenizer is not None:
                             length_filtered_states = []
                             length_filtered_prompts = []
-                            
+
                             # Batch tokenize all prompts at once
                             tokenized = proxy_tokenizer(prompts_for_vllm, return_tensors=None, add_special_tokens=True)
                             token_counts = [len(tokens) for tokens in tokenized['input_ids']]
-                            
+
                             # Check lengths and filter
                             for i, (req_state, prompt, token_count) in enumerate(zip(sub_batch_to_process, prompts_for_vllm, token_counts)):
                                 # Check if prompt would exceed model's max length after leaving room for generation
@@ -1009,13 +1009,13 @@ async def batch_processing_loop(
                                 else:
                                     length_filtered_states.append(req_state)
                                     length_filtered_prompts.append(prompt)
-                            
+
                             # Update to use filtered lists
                             sub_batch_to_process = length_filtered_states
                             prompts_for_vllm = length_filtered_prompts
                         else:
                             logger_instance.debug("Proxy tokenizer not available, skipping length pre-check for completions")
-                        
+
                         if not sub_batch_to_process:
                             logger_instance.debug("All completion requests exceeded length limit, skipping LLM call")
                             processed_states = []
@@ -1075,11 +1075,11 @@ async def batch_processing_loop(
                                 req_state.accumulated_content += new_text_chunk
                                 new_token_count = len(completion_output.token_ids)
                                 req_state.generated_token_count += new_token_count
-                                
+
                                 # Store vLLM's finish reason but we'll interpret it carefully
                                 vllm_finish_reason = completion_output.finish_reason
                                 logger_instance.debug(f"[VLLM_RESPONSE] Request {req_state.request_id}: vLLM returned {new_token_count} tokens, finish_reason={vllm_finish_reason}")
-                                
+
                                 # Only update our finish_reason if it's meaningful
                                 if vllm_finish_reason == "length":
                                     # vLLM hit the chunk limit - only set our finish_reason if we're at our actual limit
@@ -1093,19 +1093,19 @@ async def batch_processing_loop(
                                     # Other finish reasons (stop, eos_token, etc.) are real completions
                                     req_state.finish_reason = vllm_finish_reason
                                     logger_instance.debug(f"[FINISH_REASON] Request {req_state.request_id}: Setting finish_reason='{vllm_finish_reason}' from vLLM")
-                                
+
                                 # Log detailed state for debugging
                                 logger_instance.debug(f"Request {req_state.request_id} chunk result: "
                                                     f"new_tokens={new_token_count}, total_tokens={req_state.generated_token_count}, "
                                                     f"finish_reason={req_state.finish_reason}, chunk_text_len={len(new_text_chunk)}")
-                                
+
                                 # Check if generation has stopped
                                 if new_token_count < chunk_size:
                                     # Set finish reason if not already set by vLLM
                                     if req_state.finish_reason is None:
                                         req_state.finish_reason = "stop"  # Generation naturally stopped
                                         logger_instance.debug(f"[FINISH_REASON] Request {req_state.request_id}: Setting finish_reason='stop' due to incomplete chunk")
-                                
+
                                 # Log current state
                                 logger_instance.debug(f"Request {req_state.request_id} chunk processed. Tokens in chunk: {new_token_count}, total: {req_state.generated_token_count}, is_complete: {req_state.is_complete}")
                     else:
@@ -1136,11 +1136,11 @@ async def batch_processing_loop(
                                 req_state.accumulated_content += new_text_chunk
                                 new_token_count = len(completion_output.token_ids)
                                 req_state.generated_token_count += new_token_count
-                                
+
                                 # Store vLLM's finish reason but we'll interpret it carefully
                                 vllm_finish_reason = completion_output.finish_reason
                                 logger_instance.debug(f"[VLLM_RESPONSE] Request {req_state.request_id}: vLLM returned {new_token_count} tokens, finish_reason={vllm_finish_reason}")
-                                
+
                                 # Only update our finish_reason if it's meaningful
                                 if vllm_finish_reason == "length":
                                     # vLLM hit the chunk limit - only set our finish_reason if we're at our actual limit
@@ -1154,12 +1154,12 @@ async def batch_processing_loop(
                                     # Other finish reasons (stop, eos_token, etc.) are real completions
                                     req_state.finish_reason = vllm_finish_reason
                                     logger_instance.debug(f"[FINISH_REASON] Request {req_state.request_id}: Setting finish_reason='{vllm_finish_reason}' from vLLM")
-                                
+
                                 # Log detailed state for debugging
                                 logger_instance.debug(f"Request {req_state.request_id} chunk result: "
                                                     f"new_tokens={new_token_count}, total_tokens={req_state.generated_token_count}, "
                                                     f"finish_reason={req_state.finish_reason}, chunk_text_len={len(new_text_chunk)}")
-                                
+
                                 # Check if generation has stopped
                                 if new_token_count < chunk_size:
                                     # Incomplete chunk indicates generation should stop
@@ -1170,10 +1170,10 @@ async def batch_processing_loop(
                                     if req_state.finish_reason is None:
                                         req_state.finish_reason = "stop"  # Generation naturally stopped
                                         logger_instance.debug(f"[FINISH_REASON] Request {req_state.request_id}: Setting finish_reason='stop' due to incomplete chunk")
-                                
+
                                 # Log current state
                                 logger_instance.debug(f"Request {req_state.request_id} chunk processed. Tokens in chunk: {new_token_count}, total: {req_state.generated_token_count}, is_complete: {req_state.is_complete}")
-                    
+
                     # Now, handle all finished or errored requests from this sub_batch
                     # These need to be removed from active_pool_requests and have their events set.
                     completed_in_sub_batch: list[PooledRequestState] = []
@@ -1181,7 +1181,7 @@ async def batch_processing_loop(
 
                     # Iterate over sub_batch_to_process to decide their fate
                     updated_active_pool = []
-                    
+
                     # Create a set of request_ids from sub_batch_to_process for quick lookup
                     sub_batch_ids = {r.request_id for r in sub_batch_to_process}
 
@@ -1194,7 +1194,7 @@ async def batch_processing_loop(
                         logger_instance.debug(f"[COMPLETION_CHECK] Checking request {req_state.request_id}: "
                                             f"generated={req_state.generated_token_count}/{req_state.effective_max_tokens}, "
                                             f"finish_reason={req_state.finish_reason}, is_complete={req_state.is_complete}")
-                        
+
                         if req_state.is_complete and not req_state.completed_and_signaled:
                             # Request is complete but not yet signaled
                             completed_in_sub_batch.append(req_state)
@@ -1202,7 +1202,7 @@ async def batch_processing_loop(
                             # Request is not complete, keep for next chunk
                             updated_active_pool.append(req_state)
                         # If already signaled (completed_and_signaled is True), don't re-add or re-signal
-                    
+
                     active_pool_requests = updated_active_pool
                     if not active_pool_requests:
                         # Store signature before setting to None for logging
@@ -1234,8 +1234,8 @@ async def batch_processing_loop(
                             else:  # Completion
                                 error_message = f"[ERROR] {str(req_state.error)}"
                                 final_choices = [OACompletionChoice(
-                                    index=0, 
-                                    text=error_message, 
+                                    index=0,
+                                    text=error_message,
                                     finish_reason=req_state.finish_reason or "error"
                                 )]
                                 response_content = OACompletionResponse(
@@ -1258,8 +1258,8 @@ async def batch_processing_loop(
                             )
                         else: # Completion
                             final_choices = [OACompletionChoice(
-                                index=0, 
-                                text=req_state.accumulated_content, 
+                                index=0,
+                                text=req_state.accumulated_content,
                                 finish_reason=req_state.finish_reason
                             )]
                             response_content = OACompletionResponse(
@@ -1268,17 +1268,17 @@ async def batch_processing_loop(
                                 model=req_state.original_request.model,
                                 choices=final_choices
                             )
-                        
+
                         req_state.result_container[0] = response_content
                         req_state.completion_event.set()
                         req_state.completed_and_signaled = True
-                
+
                 finally:
                     # Always decrement active generation count
                     async with generation_count_lock:
                         active_generation_count -= 1
                         logger_instance.debug(f"[BATCH_PROCESSOR] Active generation count decreased to {active_generation_count}")
-            
+
             else: # No active pool
                 await asyncio.sleep(0.01) # Small sleep if no active pool and pending queue was empty
 
@@ -1290,7 +1290,7 @@ async def batch_processing_loop(
             for sig_list in pending_requests_by_signature.values():
                 all_requests_to_cancel.extend(sig_list)
             pending_requests_by_signature.clear()
-            
+
             for req_state in all_requests_to_cancel:
                 if not req_state.completed_and_signaled:
                     req_state.result_container[0] = JSONResponse(status_code=503, content={"error": "Server shutting down, request cancelled."})
@@ -1337,16 +1337,16 @@ def main(script_args: ScriptArguments):
         connections.append(parent_connection)
         processes.append(process)
 
-    @asynccontextmanager 
+    @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal processes # Capture from outer scope
         global request_queue, batch_processor_task # Defined at module level
 
         logger.info(f"Lifespan: Waiting for {script_args.data_parallel_size} LLM worker(s) to be ready...")
         ready_connections = set()
-        
+
         # Timeout for waiting for workers to get ready (e.g., 5 minutes)
-        timeout_seconds = 300 
+        timeout_seconds = 300
         start_wait_time = time.time()
 
         while len(ready_connections) < script_args.data_parallel_size:
@@ -1383,7 +1383,7 @@ def main(script_args: ScriptArguments):
             logger.info("Lifespan: Started batch processing task for chat completions.")
         else:
             logger.error(f"Lifespan: Not all LLM workers became ready. Expected {script_args.data_parallel_size}, got {len(ready_connections)}. Uvicorn might not function correctly. Batch processor NOT started.")
-        
+
         yield
         logger.info("Lifespan: Uvicorn server is shutting down. Cleaning up resources.")
 
@@ -1405,9 +1405,9 @@ def main(script_args: ScriptArguments):
                 logger.warning(f"Process {process} is still alive after 10 seconds, attempting to terminate...")
                 process.terminate()
                 process.join()  # ensure process termination after calling terminate()
-                
-    app = FastAPI(lifespan=lifespan) 
- 
+
+    app = FastAPI(lifespan=lifespan)
+
     # Define the endpoints for the model server
     @app.get("/health/")
     async def health():
@@ -1435,7 +1435,7 @@ def main(script_args: ScriptArguments):
     # -------- OpenAI-chat ---------- #
     @app.post("/v1/chat/completions", response_model=OAChatCompletionResponse)
     async def openai_chat(req: OAChatCompletionRequest):
-        global request_queue 
+        global request_queue
 
         if request_queue is None:
             logger.error("/v1/chat/completions: Request queue not initialized.")
@@ -1453,7 +1453,7 @@ def main(script_args: ScriptArguments):
             "presence_penalty": req.presence_penalty,
             "frequency_penalty": req.frequency_penalty,
             # "n" is not in OAChatCompletionRequest, defaults to 1 for chat in OpenAI spec
-            "n": 1, 
+            "n": 1,
         }
         # Add other SamplingParams-mappable fields if they were part of OAChatCompletionRequest
         # For example, if we added 'stop', 'presence_penalty' etc. to OAChatCompletionRequest.
@@ -1468,10 +1468,10 @@ def main(script_args: ScriptArguments):
             raw_request_params=raw_params_for_sig,
             extra_body=req.extra_body
         )
-        
+
         completion_event = asyncio.Event()
-        result_container = [None] 
-        
+        result_container = [None]
+
         pooled_state = PooledRequestState(
             original_request=req,
             completion_event=completion_event,
@@ -1482,13 +1482,13 @@ def main(script_args: ScriptArguments):
             effective_max_tokens=effective_max_tokens,
             original_chat_messages=req.messages, # Store original messages
         )
-        
+
         try:
             await request_queue.put(pooled_state)
         except Exception as e:
             logger.error(f"Enqueueing error for {request_id}: {e}", exc_info=True)
             return JSONResponse(status_code=500, content={"error": "Internal server error while queueing request."})
-        
+
         try:
             await asyncio.wait_for(completion_event.wait(), timeout=script_args.batch_request_timeout_seconds)
         except asyncio.TimeoutError:
@@ -1508,7 +1508,7 @@ def main(script_args: ScriptArguments):
 
         if isinstance(response_data, JSONResponse):
             return response_data
-        
+
         if isinstance(response_data, OAChatCompletionResponse):
              # Must return JSONResponse for FastAPI
             return JSONResponse(response_data.model_dump())
@@ -1612,7 +1612,7 @@ def main(script_args: ScriptArguments):
 
         if isinstance(response_data, JSONResponse):
             return response_data
-        
+
         if isinstance(response_data, OACompletionResponse):
             return JSONResponse(response_data.model_dump()) # Must return JSONResponse for FastAPI
         else:
@@ -1637,14 +1637,14 @@ def main(script_args: ScriptArguments):
                 - `world_size` (`int`): Total number of participating processes in the group.
         """
         logger.info(f"[INIT_COMMUNICATOR] Received request: host={request.host}, port={request.port}, world_size={request.world_size}")
-        
+
         # Calculate actual world size based on vLLM configuration
         vllm_world_size = script_args.tensor_parallel_size * script_args.data_parallel_size
         expected_world_size = vllm_world_size + 1  # +1 for the client
-        
+
         logger.info(f"[INIT_COMMUNICATOR] vLLM world size: {vllm_world_size} (TP={script_args.tensor_parallel_size} x DP={script_args.data_parallel_size})")
         logger.info(f"[INIT_COMMUNICATOR] Expected total world size: {expected_world_size}")
-        
+
         if request.world_size != expected_world_size:
             logger.warning(f"[INIT_COMMUNICATOR] World size mismatch! Request: {request.world_size}, Expected: {expected_world_size}")
 
@@ -1652,11 +1652,11 @@ def main(script_args: ScriptArguments):
         # So with collective_rpc we need to call it this way:
         # llm.collective_rpc(method="init_communicator", args=(host, port, world_size))
         kwargs = {"method": "init_communicator", "args": (request.host, request.port, expected_world_size)}
-        
+
         # Send to all workers synchronously to ensure they're ready
         successful_workers = []
         failed_workers = []
-        
+
         for i, connection in enumerate(connections):
             logger.debug(f"[INIT_COMMUNICATOR] Sending to worker {i}")
             try:
@@ -1699,7 +1699,7 @@ def main(script_args: ScriptArguments):
         # Acquire semaphore to limit concurrent weight updates
         async with weight_update_semaphore:
             logger.debug(f"[UPDATE_PARAM] Received weight update for: {request.name}, dtype={request.dtype}, shape={request.shape}")
-            
+
             # Wait for active generations to complete before updating weights
             # This prevents conflicts between generation and weight loading
             wait_start = time.time()
@@ -1712,12 +1712,12 @@ def main(script_args: ScriptArguments):
                 await asyncio.sleep(0.1)
             if active_generation_count == 0:
                 logger.debug(f"[UPDATE_PARAM] All generations complete, proceeding with weight update")
-            
+
             # CRITICAL: Notify workers IMMEDIATELY so they're ready for NCCL broadcast
             # This must happen before returning the HTTP response to maintain synchronization with trainer
             dtype = getattr(torch, request.dtype.split(".")[-1])
             kwargs = {"method": "update_named_param", "args": (request.name, dtype, tuple(request.shape))}
-            
+
             # Send to all workers synchronously to ensure they're ready
             # Using fire_and_forget since we don't need the result
             for i, connection in enumerate(connections):
@@ -1727,7 +1727,7 @@ def main(script_args: ScriptArguments):
                 except Exception as e:
                     logger.error(f"[UPDATE_PARAM] Failed to notify worker {i}: {e}")
                     return JSONResponse(status_code=500, content={"error": f"Failed to notify worker {i}: {str(e)}"})
-            
+
             logger.debug(f"[UPDATE_PARAM] All workers notified, trainer should now broadcast via NCCL")
             return {"message": "Weight update processed"}
 
@@ -1742,18 +1742,18 @@ def main(script_args: ScriptArguments):
                 - `updates` (list of `UpdateWeightsRequest`): List of weight updates to process
         """
         logger.info(f"[BATCH_UPDATE] Received batch of {len(request.updates)} weight updates")
-        
+
         # Process updates sequentially to maintain NCCL synchronization
         # The client will broadcast each parameter after we notify workers
         successful = []
         errors = []
-        
+
         for update in request.updates:
             try:
                 # Acquire semaphore to limit concurrent updates across different batches
                 async with weight_update_semaphore:
                     logger.debug(f"[BATCH_UPDATE] Processing weight update for: {update.name}")
-                    
+
                     # Wait for active generations if needed
                     wait_start = time.time()
                     while active_generation_count > 0:
@@ -1761,25 +1761,25 @@ def main(script_args: ScriptArguments):
                             logger.warning(f"[BATCH_UPDATE] Timeout waiting for generations")
                             break
                         await asyncio.sleep(0.1)
-                    
+
                     # Notify workers synchronously
                     dtype = getattr(torch, update.dtype.split(".")[-1])
                     kwargs = {"method": "update_named_param", "args": (update.name, dtype, tuple(update.shape))}
-                    
+
                     for i, connection in enumerate(connections):
                         try:
                             connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
                         except Exception as e:
                             logger.error(f"[BATCH_UPDATE] Failed to notify worker {i} for {update.name}: {e}")
                             raise Exception(f"Failed to notify worker {i}")
-                    
+
                     successful.append(update.name)
                     logger.debug(f"[BATCH_UPDATE] Workers notified for {update.name}")
-                    
+
             except Exception as e:
                 errors.append({"param": update.name, "error": str(e)})
                 logger.error(f"[BATCH_UPDATE] Error processing {update.name}: {e}")
-        
+
         if errors:
             return JSONResponse(
                 status_code=207,  # Multi-Status
@@ -1789,7 +1789,7 @@ def main(script_args: ScriptArguments):
                     "errors": errors
                 }
             )
-        
+
         logger.info(f"[BATCH_UPDATE] Successfully processed {len(successful)} weight updates")
         return {"message": f"Successfully updated {len(successful)} parameters", "successful": successful}
 
@@ -1808,7 +1808,7 @@ def main(script_args: ScriptArguments):
             except Exception as e:
                 logger.error(f"Failed to reset prefix cache on worker: {e}")
                 all_outputs.append(False)
-        
+
         success = all(output for output in all_outputs)
         return {"message": "Request received, resetting prefix cache status: " + str(success)}
 
@@ -1818,7 +1818,7 @@ def main(script_args: ScriptArguments):
         Closes the weight update group and cleans up associated resources.
         """
         kwargs = {"method": "close_communicator"}
-        
+
         # Send to all workers
         for connection in connections:
             try:
@@ -1826,7 +1826,7 @@ def main(script_args: ScriptArguments):
             except Exception as e:
                 logger.warning(f"Failed to send close_communicator to worker: {e}")
                 # Don't fail the request if we can't notify a worker during shutdown
-        
+
         return {"message": "Request received, closing communicator"}
 
     # Start the server
@@ -1835,9 +1835,9 @@ def main(script_args: ScriptArguments):
 
     logger.info(f"Starting Uvicorn with {num_uvicorn_workers} worker(s). Data parallel size: {script_args.data_parallel_size}")
     uvicorn.run(
-        app, 
-        host=script_args.host, 
-        port=script_args.port, 
+        app,
+        host=script_args.host,
+        port=script_args.port,
         log_level=script_args.log_level,
         workers=num_uvicorn_workers,
         ws_max_queue=1024
@@ -1847,7 +1847,7 @@ def main(script_args: ScriptArguments):
 def make_parser():
     num_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "").count(",") + 1
     parser = argparse.ArgumentParser(description="OpenAI-compatible vLLM server with weight synchronization")
-    
+
     parser.add_argument("--model", type=str, required=True,
                         help="Model name or path to load the model from.")
     parser.add_argument("--revision", type=str, default=None,
@@ -1874,7 +1874,7 @@ def make_parser():
                         help="Whether to enforce eager execution. If True, disable CUDA graph and always execute in eager mode.")
     parser.add_argument("--kv-cache-dtype", type=str, default="auto",
                         help="Data type to use for KV cache. If set to 'auto', the dtype will default to the model data type.")
-    parser.add_argument("--log-level", type=str, default="info", 
+    parser.add_argument("--log-level", type=str, default="info",
                         choices=["critical", "error", "warning", "info", "debug", "trace"],
                         help="Log level for uvicorn.")
     parser.add_argument("--max-batch-size", type=int, default=1024,
@@ -1883,14 +1883,14 @@ def make_parser():
                         help="Timeout in seconds for a single request waiting for its turn and completion.")
     parser.add_argument("--token-chunk-size", type=int, default=64,
                         help="Number of tokens to generate per iteration per request in token-chunk dynamic batching.")
-    
+
     return parser
 
 def cli_main():
     """Entry point for the vf-vllm CLI command."""
     parser = make_parser()
     args = parser.parse_args()
-    
+
     # Convert argparse Namespace to ScriptArguments dataclass
     script_args = ScriptArguments(
         model=args.model,
@@ -1910,7 +1910,7 @@ def cli_main():
         batch_request_timeout_seconds=args.batch_request_timeout_seconds,
         token_chunk_size=args.token_chunk_size
     )
-    
+
     main(script_args)
 
 

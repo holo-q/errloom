@@ -6,7 +6,7 @@ from asyncio import Semaphore
 from typing import Callable, List
 
 from errloom.holophore import Holophore
-from errloom.holoware import ObjSpan
+from errloom.holoware import ClassSpan, ObjSpan
 from errloom.parsers.parser import Parser
 from errloom.rollout import Rollout, Rollouts
 
@@ -58,7 +58,13 @@ class Attractor:
         self._rule_weights.append(weight)
 
     @classmethod
-    def __holo__(cls, holophore:Holophore, span:ObjSpan):
+    def __holo_init__(cls, self, holophore:Holophore, span:ClassSpan, *args, **kwargs)->'Attractor':
+        ret = cls(*args, **kwargs)
+        # TODO walk the body for rules
+        return ret
+
+    @classmethod
+    def __holo__(cls, holophore:Holophore, span:ClassSpan):
         # The span contains var_args and var_kwargs that can be used to configure the attractor
         # For now, we create a default instance, but this could be enhanced to use span.var_args/var_kwargs
         attractor = cls(*span.var_args, **span.var_kwargs)
@@ -175,3 +181,4 @@ class Attractor:
         gravities = await asyncio.gather(*futures)
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
+

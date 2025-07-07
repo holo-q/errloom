@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from errloom import holoware_load
-from errloom.log import cl
+from errloom.utils.logging_utils import cl
 from errloom.attractor import Attractor
 from errloom.loom import Loom
 from errloom.holoware_load import HolowareLoader
@@ -54,7 +54,7 @@ class HolowareLoom(Loom):
         #     self.evaluator_client = None
         #     self.evaluator_model = None
 
-        cl.print(self.holoware.to_rich_debug())
+        logger.info(self.holoware.to_rich_debug())
 
         # Display environment configuration
         tb = Table(show_header=False, box=box.SIMPLE)

@@ -7,7 +7,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from errloom.utils.openai_chat import extract_fence
-from errloom.log import cl
+from errloom.utils.logging_utils import cl
 from errloom.rollout import Context, Rollout
 
 

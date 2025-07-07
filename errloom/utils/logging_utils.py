@@ -1,6 +1,4 @@
 import logging
-import sys
-from typing import Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -8,34 +6,34 @@ from rich.table import Table
 from rich.text import Text
 from rich.panel import Panel
 
+cl = Console()
+
 def setup_logging(
+    logger_name: str = "errloom",
     level: str = "DEBUG",
-    logger_name: str = "errloom"
 ) -> None:
     """
     Setup basic logging configuration for the errloom package.
-    
+
     Args:
-        level: The logging level to use. Defaults to "INFO".
-        log_format: Custom log format string. If None, uses default format.
-        date_format: Custom date format string. If None, uses default format.
+        :param level: The logging level to use. Defaults to "INFO".
+        :param logger_name:
     """
-    
+
     # Get the root logger for the package
     logger = logging.getLogger(logger_name)
     logger.setLevel(level.upper())
-    
+
     if logger.hasHandlers():
         logger.handlers.clear()
-    
+
     # Create a RichHandler
-    console = Console(force_terminal=True)
-    handler = RichHandler(rich_tracebacks=True, show_path=False, console=console)
-    
-    logger.addHandler(handler)
+    # console = Console(force_terminal=True)
+    if not any(isinstance(handler, RichHandler) for handler in logger.handlers):
+        logger.addHandler(RichHandler(rich_tracebacks=True, show_path=False, console=cl))
 
     # Prevent the logger from propagating messages to the root logger
-    # logger.propagate = False 
+    # logger.propagate = False
 
 
 def print_prompt_completions_sample(
@@ -45,7 +43,6 @@ def print_prompt_completions_sample(
     step: int,
     num_samples: int = 1,  # Number of samples to display
 ) -> None:
-
     console = Console()
     table = Table(show_header=True, header_style="bold white", expand=True)
 
@@ -56,7 +53,7 @@ def print_prompt_completions_sample(
 
     # Get the reward values from the dictionary
     reward_values = rewards.get("reward", [])
-    
+
     # Ensure we have rewards for all prompts/completions
     if len(reward_values) < len(prompts):
         # Pad with zeros if we don't have enough rewards
@@ -64,12 +61,12 @@ def print_prompt_completions_sample(
 
     # Only show the first num_samples samples
     samples_to_show = min(num_samples, len(prompts))
-    
+
     for i in range(samples_to_show):
         prompt = prompts[i]
         completion = completions[i]
         reward = reward_values[i]
-        
+
         # Format prompt (can be string or list of dicts)
         formatted_prompt = Text()
         if isinstance(prompt, str):
@@ -84,10 +81,10 @@ def print_prompt_completions_sample(
                 formatted_prompt = Text("")
         else:
             formatted_prompt = Text(str(prompt))
-            
+
         # Create a formatted Text object for completion with alternating colors based on role
         formatted_completion = Text()
-        
+
         if isinstance(completion, dict):
             # Handle single message dict
             role = completion.get("role", "")
@@ -100,13 +97,13 @@ def print_prompt_completions_sample(
             for i, message in enumerate(completion):
                 if i > 0:
                     formatted_completion.append("\n\n")
-                
+
                 role = message.get("role", "")
                 content = message.get("content", "")
-                
+
                 # Set style based on role
                 style = "bright_cyan" if role == "assistant" else "bright_magenta"
-                
+
                 formatted_completion.append(f"{role}: ", style="bold")
                 formatted_completion.append(content, style=style)
         else:

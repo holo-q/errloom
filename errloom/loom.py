@@ -7,8 +7,10 @@ from copy import deepcopy
 from typing import Any, Dict, List, Literal
 
 from openai import OpenAI
+from rich.progress import (BarColumn, Progress, SpinnerColumn, TextColumn,
+                           TimeElapsedColumn, TimeRemainingColumn)
 
-from errloom import Data
+from errloom.aliases import Data
 from errloom.attractor import Attractor, FnRule
 from errloom.interop.mock_client import MockClient
 from errloom.parsers.parser import Parser
@@ -16,6 +18,8 @@ from errloom.rollout import Rollout, Rollouts
 
 DEFAULT_MAX_CONCURRENT = 512
 DATASET_MAX_CONCURRENT = 32
+
+logger = logging.getLogger(__file__)
 
 # noinspection PyDefaultArgument
 class Loom(ABC):
@@ -95,10 +99,10 @@ class Loom(ABC):
         return self.eval_dataset
 
     def get_rule_funcs(self) -> List[FnRule]:
-        return self.attractor.get_rule_funcs()
+        return self.attractor.rule_funcs
 
     def get_rule_weights(self) -> List[float]:
-        return self.attractor.get_rule_weights()
+        return self.attractor.rule_weights
 
     def sanitize_sampling_args(self, client: OpenAI, sampling_args: Dict[str, Any]) -> Dict[str, Any]:
         from urllib.parse import urlparse
@@ -144,40 +148,38 @@ class Loom(ABC):
             """
             Run rollouts for a given list of prompts and return the completions.
             """
-            from tqdm.asyncio import tqdm_asyncio
             semaphore = Semaphore(self.max_concurrent)
             rollout_tasks = []
             rollouts = []
+
             for row in rows:
                 rollout = Rollout(dict(row), sampling_args=self.client_args)
                 rollouts.append(rollout)
                 rollout_tasks.append(run_row(semaphore, rollout))
 
-            await tqdm_asyncio.gather(
-                *rollout_tasks,
-                total=rows.num_rows,
-                desc=f'Running {rows.num_rows} rollouts'
-            )
+            logger.info(f'Running {len(rollout_tasks)} rollouts')
+            for f in asyncio.as_completed(rollout_tasks):
+                await f
+
             return rollouts
 
         coro = run_rows()
-
-        try:
-            loop = asyncio.new_event_loop()
-            setup_executor(loop)
-            asyncio.set_event_loop(loop)
-            # TODO this used to be try/catch, but do we really want to fail safely here? are there cases where it would randomly fail for just one random instance? usually it's better to let it blow up early and make the code more stable for the future
-            rollouts = Rollouts(loop.run_until_complete(coro))
-            loop.close()
-            asyncio.set_event_loop(None)
-        except RuntimeError:
-            # Jupyter notebook or existing event loop
-            import nest_asyncio
-            nest_asyncio.apply()
-            loop = asyncio.get_running_loop()
-            # noinspection PyTypeChecker
-            setup_executor(loop)
-            rollouts = Rollouts(loop.run_until_complete(coro))
+        loop = asyncio.new_event_loop()
+        setup_executor(loop)
+        asyncio.set_event_loop(loop)
+        # TODO this used to be try/catch, but do we really want to fail safely here? are there cases where it would randomly fail for just one random instance? usually it's better to let it blow up early and make the code more stable for the future
+        rollouts = Rollouts(loop.run_until_complete(coro))
+        loop.close()
+        asyncio.set_event_loop(None)
+        # try:
+        # except RuntimeError:
+        #     # Jupyter notebook or existing event loop
+        #     import nest_asyncio
+        #     nest_asyncio.apply()
+        #     loop = asyncio.get_running_loop()
+        #     # noinspection PyTypeChecker
+        #     setup_executor(loop)
+        #     rollouts = Rollouts(loop.run_until_complete(coro))
 
         rollouts.max_concurrent = self.max_concurrent
         self.attractor.feels(rollouts)
