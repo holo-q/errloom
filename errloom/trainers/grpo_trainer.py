@@ -32,7 +32,7 @@ from errloom.loom import Loom
 from errloom.trainers.async_batch_generator import AsyncBatchGenerator, BatchRequest
 from errloom.trainers.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.trainers.grpo_config import GRPOConfig
-from errloom.utils.logging_utils import print_prompt_completions_sample
+from errloom.utils.log import print_prompt_completions_sample
 
 class RepeatSampler(Sampler):
     """

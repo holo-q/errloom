@@ -1,15 +1,15 @@
 import torch._dynamo
 
 from errloom.comm import CommModel
-from errloom.utils.logging_utils import setup_logging
 from errloom import discovery
 from errloom.attractor import Attractor
 from errloom.loom import Loom
+from errloom.utils.log import setup_logging
 
 torch._dynamo.config.suppress_errors = True  # type: ignore
 __version__ = "0.1.0"
 
-setup_logging()
+setup_logging('info')
 
 discovery.crawl_package(
     'errloom',

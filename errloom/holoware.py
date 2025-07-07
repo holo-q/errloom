@@ -77,8 +77,8 @@ class HoloSpan:
     - Type-specific attributes defined in subclasses
     """
     uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
-    var_args: list[str] = field(default_factory=list)
-    var_kwargs: dict[str, str] = field(default_factory=dict)
+    args: list[str] = field(default_factory=list)
+    kwargs: dict[str, str] = field(default_factory=dict)
 
     def apply_arguments(self, node_attrs: dict[str, str], fence_attrs: dict[str, str], positional_args: list[str]) -> None:
         """Apply parsed arguments to span attributes.
@@ -89,7 +89,7 @@ class HoloSpan:
         3. Store positional_args in var_args
         """
         # Store positional args
-        self.var_args = positional_args.copy()
+        self.args = positional_args.copy()
 
         # Get all field names for this span class
         field_names = {f.name for f in fields(self)}
@@ -103,7 +103,7 @@ class HoloSpan:
                 remaining_attrs[key] = value
 
         # Combine remaining node_attrs and fence_attrs
-        self.var_kwargs = {**remaining_attrs, **fence_attrs}
+        self.kwargs = {**remaining_attrs, **fence_attrs}
 
 @dataclass
 class ContextResetSpan(HoloSpan):
@@ -184,16 +184,16 @@ class Holoware:
     def _append_args_to_debug(self, text: Text, span: HoloSpan):
         """Append formatted var_args and var_kwargs to the rich text."""
         args_text = []
-        if span.var_args:
-            args_text.append(", ".join(map(str, span.var_args)))
-        if span.var_kwargs:
-            args_text.append(", ".join(f"{k}={v}" for k, v in span.var_kwargs.items()))
+        if span.args:
+            args_text.append(", ".join(map(str, span.args)))
+        if span.kwargs:
+            args_text.append(", ".join(f"{k}={v}" for k, v in span.kwargs.items()))
 
         if args_text:
             text.append(" | ", style="dim white")
             text.append(", ".join(args_text), style="magenta")
 
-    def to_rich_debug(self, indent_level=0) -> Text:
+    def to_rich(self, indent_level=0) -> Text:
         """Format the prompt template spans for rich debug display."""
         text = Text()
         if not self.spans:
@@ -278,7 +278,7 @@ class Holoware:
                 self._append_args_to_debug(text, span)
                 text.append(")\n", style="blue")
                 if span.body:
-                    text.append(span.body.to_rich_debug(indent_level + 1))
+                    text.append(span.body.to_rich(indent_level + 1))
         return text
 
     @classmethod
@@ -331,7 +331,11 @@ class Holoware:
             Impl = target if isinstance(target, type) else type(target)
             for Base in Impl.__mro__:
                 if funcname in Base.__dict__:
-                    logger.debug(f"{Base}.{funcname}({args}, {kwargs})")
+                    logger.debug("%s.%s", Base, funcname)
+                    # if args:
+                    #     logger.debug(PrintedText(args))
+                    # if kwargs:
+                    #     logger.debug(PrintedText(kwargs))
                     _holofunc_ = getattr(Base, funcname)
 
                     final_kwargs = kwargs

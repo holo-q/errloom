@@ -1,5 +1,5 @@
-from typing import Any, Optional
 import typing
+from typing import Any, Optional
 
 from rich import box
 from rich.console import Group
@@ -7,9 +7,9 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
-from errloom.utils.openai_chat import extract_fence
-from errloom.utils.logging_utils import cl
 from errloom.rollout import Context, Rollout
+from errloom.utils.log import cl
+from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom
@@ -65,17 +65,16 @@ class Holophore:
                 return ret
         return None
 
-    def to_rich(self):
+    def to_rich(self) -> Table:
         renderables = []
         for i, ctx in enumerate(self.contexts):
             if i > 0:
                 renderables.append(Rule(style="yellow"))
             renderables.append(ctx.text_rich)
-        return Group(*renderables)
+        group = Group(*renderables)
 
-    def log(self, fidelity_score: float, reward: float) -> None:
         cl.print(Panel(
-            self.to_rich(),
+            group,
             title="[bold yellow]Dry Run: Full Conversation Flow[/]",
             border_style="yellow",
             box=box.ROUNDED,
@@ -86,20 +85,18 @@ class Holophore:
         table = Table(box=box.MINIMAL, show_header=False, expand=True)
         table.add_column(style="bold magenta")
         table.add_column(style="white")
-
-        table.add_row("Fidelity:", f"{fidelity_score:.2f}")
-        table.add_row("Reward:", f"{reward:.2f}")
         # table.add_row("Evaluation:", evaluation)
 
-        grid = Table.grid(expand=True)
-        grid.add_column()
-        grid.add_row(Panel(
-            table,
-            title=f"[bold green]Compression Sample[/]",
-            border_style="green",
-            title_align="left"
-        ))
-        cl.print(grid)
+        return table
+
+    def __str__(self) -> str:
+        return str(self.to_rich())
+
+    def __rich_repr__(self):
+        yield "loom", self._loom
+        yield "rollout", self._rollout
+        yield "contexts", len(self.contexts)
 
     def __repr__(self) -> str:
-        return f"Holophore(loom={self._loom!r}, rollout={self._rollout!r}, contexts={len(self.contexts)} contexts)"
+        from errloom.utils.log import PrintedText
+        return str(PrintedText(self))

@@ -2,11 +2,11 @@ import logging
 from typing import Optional, TYPE_CHECKING
 
 from rich.console import Console
-from rich.panel import Panel
 
 from errloom import Attractor
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, Holoware, TextSpan
+from errloom.utils.log import ellipse
 
 if TYPE_CHECKING:
     pass
@@ -15,13 +15,12 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 class BingoAttractor(Attractor):
-    def __init__(self, holophore: Holophore, span: ClassSpan):
+    def __init__(self):
         super().__init__()
-        self.holophore = holophore
-        self.span = span
         self.heuristics: list[str] = []
         self.seed: Optional[str] = None
-
+        self.goal = ""
+        
     def __holo_init__(self, holophore: Holophore, span:ClassSpan):
         """
         Called at the beginning of the holoware execution.
@@ -29,16 +28,18 @@ class BingoAttractor(Attractor):
         """
         # noinspection PyUnresolvedReferences
         assert isinstance(span.body, Holoware)
-        textspan = span.body.first_span_by_type(TextSpan)
-        assert isinstance(textspan, TextSpan)
-        goal = textspan.text
-
+        bodytext = span.body.first_span_by_type(TextSpan)
+        assert isinstance(bodytext, TextSpan)
         self.heuristics = ["use_abbreviations", "mix_languages", "utilize_unicode"]
         self.seed = "compress"
-        self.goal = goal
+        self.goal = bodytext.text
 
         if holophore.dry:
-            logger.debug(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False))
+            if self.seed:
+                logger.debug(f"BingoAttractor([{ellipse(self.seed)}] -> [{ellipse(self.goal)})]")
+            else:
+                logger.debug(f"BingoAttractor({ellipse(self.goal)})")
+            # logger.debug(PrintedText(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False)))
             return self
 
         # TODO call an LLM to decompose the goal.
@@ -52,7 +53,7 @@ class BingoAttractor(Attractor):
         In a real run, this is where the reward logic would be applied.
         """
         if holophore.dry:
-            return None
+            return self.goal
 
         # The core logic for influencing the generation will go here.
         # For now, it just returns the body of the attractor.

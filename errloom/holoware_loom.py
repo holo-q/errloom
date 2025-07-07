@@ -1,19 +1,17 @@
 import logging
-from typing import Optional
 from copy import deepcopy
+from typing import Optional
 
 from datasets import Dataset
 from rich import box
-from rich.panel import Panel
 from rich.table import Table
 
 from errloom import holoware_load
-from errloom.attractor import Attractor
 from errloom.holophore import Holophore
 from errloom.holoware_load import HolowareLoader
 from errloom.loom import Loom
 from errloom.rollout import Rollout
-from errloom.utils.logging_utils import cl
+from errloom.utils.log import PrintedText
 
 logger = logging.getLogger(__name__)
 
@@ -44,20 +42,6 @@ class HolowareLoom(Loom):
         self.holoware = holoware_load.load_holoware(path)
         self.message_type = 'completion'
 
-        # if not self.dry_run:
-        #     from openai import OpenAI
-        #     self.evaluator_client = OpenAI(
-        #         base_url="http://localhost:8000/v1",
-        #         api_key="none"
-        #     )
-        #     self.evaluator_model = eval_model
-        # else:
-        #     self.evaluator_client = None
-        #     self.evaluator_model = None
-
-        logger.info(self.holoware.to_rich_debug())
-
-        # Display environment configuration
         tb = Table(show_header=False, box=box.SIMPLE)
         tb.add_column("Parameter", style="cyan", width=25)
         tb.add_column("Value", style="white")
@@ -67,15 +51,12 @@ class HolowareLoom(Loom):
         tb.add_row("Max concurrent", f"{max_concurrent}")
         tb.add_row("Evaluator model", eval_model)
 
-        cl.print(tb)
-        cl.print()
+        logger.info(self.holoware.to_rich())
+        logger.info(PrintedText(tb))
 
-        attractor = Attractor(funcs=[], weights=[])
         super().__init__(
             train_data=dataset,
             bench_data=bench_data,
-            system_prompt="",
-            attractor=attractor,
             max_concurrent=max_concurrent,
             message_type='chat',
             **kwargs
@@ -85,6 +66,7 @@ class HolowareLoom(Loom):
         env = deepcopy(roll.row)
         holophore = Holophore(self, roll, env)
         self.holoware(holophore)
+        logger.info(PrintedText(holophore.to_rich()))
         return roll
 
 # def generate(self,

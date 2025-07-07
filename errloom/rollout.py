@@ -121,18 +121,16 @@ class Rollout:
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
 
-    def __repr__(self) -> str:  # noqa: D401
-        lines = [
-            f"Rollout(",
-            f"  • row: {_truncate_long_strings(self.row)}",
-            f"  • samples: {_truncate_long_strings(self.samples)}",
-            f"  • gravity: {self.gravity}",
-            f"  • gravities: {_truncate_long_strings(self.gravities)}",
-            f"  • extra: {_truncate_long_strings(self.extra)}",
-            f")"
-        ]
-        return "\n".join(lines)
+    def __rich_repr__(self):
+        yield "row", self.row
+        yield "samples", self.samples
+        yield "gravity", self.gravity
+        yield "gravities", self.gravities
+        yield "extra", self.extra
 
+    def __repr__(self) -> str:
+        from errloom.utils.log import PrintedText
+        return str(PrintedText(self))
 
     @property
     def context(self) -> Context:

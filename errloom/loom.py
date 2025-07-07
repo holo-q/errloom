@@ -7,13 +7,9 @@ from copy import deepcopy
 from typing import Any, Dict, List, Literal, Optional
 
 from openai import OpenAI
-from rich.progress import (BarColumn, Progress, SpinnerColumn, TextColumn,
-                           TimeElapsedColumn, TimeRemainingColumn)
 
 from errloom.aliases import Data
-from errloom.attractor import Attractor, FnRule
 from errloom.interop.mock_client import MockClient
-from errloom.parsers.parser import Parser
 from errloom.rollout import Rollout, Rollouts
 
 DEFAULT_MAX_CONCURRENT = 512
@@ -53,6 +49,7 @@ class Loom(ABC):
         self.model = model or "mock-model"
         self.message_type: Literal['chat', 'completion'] = message_type
         self.max_concurrent = max_concurrent
+        self.data = data
         self.train_data = train_data
         self.bench_data = bench_data
         self.system_prompt = system_prompt  # optional; environments can use this or do their own thing

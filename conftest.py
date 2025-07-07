@@ -1,6 +1,6 @@
 import pytest
 import logging
-from errloom.utils.logging_utils import setup_logging
+from errloom.utils.logging import setup_logging
 
 @pytest.fixture(autouse=True)
 def rich_logging():

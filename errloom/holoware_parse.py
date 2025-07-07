@@ -8,6 +8,7 @@ from rich.panel import Panel
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, ContextResetSpan, HoloSpan, Holoware, ObjSpan, EgoSpan, SamplerSpan, TextSpan
+from errloom.utils.log import PrintedText
 
 logger = logging.getLogger(__name__)
 
@@ -151,12 +152,13 @@ class HolowareParser:
             f"Consumed Chars: {consumed_chars}\n"
             f"Block Content:\n[code]{dedented_text}[/code]"
         )
-        logger.debug(Panel(log_message, title="Indented Block", expand=False, border_style="cyan"))
+        panel = Panel(log_message, title="Indented Block", expand=False, border_style="cyan")
+        logger.info(PrintedText(panel))
 
         # Parse the dedented block recursively
-        inner_holoware = HolowareParser(dedented_text).parse()
+        innerware = HolowareParser(dedented_text).parse()
 
-        return inner_holoware, start_pos + consumed_chars
+        return innerware, start_pos + consumed_chars
 
     def _parse_prompt(self, content: str) -> Holoware:
         """
@@ -355,7 +357,7 @@ def enhanced_class_span_processing(node: ClassSpan, env: dict, holophore: Holoph
 
         if len(sig.parameters) >= 2:
             try:
-                return _holo_(holophore, node, *node.var_args, **node.var_kwargs)
+                return _holo_(holophore, node, *node.args, **node.kwargs)
             except TypeError as e:
                 logger.debug(f"Failed to call {node.class_name}.__holo__ with extra arguments: {e}")
                 try:
