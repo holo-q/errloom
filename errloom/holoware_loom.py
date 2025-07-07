@@ -1,6 +1,6 @@
 import logging
-import os
 from typing import Optional
+from copy import deepcopy
 
 from datasets import Dataset
 from rich import box
@@ -8,11 +8,12 @@ from rich.panel import Panel
 from rich.table import Table
 
 from errloom import holoware_load
-from errloom.utils.logging_utils import cl
 from errloom.attractor import Attractor
-from errloom.loom import Loom
+from errloom.holophore import Holophore
 from errloom.holoware_load import HolowareLoader
+from errloom.loom import Loom
 from errloom.rollout import Rollout
+from errloom.utils.logging_utils import cl
 
 logger = logging.getLogger(__name__)
 
@@ -80,36 +81,40 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-    def run(self, state: Rollout):
-        row = state.row
+    def run(self, state: Rollout) -> Rollout:
+        if self.dry:
+            return self._dry_run(state)
 
+        # The environment for the holoware is the row from the dataset
+        env = deepcopy(state.row)
+
+        # Create a callback for the holoware to sample from the model
         def _sample_callback():
             return self.sample(state)
 
-        env = {
-            # "score-format":            self.evaluation_schema,
-            "input":    row.get("text", row) if isinstance(row, dict) else row,
-            "original": row.get("text", row) if isinstance(row, dict) else row,
-            **({} if not isinstance(row, dict) else row),
-            # self.score_class.__name__: self.score_class,
-        }
-        # critique_class.get_compact_schema(include_descriptions=True)
+        # TODO the holoware should be able to run N trials
+        # and we should be able to configure which trial to use for the reward
+        holophore = self.holoware(self, state, env=env)
 
-        holophore = self.holoware(state, _sample_callback, env=env)
+        # Process the results from the holoware run
+        state = self._process_holophore(holophore)
+        return state
 
-        # # The last context contains the evaluation
-        # raw_evaluation_str = format_conversation(holophore.contexts[-1].messages)
-        # eval_json = holoware_parse.extract_json(raw_evaluation_str)
-        # verif_obj = None
+    def _dry_run(self, state: Rollout) -> Rollout:
+        # The environment for the holoware is the row from the dataset
+        env = deepcopy(state.row)
 
-        # try:
-        #     verif_obj = self.score_class.model_validate_json(eval_json)
-        #     score = verif_obj.get_critique_score()
-        # except Exception as e:
-        #     logger.warning(f"Failed to parse or process evaluation JSON: {e}")
-        # TODO we should auto-restart the evaluation, a new rollout, idk
-        # TODO right now this will mess up our reward signals if the evaluator ever shits the bed and confuse the weights
+        # Create a callback for the holoware to sample from the model
+        def _sample_callback():
+            # In a dry run, we don't actually call the model.
+            # We can return a mock response.
+            return "[mock_response]"
 
+        holophore = self.holoware(self, state, env=env)
+        state = self._process_holophore(holophore)
+        return state
+
+    def _process_holophore(self, holophore: Holophore) -> Rollout:
         if self.dry:
             cl.print(Panel(
                 holophore.to_rich(),
@@ -123,8 +128,9 @@ class HolowareLoom(Loom):
 
         compressed = holophore.extract_fence("compress") or ""
         decompressed = holophore.extract_fence("decompress") or ""
+        state = holophore.row
         state.extra = {"compressed": compressed, "decompressed": decompressed, }
-
+        return state
 
 # def generate(self,
 #              inputs: Dict[str, List[Any]] | Dataset | List[Any] | None = None,

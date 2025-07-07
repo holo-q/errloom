@@ -64,6 +64,6 @@ class CommModel(BaseModel):
         return "{\n" + "\n".join(lines) + "\n}"
 
     @classmethod
-    def __holo__(cls, holophore: Holophore, span: ClassSpan) -> str:
+    def __holo__(cls) -> str:
         """Special method for holoware to inject content. Returns a compact schema."""
         return cls.get_compact_schema(include_descriptions=True)

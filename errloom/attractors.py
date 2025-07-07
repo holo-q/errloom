@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional, TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
@@ -7,7 +7,6 @@ from rich.panel import Panel
 from errloom import Attractor
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, TextSpan
-from errloom.utils.logging_utils import ellipsis
 
 if TYPE_CHECKING:
     pass
@@ -15,56 +14,55 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = Console()
 
-
 class BingoAttractor(Attractor):
-    def __init__(self, holophore: Holophore, span: ClassSpan, dry_run: bool = False):
+    def __init__(self, holophore: Holophore, span: ClassSpan):
         super().__init__()
         self.holophore = holophore
         self.span = span
-        self.dry_run = dry_run
         self.heuristics: list[str] = []
-        self.seed_prompt: Optional[str] = None
+        self.seed: Optional[str] = None
 
     @classmethod
-    def __holo_init__(cls, holophore: Holophore, span:ClassSpan, *kargs, **kwargs):
+    def __holo_init__(cls, holophore: Holophore, span:ClassSpan):
         """
         Called at the beginning of the holoware execution.
         This will decompose the goal into heuristics.
         """
-        inst = Attractor.__holo_init__(cls, holophore, span, *kargs, **kwargs)
+        inst = cls(holophore, span)
+        inst = inst.__holo_init__(holophore, span)
+        logger.debug(f"BingoAttractor __holo_init__: {inst}")
 
-        goal_prompt = ""
-        if span.body:
-            for s in span.body.spans:
-                if isinstance(s, TextSpan):
-                    goal_prompt = s.text
-                    break
+        # noinspection PyUnresolvedReferences
+        goal = span.body.first_span_by_type(TextSpan).text
 
-        if holophore.dry: # TODO we need this from the loom
-            console.print(Panel(f"[bold]BingoAttractor Goal:[/] {goal_prompt}", title="BingoAttractor (Dry Run)", expand=False))
-            return
-
-        # In a real run, this would call an LLM to decompose the goal.
-        # For now, we'll just log that it's happening.
-        # logger.debug(f"Decomposing BingoAttractor goal: {ellipsis(goal_prompt)}")
         inst.heuristics = ["use_abbreviations", "mix_languages", "utilize_unicode"]
-        inst.seed_prompt = "compress"
-        logger.debug("TODO actually call the LLM to decompose the prompt and implement bingo") # TODO call the llm and decompose
+        inst.seed = "compress"
+        inst.goal = goal
 
-    def __holo__(self, **kwargs):
+        if holophore.dry:
+            logger.debug(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False))
+            return inst
+
+        # TODO call an LLM to decompose the goal.
+        logger.debug("TODO actually call the LLM to decompose the prompt and implement bingo") # TODO call the llm and decompose
+        return inst
+
+    @classmethod
+    def __holo__(cls, holophore, span, instance):
         """
         The main holofunc for the BingoAttractor.
         In a dry run, it does nothing as the goal is printed in __holo_start__.
         In a real run, this is where the reward logic would be applied.
+        :param instance:
         :param **kwargs:
         """
-        if self.dry_run:
+        if holophore.rollout.dry:
             return None
 
         # The core logic for influencing the generation will go here.
         # For now, it just returns the body of the attractor.
-        if self.span.body:
-            return self.span.body(self.holophore.state, lambda: "MOCK", self.holophore.env)
+        if span.body:
+            return span.body(holophore.state, lambda: "MOCK", holophore.env)
 
         return None
 

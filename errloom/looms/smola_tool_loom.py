@@ -203,48 +203,48 @@ class ToolRule(HoloRule):
             return 0.0
         return 0.0
 
-class Attractor:
-    """
-    A Holotype that collects and applies a set of HoloRules to a generation.
-    It supports receiving rules as arguments or collecting them from the context
-    where they have been registered by HoloRule holotypes in the body.
-    """
-    def __init__(self, holoware, **kwargs):
-        self.holoware = holoware
-
-    def __holo__(self, holophore: Holophore, span: ClassSpan, *args, **kwargs) -> Dict[str, float]:
-        """
-        Applies rules to a generation. Rules can be provided as arguments
-        or as Holotypes in the body (which register to the context).
-        """
-        rules = []
-
-        # Syntax 1: Rules as class name arguments.
-        # e.g. <|Attractor CorrectAnswerRule ToolRule|>
-        for rule_name in args:
-            RuleClass = globals().get(rule_name)
-            if RuleClass and issubclass(RuleClass, HoloRule):
-                rules.append(RuleClass(holoware=self.holoware))
-
-        # Syntax 2: Rules registered in the context from a body.
-        # e.g.
-        # <|Attractor|>
-        #     <|CorrectAnswerRule|>
-        #     <|ToolRule|>
-        if span.body:
-            holophore = span.body()
-
-        if context and hasattr(context, 'rules'):
-            # Collect and consume the rules from the context
-            rules.extend(context.rules)
-            context.rules = []
-
-        # Apply the collected rules and get their scores
-        scores = {}
-        for rule in rules:
-            rule_name = rule.__class__.__name__
-            scores[rule_name] = rule.eval(messages, **kwargs)
-        return scores
+# class Attractor:
+#     """
+#     A Holotype that collects and applies a set of HoloRules to a generation.
+#     It supports receiving rules as arguments or collecting them from the context
+#     where they have been registered by HoloRule holotypes in the body.
+#     """
+#     def __init__(self, holoware, **kwargs):
+#         self.holoware = holoware
+#
+#     def __holo__(self, holophore: Holophore, span: ClassSpan, *args, **kwargs) -> Dict[str, float]:
+#         """
+#         Applies rules to a generation. Rules can be provided as arguments
+#         or as Holotypes in the body (which register to the context).
+#         """
+#         rules = []
+#
+#         # Syntax 1: Rules as class name arguments.
+#         # e.g. <|Attractor CorrectAnswerRule ToolRule|>
+#         for rule_name in args:
+#             RuleClass = globals().get(rule_name)
+#             if RuleClass and issubclass(RuleClass, HoloRule):
+#                 rules.append(RuleClass(holoware=self.holoware))
+#
+#         # Syntax 2: Rules registered in the context from a body.
+#         # e.g.
+#         # <|Attractor|>
+#         #     <|CorrectAnswerRule|>
+#         #     <|ToolRule|>
+#         if span.body:
+#             holophore = span.body()
+#
+#         if context and hasattr(context, 'rules'):
+#             # Collect and consume the rules from the context
+#             rules.extend(context.rules)
+#             context.rules = []
+#
+#         # Apply the collected rules and get their scores
+#         scores = {}
+#         for rule in rules:
+#             rule_name = rule.__class__.__name__
+#             scores[rule_name] = rule.eval(messages, **kwargs)
+#         return scores
 
 class ToolTurns:
     """

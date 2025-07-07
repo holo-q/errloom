@@ -6,37 +6,50 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
+from errloom.loom import Loom
 from errloom.utils.openai_chat import extract_fence
 from errloom.utils.logging_utils import cl
 from errloom.rollout import Context, Rollout
 
 
-class Holophore(Rollout):
+class Holophore:
     """
     Extension wrapper around Rollout that provides additional holoware functionality.
     All rollout field access and modifications are delegated to the original rollout object.
     """
 
-    def __init__(self, rollout: Rollout, env: Optional[dict[str, Any]] = None):
-        # Store reference to original rollout for delegation
+    def __init__(self, loom: Loom, rollout: Rollout, env: Optional[dict[str, Any]] = None):
+        # Store reference to original loom and rollout for delegation
+        self._loom = loom
         self._rollout = rollout
         self.env = env or {}
 
     def __getattr__(self, name):
-        # Delegate all attribute access to the original rollout
-        return getattr(self._rollout, name)
+        # Delegate attribute access to the original rollout, then loom
+        if hasattr(self._rollout, name):
+            return getattr(self._rollout, name)
+        if hasattr(self._loom, name):
+            return getattr(self._loom, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __setattr__(self, name, value):
         # Handle our own attributes
-        if name.startswith('_') or name in ['contexts']:
+        if name.startswith('_') or name in ['env']:
             super().__setattr__(name, value)
-        else:
-            # Delegate rollout attribute modifications to original rollout
+        # Delegate rollout attribute modifications to original rollout
+        elif hasattr(self._rollout, name) and not hasattr(self._loom, name):
             setattr(self._rollout, name, value)
+        else:
+            super().__setattr__(name, value)
 
     @property
     def contexts(self) -> list[Context]:
-        return self.rollout.contexts
+        return self._rollout.contexts
+
+    @property
+    def loom(self) -> Loom:
+        """Returns the original loom object."""
+        return self._loom
 
     @property
     def rollout(self) -> Rollout:
@@ -87,4 +100,4 @@ class Holophore(Rollout):
         cl.print(grid)
 
     def __repr__(self) -> str:
-        return f"Holophore(rollout={self._rollout!r}, contexts={len(self.contexts)} contexts)"
+        return f"Holophore(loom={self._loom!r}, rollout={self._rollout!r}, contexts={len(self.contexts)} contexts)"

@@ -14,7 +14,7 @@ class Context:
     """
     text: str = ""
     messages: MessageList = field(default_factory=list)
-    attractors: List[Any] = field(default_factory=list)
+    # attractors: List[Any] = field(default_factory=list)
     class_instances: dict[Any, Any] = field(default_factory=dict)
 
     @property
@@ -120,7 +120,6 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
-    dry: bool = False
 
     def __repr__(self) -> str:  # noqa: D401
         lines = [

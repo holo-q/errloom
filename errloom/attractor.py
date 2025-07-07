@@ -6,7 +6,7 @@ from asyncio import Semaphore
 from typing import Callable, List
 
 from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan, ObjSpan
+from errloom.holoware import ClassSpan
 from errloom.parsers.parser import Parser
 from errloom.rollout import Rollout, Rollouts
 
@@ -58,22 +58,20 @@ class Attractor:
         self._rule_weights.append(weight)
 
     @classmethod
-    def __holo_init__(cls, self, holophore:Holophore, span:ClassSpan, *args, **kwargs)->'Attractor':
-        ret = cls(*args, **kwargs)
-        # TODO walk the body for rules
+    def __holo_init__(cls, holophore:Holophore, span:ClassSpan)->'Attractor':
+        if isinstance(cls, type):
+            ret = cls()
+
         return ret
 
     @classmethod
-    def __holo__(cls, holophore:Holophore, span:ClassSpan):
+    def __holo__(cls, holophore:Holophore, span:ClassSpan, instance: 'Attractor'):
         # The span contains var_args and var_kwargs that can be used to configure the attractor
         # For now, we create a default instance, but this could be enhanced to use span.var_args/var_kwargs
-        attractor = cls(*span.var_args, **span.var_kwargs)
-        attractor.feel(holophore.rollout)
+        # attractor = cls(*span.var_args, **span.var_kwargs)
+        instance.feel(holophore.rollout)
 
-        holophore.contexts[-1].attractors.append(attractor)
-        return None
-
-    def _evaluate_rule(self, func: FnRule, roll: Rollout, **kwargs) -> float:
+    def _evaluate_rule(self, func: FnRule, roll: Rollout) -> float:
         """
         Invoke `func` with only the required arguments.
 
@@ -82,7 +80,6 @@ class Attractor:
         def func(completion, answer, **kwargs):
             ...
         ``
-        :param bag:
         """
         assert len(roll.samples) >= 1
 
@@ -93,7 +90,7 @@ class Attractor:
             answer=roll.row.get('answer', None),
             task=roll.row.get('task', None),
         )
-        merged = {**common, **roll.extra, **kwargs}
+        merged = {**common, **roll.extra} # TODO what is the meaning of this:   , **kwargs}    ?
 
         sig = inspect.signature(func)
         if any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
@@ -169,7 +166,7 @@ class Attractor:
             setup_executor(loop)
             return loop.run_until_complete(coro)
 
-    async def feel(self, rollout: Rollout) -> dict[str, float] | float:
+    def feel(self, rollout: Rollout) -> dict[str, float] | float:
         """
         Evaluate all attraction functions asynchronously for a single rollout.
         :param rollout:
@@ -178,7 +175,7 @@ class Attractor:
             asyncio.to_thread(self._evaluate_rule, func, rollout)
             for func in self._rule_funcs
         ]
-        gravities = await asyncio.gather(*futures)
+        gravities = asyncio.get_event_loop().run_until_complete(asyncio.gather(*futures))
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
 
