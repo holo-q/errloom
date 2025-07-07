@@ -1,249 +1,146 @@
-# Verifiers: Reinforcement Learning with LLMs in Verifiable Environments
+# Errloom: Reinforcement Learning with LLMs in Verifiable Environments
 
 ## Overview
 
-`verifiers` is a set of tools and abstractions for training LLMs with reinforcement learning in **verifiable multi-turn environments** via Group-Relative Policy Optimization. Our implementation of GRPO builds upon the base `transformers` Trainer, and is optimized for efficient async multi-turn inference and training with off-policy overlapping. In addition, `verifiers` includes support for synthetic data generation, SFT warmup on filtered rollouts, and offline evaluation with API clients.
+`Errloom` is a framework for training LLMs with reinforcement learning in **verifiable multi-turn environments**. It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms. This project builds upon the original `verifiers` library created by Will Brown.
+
+The name `Errloom` comes from the combination of "err" (to wander) and "loom" (a nod to the classic concept of shoggoth whisperers). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, guided by the gravitation of attractors, rewards, and penalties—learning from and being shaped by error.
+
+At its core is **Holoware**, a first-class Domain-Specific Language (DSL) for **Context Engineering**. Holoware allows you to define not just prompts, but entire interaction protocols, training regimes, and reward mechanisms in a single, human-readable format. This approach democratizes RL by enabling the rapid prototyping and scaling of novel training and inference schemes, from tool use and self-reward to complex agentic loops.
 
 **Core principles**:
-RL environments and algorithms should be modular, reusable, and hackable.
-
-- actor = client = OpenAI-compatible LLM endpoint
-- environment = instructions + tasks + interaction protocol + rubric
-- instructions = system prompts
-- tasks = datasets + verifiable targets
-- (multi-turn) interaction protocol = tool calls, gameplay, multi-agent systems, end-state determination
-- rubric = reward mechanisms for verifying performance on instruction + task objectives
-- environments = synthetic data engines = RL trainers = eval harnesses
+- **Deconstruction over Abstraction**: Break down complex agentic loops and RL schemes into their constituent parts using the Holoware DSL.
+- **Emergence through Composition**: Create complex behaviors by composing simple, understandable atoms (`Holotypes`) within a Holoware template.
+- **Verifiability**: Environments and rewards should be transparent, hackable, and easy to define.
 
 **Key features:**
-- First-class support for multi-turn tool use and agentic RL via `vf.GRPOTrainer`, built on top of `transformers`.
-- Direct integration with OpenAI-compatible API clients for synthetic data generation and evaluation, in addition to RL training.
-- Utilities for SFT warmup/"cold start" data (see `examples/warmup` scripts)
-- Support for both `chat` (messages) and `completion` (text) requests in your rollouts
-- `Parser` classes (e.g. `XMLParser`) for standardizing your prompt formats and text extraction.
-- `Rubric` classes for managing sets of reward functions.
-- `Environment` classes for encapsulating your tasks, parsers, rollout logic, and reward functions, including:
-	- `SingleTurnEnv` for "R1-style" reasoning via vLLM's `chat()` method.
-	- `ToolEnv` for multi-turn tool use with custom Python functions.
-	- `SmolaToolEnv` for multi-turn tool use with Hugging Face [smolagents](https://huggingface.co/docs/smolagents/en/index) tools.
-	- `CodeMathEnv` for interactive Python execution.
-	- `MultiTurnEnv` abstract class for implementing custom multi-turn rollout logic on top of vLLM's `chat()` method -- just override `env_response` and `is_completed` and you're good to go.
-	- `ReasoningGymEnv` -- direct training for any [reasoning-gym](https://github.com/open-thought/reasoning-gym/tree/main/reasoning_gym) task.
-	- `Environment` abstract class for implementing whatever rollout logic you can imagine (go nuts!)
+- **GRPO Trainer**: An efficient implementation of Group-Relative Policy Optimization built on `transformers.Trainer`, optimized for async multi-turn inference and training.
+- **Holoware DSL (`.hol`):** A powerful templating language for defining multi-turn conversations, training data, and agentic logic in one place.
+- **Holotypes:** Custom Python classes (`__holo__`) that can be seamlessly injected into Holoware templates to perform arbitrary logic, from data augmentation to dynamic reward calculation and tool execution.
+- **First-class Tool Use:** Natively define and manage complex tool-use loops directly within your `.hol` files.
+- **Extensible & Hackable:** The entire framework is designed to be modular and easy to modify, from the parser to the core execution loop.
 
-Basic usage for a GRPO training script with 4 GPUs (2 inference + 2 training):
+## The Holoware Ecosystem
 
-```bash
-# launch inference server
-CUDA_VISIBLE_DEVICES=0,1 vf-vllm --model 'Qwen/Qwen2.5-1.5B-Instruct' --tensor-parallel-size 2
+Holoware is the heart of `errloom`. It's a complete ecosystem for defining and executing complex interactions with LLMs.
 
-# launch training script; copy zero3.yaml or set values globally with `accelerate config`
-CUDA_VISIBLE_DEVICES=2,3 accelerate launch --num-processes 2 --config-file configs/zero3.yaml train.py
+- **Holoware (`.hol` files):** These are the blueprints for your interactions. They define the conversation flow, data injection points, and where to bring in custom logic.
+- **Holotypes:** These are special Python classes that implement a `__holo__` method. When a Holotype is referenced in a `.hol` file (e.g., `<|MyToolRunner|>`), it's instantiated and its `__holo__` method is called, allowing for dynamic, stateful management of the interaction.
+- **Holophore:** The final, rendered output of a Holoware template—a structured object ready to be sent to an LLM.
+- **Loom:** The engine that weaves together Holoware, Holotypes, and data to produce a Holophore.
+
+## Example: Defining a Tool-Using Agent with `tool.hol`
+
+The best way to understand Holoware is to see it in action. Here is the content of `errloom/hol/tool.hol`, a template designed to create a tool-using agent.
+
+```holoware
+# prompts/tool.hol
+
+<|+++|>
+# System prompt section.
+<|o_o|>
+You have access to the following tools to help solve problems:
+
+<|ToolSchema|>
+
+For each step:
+1. Think through your reasoning inside <reasoning> tags
+2. If needed, use a tool by writing a JSON command inside <tool> tags with:
+   - "name": the tool to use
+   - "args": the arguments for the tool
+3. You will see the tool's output inside <result> tags
+4. Continue until you can give the final answer inside <answer> tags
+
+Tools expect specific JSON input formats. Follow the examples carefully.
+Do not make up tools or arguments that aren't listed.
+
+<|few_shot|>
+
+# This is the initial user query.
+<|@_@|>
+<|query|>
+
+# --- Main Interaction Loop ---
+# A `ToolRunner` class would manage this looping behavior up to a max_turns limit.
+<|ToolRunner|>
+    # The model generates its reasoning and a tool call or a final answer.
+    <|@_@:turn <>think|>
+
+    # The `ToolExecutor` class's `__holo__` method would:
+    # 1. Parse the 'turn' output for a <tool> tag.
+    # 2. If found, call the tool function with the provided JSON args.
+    # 3. Format the result inside <result> tags.
+    # 4. If <answer> is found, terminate the loop.
+    # 5. Return the result as a user message for the next turn.
+    <|o_o|>
+    <|ToolExecutor turn|>
 ```
 
-See [GRPO Rules of Thumb](#grpo-rules-of-thumb) for further discussion of hyperparameters and best practices; the easiest way to reduce memory requirements is by reducing `per_device_train_batch_size` and increasing `gradient_accumulation_steps` accordingly.
+### Deconstructing the Example
 
-### Citation
+This single file defines a complete, multi-turn, tool-using environment, which can be used for data generation, evaluation, or RL training.
 
-If you use this code in your research, please cite:
+1.  **Setup (`<|+++|>`):** The file begins by defining the environment.
+    -   It sets a system prompt (`<|o_o|>`) that instructs the model on how to behave.
+    -   `<|ToolSchema|>` and `<|few_shot|>` are **Holotypes**. `ToolSchema` would inject the schemas of the available tools, and `few_shot` would inject examples of correct tool usage.
+    -   `<|query|>` is a data placeholder for the user's request.
 
-```bibtex
-@article{brown2025verifiers,
-  title={Verifiers: Reinforcement Learning with LLMs in Verifiable Environments},
-  author={Brown, William},
-  year={2025}
-}
-```
+2.  **Interaction Loop (`<|ToolRunner|>`):** This section defines the agentic loop.
+    -   `<|ToolRunner|>` is a stateful **Holotype** that manages the multi-turn interaction.
+    -   `<|@_@:turn <>think|>` prompts the assistant to generate a response, which is stored in the `turn` variable.
+    -   `<|ToolExecutor turn|>` is the core of the tool execution logic. This **Holotype** receives the model's `turn` output. Its `__holo__` method is responsible for parsing the output, calling the appropriate tool if a `<tool>` tag is present, formatting the tool's output as a new user message (`<|o_o|>`), and determining if the loop should continue or terminate.
+
+This example illustrates how a complex agentic loop is expressed declaratively. The logic for presenting tools (`ToolSchema`), managing the conversation turns (`ToolRunner`), and executing tools (`ToolExecutor`) is neatly encapsulated in reusable Python `Holotype` classes. This entire structure can then be passed to the `GRPOTrainer` to teach a model how to use tools effectively.
 
 ## Getting Started
 
-### Setup 
-
-To install from PyPI, do:
-
-```bash
-uv add 'verifiers[all]' && uv pip install flash-attn==2.7.4.post1 --no-build-isolation
-```
+### Setup
 
 To use the latest `main` branch, do:
 ```bash
-git clone https://github.com/willccbb/verifiers.git
-cd verifiers
+git clone https://github.com/willccbb/errloom.git # Assuming this is the new repo
+cd errloom
 uv sync --extra all && uv pip install flash-attn --no-build-isolation
 ```
 
-For CPU development (API-only, no training), just do:
-```
-uv add verifiers
-```
-and install additional tool + environment dependencies (e.g. `textarena`, `reasoning-gym`, `vllm`) as needed.
-
 **Troubleshooting:**
-- Ensure your `wandb` and `huggingface-cli` logins are set up (or set `report_to=None` in `training_args`). You should also have something set as your `OPENAI_API_KEY` in your environment (can be a dummy key for vLLM). 
-- If using high max concurrency, increase the number of allowed open sockets (e.g. `ulimit -n 4096`)
-- On some setups, inter-GPU communication can [hang](https://github.com/huggingface/trl/issues/2923) or crash during vLLM weight syncing. This can usually be alleviated by setting (or unsetting) `NCCL_P2P_DISABLE=1` in your environment. Try this as your first step if you experience NCCL-related issues.
-- If problems persist, please open an [issue](https://github.com/willccbb/verifiers/issues).
-
-### Resource Requirements
-
-`verifiers` currently uses `transformers` Trainer as its primary training backend via `accelerate` (like Hugging Face's [TRL](https://github.com/huggingface/trl/tree/main/trl)), and is optimized for setups with at least 2 GPUs, scaling up to multiple 8xH100 nodes. 2-GPU setups with sufficient memory to enable small-scale experimentation can be [rented](https://app.primeintellect.ai/dashboard/create-cluster?image=ubuntu_22_cuda_12) for <$1/hr.
-
-Depending on your goals, there are other RL frameworks with native support for multi-turn tool use which you may be interested in exploring as well. If you are looking for maximum efficiency on a single GPU, consider OpenPipe's [ART](https://github.com/OpenPipe/ART) framework, which builds on top of [Unsloth](https://github.com/unslothai/unsloth). If you are seeking to maximize absolute performance at large scales, consider Nvidia's [NeMo-RL](https://github.com/NVIDIA/NeMo-RL) or ByteDance's [veRL](https://github.com/volcengine/verl) (which powers many agent RL projects like [RAGEN](https://github.com/RAGEN-AI/RAGEN) and [SkyRL](https://github.com/NovaSky-AI/SkyRL/tree/main)).
-
-We aim to include support for additional trainer backends in the future, and are open to PRs. Our first-order objective is maintaining ease of use for users (and LLMs), and any potential contributions will be considered with this in mind. 
+- Ensure your `wandb` and `huggingface-cli` logins are set up (or set `report_to=None` in `training_args`). You should also have something set as your `OPENAI_API_KEY` in your environment (can be a dummy key for vLLM).
+- On some setups, inter-GPU communication can hang. Try setting `NCCL_P2P_DISABLE=1` in your environment.
 
 ### Levels of Exploration
- 
-**Level 0:** Inspect and run the included examples for simple training tasks:
-- `verifiers/examples/reverse_text.py`  (`SingleTurnEnv`)
-- `verifiers/examples/math_python.py` (`ToolEnv`)
 
-**Level 1:** Implement your own reasoning task with verifiable rewards using `SingleTurnEnv`:
+**Level 0:** Inspect and run the included examples.
+- `errloom/examples/`: Find scripts that use different environments.
+- `errloom/hol/`: Explore the different Holoware templates.
 
-```python
-import verifiers as vf
-parser = vf.XMLParser(['think', 'answer']) # <think>...</think>\n<answer>...</answer>
-rubric = vf.Rubric(
-	your_custom_reward_func, # def func(prompt, completion, answer, **kwargs)
-	parser.get_format_reward_func(),
-weights=[1.0, 0.2])
-vf_env = vf.SingleTurnEnv(
-	dataset=..., # hf Dataset with 'question' + 'answer' columns
-	system_prompt=f"... Respond in the following format: {parser.get_format_str()}",
-	rubric
-)
+**Level 1:** Create your own Holoware file.
+- Define a simple multi-turn conversation for your task.
+- Use data placeholders like `<|my_data|>`.
+
+**Level 2:** Write your first Holotype.
+- Create a Python class with a `__holo__(self, holophore, span)` method.
+- Register it so the Loom can find it.
+- Reference it in your `.hol` file: `<|MyHolotype|>`.
+
+**Level 3:** Implement a custom agentic loop.
+- Create a `Holotype` that manages state across multiple turns.
+- Use model output from one turn as an input to your `Holotype` in the next turn (`<|MyHolotype previous_output|>`).
+- Use this structure to define a full RL environment.
+
+**Level 4+:** Go wild.
+- Implement multi-agent debates, self-improving systems, and novel reward mechanisms.
+
+### Citation
+
+If you use this code in your research, please update and use the following citation:
+
+```bibtex
+@article{brown2025errloom,
+  title={Errloom: Reinforcement Learning with LLMs in Verifiable Environments},
+  author={Brown, William and Your Name Here},
+  year={2025}
+}
 ```
-
-**Level 2:** Evaluate API models in your environment and collect synthetic data:
-
-```python
-import os
-from openai import OpenAI
-
-client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv('DEEPSEEK_API_KEY'))
-
-# evaluation
-results = vf_env.evaluate(client, model="deepseek-chat", num_samples=100)
-print(results['rewards_avg'])
-
-# datasets
-# columns = ['prompt', 'completion', 'answer', 'reward']
-dataset_dsv3 = vf_env.make_dataset(results)
-dataset_dsv3 = dataset_dsv3.sort("reward", reverse=True).select(range(50))
-dataset_dsv3.push_to_hub("...")
-```
-
-**Level 2.5 (Optional, but recommended for <7B models):** SFT warmup on synthetic data
-
-See `verifiers/examples/sft/reverse_text.py` for an example script using TRL's SFTTrainer.
-
-**Level 3:** Train a model in your environment using GRPO:
-
-```python
-# train.py
-
-model, tokenizer = vf.get_model_and_tokenizer(model_name)
-trainer = vf.GRPOTrainer(
-    model=model,
-    processing_class=tokenizer,
-    env=vf_env,
-    args=vf.grpo_defaults(run_name="...")
-)
-trainer.train()
-```
-
-**Level 4:** Implement your own multi-turn agent environment using `ToolEnv`, `SmolaToolEnv`, or `CodeEnv`:
-```python
-import verifiers as vf
-vf_env = vf.ToolEnv(
-	dataset=..., # hf Dataset with 'question' + 'answer' columns
-	system_prompt=...,
-	tools=[python, search, ask, calculator] # arbitrary python functions
-	max_steps=5
-)
-```
-
-**Level 5+:** Implement custom interaction protocols using `MultiTurnEnv`, `MultiTurnCompletionEnv`, or `Environment`
-
-```python
-
-class YourMultiTurnEnv(MultiTurnEnv):
-    def __init__(self,
-                 dataset: Dataset | None,
-                 system_prompt: str | None, 
-                 parser: Parser | None,
-                 rubric: Rubric | None,
-				 max_turns: int,
-                 **kwargs):
-	
-  def is_completed(self, messages: list[dict], state: dict, **kwargs: Any) -> bool:
-    # return whether or not rollout is completed
-
-  def env_response(self, messages: list[dict], state: dict, **kwargs: Any) -> tuple[dict, dict]:
-    # return environment response + updated state for a message-dict sequence
-
-class YourCustomEnv(Environment):
-	...
-```
-
-### GRPO Rules of Thumb
-- RL is [notoriously](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/) sensitive to implementation details, and this applies to LLM GRPO as well. The default hyperparameter config in `vf.grpo_defaults()` is intended as a starting point which should be relatively stable for a broad variety of medium-difficulty tasks, informed by my own experimentation as well as broader community findings. 
-- Always start by evaluating the performance of your model and/or API models in your environment 
-	- If your model struggles to get non-zero rewards in 10+ trials, the task is likely too hard (consider simplifying, SFT warmup, or adjusting prompts)
-	- If your model already gets 80%+ on a task without training, the dataset is likely too easy (consider prefiltering) 
-- Tricks which may increase performance/speed, at the cost of risking "collapse":
-	- Setting the KL penalty `beta = 0` (removes the reference model)
-	- Increasing the learning rate
-	- Increasing the number of update steps per batch (`num_iterations`)
-- Tricks which may stabilize training, at the cost of speed/performance
-	- Increasing group size per prompt (`num_generations`)
-	- Increasing prompts per batch (`per_device_train_batch_size`, `gradient_accumulation_steps`)
-	- Decreasing `max_grad_norm` (clipping)
-	- Using larger models (14B+)
-	- Using more `num_generations` (larger group size)
-	- Using LoRA adapters
-	- Difficulty filtering (expensive up front)
-        - Stay as much on policy as possible by decreasing the number of update steps per batch to (`num_iterations`) 1
-- Tricks whose benefit remains up-for-debate or context-dependent:
-	- High `beta` values (`0.1+`)
-	- Dr. GRPO vs GRPO
-	- Overlong filtering
-	- Masking tool call responses (`mask_env_response` in  `MultiStepEnv`)
-- Tricks which are likely a "free lunch":
-	- Learning rate warm-up of at least 10-20 steps (`warmup_steps`)
-	- Periodically updating reference models (`sync_ref_model`, `ref_model_sync_steps`) if using a reference model, particularly for 500+ step runs
-	- One-step off-policy training (overlapping training + inference) 
-- For successful training, you generally want diversity of reward scores within each group of responses for a prompt (see DAPO [paper](https://arxiv.org/pdf/2503.14476), Sec. 3.2)
-- The *best* way to increase diversity is to ensure that your tasks are of an appropriate difficulty for your model (not too easy, not too hard)
-- See Hugging Face's [open-r1](https://huggingface.co/spaces/open-r1/README/discussions/20) logbook for lots of discussion, tips, and experimental findings
-
-
-### Release Notes - v0.1.0 
-
-New features for this release:
-- Async inference support via OpenAI-compatible vLLM server (with weight syncing enabled)
-- Async execution for rollouts + rubrics
-- Native support for [reasoning-gym](https://github.com/open-thought/reasoning-gym) environments
-- Overlapped training + inference (via off-policy steps)
-- Rollout-level reward functions by default (with weight=0.0 supported)
-- Direct support for API evaluation + synthetic data collection 
-- Complete workflow for API eval -> data collection -> SFT -> RL (GRPO) -> trained model eval
-- Full decoupling of rollout + reward logic from GRPOTrainer
-- `transformers` Trainer as the base (replacing TRL's GRPO)
-- Direct support for LLM judges via JudgeRubric
-
-Included, but could use more testing:
-- Data-parallel vLLM workers
-- Multi-node training
-
-Not included, but planned for later releases:
-- TextArena environments
-- Enigmata environments
-- Native MCP tool support
-- Multimodal support (image-in, via /v1/chat/completions)
-- Tokenizer endpoint exposed for better token-level + turn-level mechanics (edge case handling, token-level rewards)
-- More flexible abstractions for dynamic batch construction + rollout reuse
-- FSDP (via prime-rl) 
 
 
 
