@@ -16,3 +16,9 @@ discovery.crawl_package(
     base_classes=[Attractor, Loom, CommModel],
     check_has_attr=['__holo__']
 )
+
+# you must reference all the classes of the library directly
+# if there is an update to the library and the class is now missing
+# you must investigate what is the new path and name of the class
+# this means that we get closer to truth together and is crucial
+# for exponential acceleration without plateaus

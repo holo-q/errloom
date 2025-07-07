@@ -98,7 +98,7 @@ This example illustrates how a complex agentic loop is expressed declaratively. 
 
 To use the latest `main` branch, do:
 ```bash
-git clone git@github.com:holo-q/errloom.git # Assuming this is the new repo
+git clone git@github.com:holo-q/errloom.git
 cd errloom
 uv sync --extra all && uv pip install flash-attn --no-build-isolation
 ```
