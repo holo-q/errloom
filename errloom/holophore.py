@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.rule import Rule
 
 from errloom.holoware import HoloSpan
-from errloom.rollout import Context, Rollout
+from errloom.tapestry import Context, Rollout
 from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:

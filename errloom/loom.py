@@ -16,7 +16,7 @@ from errloom.argp import errlargs
 from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
-from errloom.rollout import Rollout, Rollouts
+from errloom.tapestry import Rollout, Tapestry
 from errloom.utils.log import LogContext
 
 if typing.TYPE_CHECKING:
@@ -155,7 +155,7 @@ class Loom(ABC):
 
         return Dataset.from_list(data)
 
-    def weave(self, rows: Data | int = None) -> Rollouts:
+    def weave(self, rows: Data | int = None) -> Tapestry:
         """
         Weave rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
@@ -185,22 +185,22 @@ class Loom(ABC):
             Run rollouts for a given list of prompts and return the completions.
             """
             semaphore = Semaphore(self.max_concurrent)
-            rollout_tasks = []
-            rollouts = []
+            tasks = []
+            rolls = []
 
             for row in rows:
-                rollout = Rollout(dict(row), sampling_args=self.client_args)
-                rollouts.append(rollout)
-                rollout_tasks.append(run_row(semaphore, rollout))
+                roll = Rollout(dict(row), sampling_args=self.client_args)
+                rolls.append(roll)
+                tasks.append(run_row(semaphore, roll))
 
-            self.logger.info(f'Running {len(rollout_tasks)} rollouts')
-            for f in asyncio.as_completed(rollout_tasks):
+            self.logger.info(f'Running {len(tasks)} rollouts')
+            for f in asyncio.as_completed(tasks):
                 await f
 
-            return rollouts
+            return rolls
 
         tapestry = asyncio.get_running_loop().run_until_complete(run_rows())
-        tapestry = Rollouts(tapestry)
+        tapestry = Tapestry(tapestry)
         tapestry.max_concurrent = self.max_concurrent
 
         if self.dry:
@@ -238,7 +238,7 @@ class Loom(ABC):
         return sampling_args
 
 
-    def test(self, num_samples: int = -1) -> Rollouts:
+    def test(self, num_samples: int = -1) -> Tapestry:
         """
         Evaluate model on the Environment evaluation dataset.
         TODO this needs better definition... like, what exactly is this doing? running one round of inference? one batch? etc. we can see that it calls generate, and this should be better emphasized somehow

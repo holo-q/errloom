@@ -152,7 +152,7 @@ class Rollout:
         return self.contexts[-1]
 
 @dataclass
-class Rollouts:
+class Tapestry:
     """
     A tapestry of rollouts woven by a loom.
     Structured return type for ``Environment.generate``.

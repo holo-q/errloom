@@ -2,7 +2,7 @@ import logging
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, SampleSpan
-from errloom.rollout import Context
+from errloom.tapestry import Context
 
 logger = logging.getLogger(__name__)
 

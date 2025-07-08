@@ -9,7 +9,7 @@ from errloom import holoware_load
 from errloom.aliases import Data
 from errloom.holophore import Holophore
 from errloom.loom import Loom
-from errloom.rollout import Rollout
+from errloom.tapestry import Rollout
 from errloom.utils.log import PrintedText
 
 logger = logging.getLogger(__name__)

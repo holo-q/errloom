@@ -1,7 +1,7 @@
 from typing import Any, List
 
 from errloom.attractor import FnRule
-from errloom.rollout import Rollouts
+from errloom.tapestry import Tapestry
 from errloom.attractor import Attractor
 
 
@@ -40,7 +40,7 @@ class MultiAttractor(Attractor):
         self.logger.warning("Adding attraction rule to the first attractor in the group.")
         self.attractors[0].add_rule(func, weight)
 
-    def feels(self, tapestry: Rollouts, max_concurrent: int = 1024, **kwargs: List[Any]):
+    def feels(self, tapestry: Tapestry, max_concurrent: int = 1024, **kwargs: List[Any]):
         """
         Run all attractors sequentially and return the aggregated gravities.
 

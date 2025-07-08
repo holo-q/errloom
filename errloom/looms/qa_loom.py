@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple, Union
 from datasets import Dataset
 
 from errloom.loom import Loom
-from errloom.rollout import Rollout
+from errloom.tapestry import Rollout
 
 class QuestionAnswerLoom(Loom):
     """

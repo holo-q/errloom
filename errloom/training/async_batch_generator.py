@@ -12,7 +12,7 @@ from openai import OpenAI
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from errloom.loom import Loom
-from errloom.rollout import Rollout, Rollouts
+from errloom.tapestry import Rollout, Tapestry
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +287,7 @@ class AsyncBatchGenerator:
 
 
 def process_rollouts(
-    rollouts: Rollouts,
+    rollouts: Tapestry,
     processing_class: PreTrainedTokenizerBase,
     max_completion_length: int = -1,
     mask_truncated_completions: bool = False,

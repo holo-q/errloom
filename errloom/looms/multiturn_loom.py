@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Tuple, Union
 from openai import OpenAI
 
 from errloom.loom import Loom
-from errloom.rollout import Rollout
+from errloom.tapestry import Rollout
 
 
 class MultiTurnLoom(Loom):

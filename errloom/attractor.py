@@ -8,7 +8,7 @@ from typing import Callable, List
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan
 from errloom.parsing.parser import Parser
-from errloom.rollout import Rollout, Rollouts
+from errloom.tapestry import Rollout, Tapestry
 
 FnRule = Callable[..., float]
 
@@ -117,7 +117,7 @@ class Attractor:
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
 
-    def feels(self, tapestry: Rollouts):
+    def feels(self, tapestry: Tapestry):
         """
         Compute attraction gravities for a group of rollouts.
 
@@ -135,7 +135,7 @@ class Attractor:
             async with semaphore:
                 self.feel(rollout)
 
-        async def _evaluate_all(tapestry: Rollouts, max_concurrent: int = 1024):
+        async def _evaluate_all(tapestry: Tapestry, max_concurrent: int = 1024):
             from tqdm.asyncio import tqdm
             semaphore = Semaphore(max_concurrent)
             tasks = [

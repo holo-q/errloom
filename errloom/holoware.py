@@ -190,7 +190,7 @@ class Holoware:
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
     def __call__(self, phore: "Holophore"):
-        from errloom.rollout import Context
+        from errloom.tapestry import Context
         from errloom.holoware_handlers import HolowareHandlers
 
         # it is require since up above its only imported for type_checking whith ""

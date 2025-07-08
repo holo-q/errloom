@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 from datasets import concatenate_datasets
 
 from errloom.loom import Loom
-from errloom.rollout import Rollout, Rollouts
+from errloom.tapestry import Rollout, Tapestry
 from errloom.attractor import Attractor
 
 

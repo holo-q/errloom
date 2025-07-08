@@ -2,6 +2,10 @@
 
 ## Overview
 
+![](media/logo.png)
+
+**Errloom** is the schizo prompt theorist's swiss army knife for context engineering and reinforcement learning brought together as one in the unified Holoware language (.hol) of prompt engineering.
+
 `Errloom` is a framework for training LLMs with reinforcement learning in **verifiable multi-turn environments**. It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms. This project builds upon the original `verifiers` library created by Will Brown.
 
 The name `Errloom` comes from the combination of "err" (to wander) and "loom" (a nod to the classic concept of shoggoth whisperers). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, guided by the gravitation of attractors, rewards, and penalties—learning from and being shaped by error.
