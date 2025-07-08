@@ -1,16 +1,70 @@
 <!-- # Errloom: Reinforcement Learning with LLMs in Verifiable Environments -->
 
-## Overview
+## 1. Overview
 
 ![](media/logo.png)
 
-**Errloom** is the schizo prompt theorist's swiss army knife for context engineering and reinforcement learning brought together as one in the unified Holoware language (.hol) of prompt engineering.
 
-`Errloom` is a framework for training LLMs with reinforcement learning in **verifiable multi-turn environments**. It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms. This project builds upon the original `verifiers` library created by Will Brown.
+> Errloom /ˈɜːrluːm/ – _From the combination of "err" (to wander) and "loom" (classic concept of shoggoth whispering). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, guided by the gravitation of attractors, rewards, and penalties—learning from and being shaped by error.
 
-The name `Errloom` comes from the combination of "err" (to wander) and "loom" (a nod to the classic concept of shoggoth whisperers). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, guided by the gravitation of attractors, rewards, and penalties—learning from and being shaped by error.
+**Errloom** is the schizo prompt theorist's swiss army knife for context engineering and reinforcement learning brought together as one in the unified Holoware language (.hol) of prompt engineering. It is a framework for training LLMs with reinforcement learning with verifiable reward (attractors & gravitation rules). It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms strug together in .hol recipes. It can be used as a library or standlone CLI, and supports deploying to cloud compute. It aims to demoncratize reinforcement learning experimentation and usher a new era of prompt engineering.
 
-At its core is **Holoware**, a first-class Domain-Specific Language (DSL) for **Context Engineering**. Holoware allows you to define not just prompts, but entire interaction protocols, training regimes, and reward mechanisms in a single, human-readable format. This approach democratizes RL by enabling the rapid prototyping and scaling of novel training and inference schemes, from tool use and self-reward to complex agentic loops.
+
+##  2. Usage
+
+### Standalone
+
+Install errloom to your system using pip:
+
+```
+```
+
+It is recommended to break the system packages to avoid taking on the unnecessary stress and confusion of others.
+
+We then write a .hol holoware:
+
+```
+```
+
+Finally we launch the training using vast.ai for compute:
+
+```
+```
+
+We **greatly** encourage the community to self-organize and implement as many compute providers under an abstraction in this interface to multiply the power of Errloom.
+
+
+## 3. Roadmap
+
+### Atropos
+
+Write an holoware environment for Nous Research Atropos reinforcement learning library. (optional dependency on Atropos)
+This will allow the experiments conducted by Errloom users to scale using their more sophisticated pipeline for
+distributed training across the globe. We envision a market of environments and holowares where users submit proposals
+that are taken by compute volunteers.
+
+## 4. Wiki
+
+For more information, please visit the wiki pages.
+
+1. Definitions
+2. Holoware DSL (.hol)
+
+## 5. Citation
+
+This project builds upon the original `verifiers` library created by Will Brown.
+
+If you use this code in your research, please update and use the following citation:
+
+```bibtex
+@article{brown2025errloom,
+  title={Errloom: Schizo Reinforcers},
+  author={Nicolas Martel},
+  year={2025}
+}
+```
+
+<!-- At its core is **Holoware**, a first-class Domain-Specific Language (DSL) for **Context Engineering**. Holoware allows you to define not just prompts, but entire interaction protocols, training regimes, and reward mechanisms in a single, human-readable format. This approach democratizes RL by enabling the rapid prototyping and scaling of novel training and inference schemes, from tool use and self-reward to complex agentic loops.
 
 **Core principles**:
 - **Deconstruction over Abstraction**: Break down complex agentic loops and RL schemes into their constituent parts using the Holoware DSL.
@@ -132,23 +186,4 @@ uv sync --extra all && uv pip install flash-attn --no-build-isolation
 - Use this structure to define a full RL environment.
 
 **Level 4+:** Go wild.
-- Implement multi-agent debates, self-improving systems, and novel reward mechanisms.
-
-### Citation
-
-If you use this code in your research, please update and use the following citation:
-
-```bibtex
-@article{brown2025errloom,
-  title={Errloom: Reinforcement Learning with LLMs in Verifiable Environments},
-  author={Brown, William and Your Name Here},
-  year={2025}
-}
-```
-
-
-
-
-
-
-
+- Implement multi-agent debates, self-improving systems, and novel reward mechanisms. -->

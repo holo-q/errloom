@@ -122,6 +122,7 @@ if __name__ == "__main__":
     os.makedirs("runs", exist_ok=True)
 
     try:
+        setup_async()
         main()
     except KeyboardInterrupt:
         logger_main.info("\nTraining interrupted by user")
