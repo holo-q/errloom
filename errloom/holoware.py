@@ -31,13 +31,13 @@ The DSL uses a tag-based system with the `<|...|>` delimiter.
 The parser converts a prompt file into a structured `Holoware` object,
 which contains a sequence of spans representing the parsed DSL.
 """
-import inspect
 import logging
 import typing
 import uuid
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
+from rich.panel import Panel
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
@@ -157,6 +157,7 @@ class Holoware:
     Contains a sequence of spans that define the entire prompt and its metadata.
     """
     spans: list[HoloSpan] = field(default_factory=list)
+    span_by_uuid: dict[str, HoloSpan] = field(default_factory=dict)
 
     @property
     def obj_ids(self) -> list[str]:
@@ -193,11 +194,29 @@ class Holoware:
             text.append(" | ", style="dim white")
             text.append(", ".join(args_text), style="magenta")
 
-    def to_rich(self, indent_level=0) -> Text:
+    def to_rich(self, indent_level=0) -> Text | Panel:
         """Format the prompt template spans for rich debug display."""
         text = Text()
         if not self.spans:
             return text
+
+        if indent_level == 0:
+            # Create a fancy header with prompt info
+            header = Text()
+            header.append("╔══ ", style="bright_black")
+            header.append("Holoware Template ", style="bold cyan")
+            header.append("═" * 40, style="bright_black")
+            header.append("\n")
+
+            header.append("║ ", style="bright_black")
+            header.append(f"Spans: ", style="dim")
+            header.append(f"{len(self.spans)}", style="cyan")
+            header.append(" | ", style="dim")
+            header.append("Training Contexts: ", style="dim") 
+            header.append(f"{len(self.trained_contexts)}", style="cyan")
+            header.append("\n")
+            
+            text.append(header)
 
         processed_indices = set()
         indent = "  " * indent_level
@@ -276,10 +295,23 @@ class Holoware:
                 text.append("ClassSpan (", style="bold blue")
                 text.append(f"class={span.class_name}", style="blue")
                 self._append_args_to_debug(text, span)
-                text.append(")\n", style="blue")
+                text.append(")", style="blue")
                 if span.body:
+                    text.append("\n")
                     text.append(span.body.to_rich(indent_level + 1))
+                else:
+                    text.append("\n")
+
+        if indent_level == 0:
+            text.append("╚", style="bright_black")
+            text.append("═" * 60, style="bright_black")
+            text.append("\n\n")
+
+        # if indent_level > 0:
         return text
+        # BUG it renders as   <rich.panel.Panel object at 0x7c8dc49ff380>   currently for some reason
+        # else:
+        #     return Panel(text, box=box.SIMPLE)
 
     @classmethod
     def parse(cls, content: str) -> "Holoware":
@@ -295,8 +327,9 @@ class Holoware:
         from errloom.holoware_parse import HolowareParser
         return HolowareParser(content).parse()
 
-    def __call__(self, holophore: "Holophore"):
+    def __call__(self, phore: "Holophore"):
         from errloom.rollout import Context
+        from errloom.holoware_handlers import HolowareHandler
 
         # it is require since up above its only imported for type_checking whith ""
         # it is literally the case that both pyright and pycharm's own inspections
@@ -305,104 +338,43 @@ class Holoware:
         # noinspection PyUnresolvedReferences
         from errloom.holophore import Holophore  # noqa: F401
 
-        # TODO we should move the span handler code to SpanHandlers - we want to keep the code separate from the data structure to keep the emphasis and clarity from both angles
         # holophore = Holophore(loom, roll, env)
-        holophore.contexts.append(Context())
+        phore.contexts.append(Context())
 
-        _span_by_uuid:dict[str, HoloSpan] = {span.uuid: span for span in self.spans}
-
-        def _call_holofunc(target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
-            """
-            Walks the MRO of a class or instance to find and call a __holo__ method
-            from its defining base class.
-            If `filter_missing_arguments` is True, it inspects the function signature
-            and only passes keyword arguments that are expected by the function.
-            """
-            if funcname == '__init__':
-                if not isinstance(target, type):
-                    raise TypeError(f"Target for __init__ must be a class, not {type(target)}")
-
-                final_kwargs = kwargs
-                if filter_missing_arguments:
-                    sig = inspect.signature(target)
-                    final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                return target(*args, **final_kwargs)
-
-            Impl = target if isinstance(target, type) else type(target)
-            for Base in Impl.__mro__:
-                if funcname in Base.__dict__:
-                    logger.debug("%s.%s", Base, funcname)
-                    # if args:
-                    #     logger.debug(PrintedText(args))
-                    # if kwargs:
-                    #     logger.debug(PrintedText(kwargs))
-                    _holofunc_ = getattr(Base, funcname)
-
-                    final_kwargs = kwargs
-                    if filter_missing_arguments:
-                        sig = inspect.signature(_holofunc_)
-                        final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
-
-                    return _holofunc_(target, *args, **final_kwargs)
-
-            if not optional:
-                raise AttributeError(f"No {funcname} method found in MRO for {Impl}")
-
-            return None
-
-        def _get_holofunc_args(span: HoloSpan):
-            return [holophore, span], {}
-
-        # --- Holo Lifecycle: Start ---
-        # ----------------------------------------
-        errors = 0
+        # --- Lifecycle: Start ---
 
         for span in self.spans:
             if isinstance(span, ClassSpan):
                 ClassName = span.class_name
-                Class = holophore.env.get(ClassName)
-                kspan, kwspan = _get_holofunc_args(span)
+                Class = phore.env.get(ClassName)
                 if not Class:
                     from errloom.discovery import get_class
                     Class = get_class(ClassName)
 
                 if not Class:
                     logger.error(f"Class '{ClassName}' not found in environment or registry.")
-                    errors += 1
+                    phore.errors += 1
                     continue
 
                 if getattr(Class, '_is_holostatic', False):
-                    holophore.context.holofunc_targets[span.uuid] = Class
+                    phore.context.holofunc_targets[span.uuid] = Class
                 else:
-                    inst = _call_holofunc(Class, '__init__', kspan, kwspan, optional=False)
-                    holophore.context.holofunc_targets[span.uuid] = inst
+                    # TODO extract to call_class_init (formalizes the api)
+                    kspan, kwspan = phore.get_holofunc_args(span)
+                    inst = phore.call_holofunc(Class, '__init__', span.args, kwspan, optional=False)
+                    phore.context.holofunc_targets[span.uuid] = inst
 
                     # try:
-                    inst_after_init = _call_holofunc(inst, '__holo_init__', kspan, kwspan)
+                    # TODO extract to call_class_init (formalizes the api)
+                    inst_after_init = phore.call_holofunc(inst, '__holo_init__', kspan, kwspan)
                     if inst_after_init:
-                        holophore.context.holofunc_targets[span.uuid] = inst_after_init
+                        phore.context.holofunc_targets[span.uuid] = inst_after_init
 
-        if errors > 0:
-            raise RuntimeError(f"Failed to instantiate {errors} classes.")
+        if phore.errors > 0:
+            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
 
-        # STATE MANAGEMENT
-        # ----------------------------------------
-        ego = 'system'
-        buf = []
-
-        def flush():
-            nonlocal buf
-            if buf:
-                # buftext <- buf
-                buftext, buf = "".join(buf), []
-
-                if holophore.context.messages and holophore.context.messages[-1]['role'] == ego:
-                    holophore.context.messages[-1]['content'] += buftext
-                else:
-                    holophore.context.messages.append({'role': ego, 'content': buftext})
-
-        # --- Holo Lifecycle: Main ---
-        # ----------------------------------------
+        # --- Lifecycle: Main ---
+        buf = phore.textbuf
 
         for span in self.spans:
             if isinstance(span, (TextSpan, ObjSpan)):
@@ -410,89 +382,31 @@ class Holoware:
                     buf.append(span.text)
                 elif isinstance(span, ObjSpan):
                     for var_id in span.var_ids:
-                        if var_id in holophore.env:
-                            value = holophore.env[var_id]
+                        if var_id in phore.env:
+                            value = phore.env[var_id]
                             buf.append(f"<obj id={var_id}>")
                             buf.append(str(value))
                             buf.append("</obj>")
                             break
                 continue
 
-            flush()
+            phore.flush()
 
-            if isinstance(span, ContextResetSpan):
-                holophore.contexts.append(Context())
-                ego = 'system'
+            SpanClassName = str(type(span))
+            if SpanClassName in HolowareHandler.__dict__:
+                HolowareHandler.__dict__[SpanClassName](phore, span)
 
-            elif isinstance(span, EgoSpan):
-                if ego != span.ego:
-                    flush()
-                    ego = span.ego
+        phore.flush()
 
-            elif isinstance(span, SamplerSpan):
-                sample = holophore.sample(holophore.rollout)
-                if sample:
-                    # If the SamplerSpan has a fence attribute, wrap the response in fence tags
-                    if span.goal:
-                        text = f"<{span.goal}>{sample}</{span.goal}>"
-                    else:
-                        text = sample
-
-                    if holophore.context.messages and holophore.context.messages[-1]['role'] == 'assistant':
-                        holophore.context.messages[-1]['content'] += '\n' + text
-                    else:
-                        holophore.context.messages.append({'role': 'assistant', 'content': text})
-
-            elif isinstance(span, ClassSpan):
-                ClassName = span.class_name
-                Class = holophore.env.get(ClassName)
-                if not Class:
-                    from errloom.discovery import get_class
-                    Class = get_class(ClassName)
-
-                if not Class:
-                    # This should have been caught in the init loop, but as a safeguard:
-                    logger.error(f"Class '{ClassName}' not found for __holo__ call.")
-                    continue
-
-                kspan, kwspan = _get_holofunc_args(span)
-
-                # TODO this should be handled by the individual HoloSpans. They use the body however they want, can make it conditional, etc.
-                # if span.body:
-                #     phoron = span.body(roll, sample_callback, env=env)
-                #     holo_kwargs['body'] = phoron
-
-                try:
-                    result = None
-                    inst = holophore.context.holofunc_targets.get(span.uuid, None)
-                    if inst:
-                        result = _call_holofunc(inst, '__holo__', kspan, kwspan, optional=False)
-
-                    # TODO what is this doing
-                    if isinstance(result, list) and all(isinstance(m, dict) and 'role' in m for m in result):
-                        holophore.context.messages.extend(result)
-                    elif result is not None:
-                        if 'holo_results' not in holophore.extra:
-                            holophore.extra['holo_results'] = []
-                        holophore.extra['holo_results'].append({span.class_name: result})
-                except Exception as e:
-                    logger.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
-
-        flush()
-
-        # --- Holo Lifecycle: End ---
-        # ----------------------------------------
-        for uid, target in holophore.context.holofunc_targets.items():
-            span = _span_by_uuid[uid]
-            kspan, kwspan = _get_holofunc_args(span)
+        # --- Lifecycle: End ---
+        for uid, target in phore.context.holofunc_targets.items():
             if hasattr(target, '__holo_end__'):
-                try:
-                    _call_holofunc(target, '__holo_end__', kspan, kwspan)
-                except Exception as e:
-                    target_name = getattr(target, '__name__', target.__class__.__name__)
-                    logger.error(f"Failed to execute __holo_end__ for {target_name}: {e}", exc_info=True)
+                span = self.span_by_uuid[uid]
+                # TODO extract to call_class_init (formalizes the api)
+                kspan, kwspan = phore.get_holofunc_args(span)
+                phore.call_holofunc(target, '__holo_end__', kspan, kwspan)
 
-        return holophore
+        return phore
 
     @classmethod
     def load(cls, filepath: str) -> "Holoware":

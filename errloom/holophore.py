@@ -1,3 +1,5 @@
+import inspect
+import logging
 import typing
 from typing import Any, Optional
 
@@ -7,12 +9,15 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
+from errloom.holoware import HoloSpan
 from errloom.rollout import Context, Rollout
 from errloom.utils.log import cl
 from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom
+    
+logger = logging.getLogger(__name__)
 
 class Holophore:
     """
@@ -25,6 +30,19 @@ class Holophore:
         self._loom = loom
         self._rollout = rollout
         self.env = env or {}
+        self.ego = "system"
+        self.textbuf = []
+        self.errors = 0
+        
+    def flush(self):
+        if self.textbuf:
+            # buftext <- self.textbuf
+            text, self.textbuf = "".join(self.textbuf), []
+
+            if self.context.messages and self.context.messages[-1]['role'] == self.ego:
+                self.context.messages[-1]['content'] += text
+            else:
+                self.context.messages.append({'role': self.ego, 'content': text})
 
     def __getattr__(self, name):
         # Delegate attribute access to the original rollout, then loom
@@ -57,6 +75,48 @@ class Holophore:
     def rollout(self) -> Rollout:
         """For backward compatibility - returns the original rollout object."""
         return self._rollout
+        
+    def call_holofunc(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
+        """
+        Walks the MRO of a class or instance to find and call a __holo__ method
+        from its defining base class.
+        If `filter_missing_arguments` is True, it inspects the function signature
+        and only passes keyword arguments that are expected by the function.
+        """
+        if funcname == '__init__':
+            if not isinstance(target, type):
+                raise TypeError(f"Target for __init__ must be a class, not {type(target)}")
+
+            final_kwargs = kwargs
+            if filter_missing_arguments:
+                sig = inspect.signature(target)
+                final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            return target(*args, **final_kwargs)
+
+        Impl = target if isinstance(target, type) else type(target)
+        for Base in Impl.__mro__:
+            if funcname in Base.__dict__:
+                logger.debug("%s.%s", Base, funcname)
+                # if args:
+                #     logger.debug(PrintedText(args))
+                # if kwargs:
+                #     logger.debug(PrintedText(kwargs))
+                _holofunc_ = getattr(Base, funcname)
+
+                final_kwargs = kwargs
+                if filter_missing_arguments:
+                    sig = inspect.signature(_holofunc_)
+                    final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+
+                return _holofunc_(target, *args, **final_kwargs)
+
+        if not optional:
+            raise AttributeError(f"No {funcname} method found in MRO for {Impl}")
+
+        return None
+
+    def get_holofunc_args(self, span: HoloSpan):
+        return [self, span], {}
 
     def extract_fence(self, tag, role="assistant") -> Optional[str]:
         for c in self.contexts:

@@ -3,15 +3,32 @@ import inspect
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from types import ModuleType
+from typing import Iterable, List, Optional, Union
 
-from rich.console import Console
+import rich.traceback
+from rich._log_render import FormatTimeCallable
+from rich.abc import RichRenderable
+from rich.console import Console, RenderableType
+from rich.highlighter import Highlighter
 from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 from rich.panel import Panel
 
 cl = Console()
+rich.traceback.install(
+    show_locals=False,           # You have False - but True is great for debugging
+    word_wrap=True,             # ✓ You already have this
+    extra_lines=2,              # Show more context lines around the error
+    max_frames=10,              # Limit very deep stacks (default is 100)
+    indent_guides=True,         # Visual indentation guides
+    locals_max_length=10,       # Limit local var representation length
+    locals_max_string=80,       # Limit string local var length
+    locals_hide_dunder=True,    # Hide __dunder__ variables in locals
+    locals_hide_sunder=True,    # Hide _private variables in locals
+    suppress=[],                # You can add modules to suppress here
+)
 
 class ContextualFilter(logging.Filter):
     def render(
@@ -42,15 +59,15 @@ class ContextualFilter(logging.Filter):
         table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(style="log.time")
         table.add_column(style="log.level", width=self.level_width)
-        
+
         # New column for our prefix
         table.add_column(style="log.level")
-        
+
         table.add_column(ratio=1, style="log.message", overflow="fold")
 
         # For multiline messages, render on a new line
         is_multiline = "\n" in message_renderable.plain
-        
+
         if is_multiline:
             table.add_row(
                 self.render_time(log_time, time_format),
@@ -85,34 +102,59 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
+    def __init__(self, *kargs, print_path=False, **kwargs):
+        super().__init__(*kargs, **kwargs)
+        self.print_path = print_path
+
     def render_message(self, record: logging.LogRecord, message: str):
         """
         Renders the log message with a prefix containing the caller's context.
         """
-        classname = getattr(record, "classname", None)
-        if classname:
-            prefix = f"({classname}.{record.funcName})"
-        else:
-            filename = os.path.basename(record.pathname).replace(".py", "")
-            prefix = f"({filename}.{record.funcName})"
 
-        # Style the prefix to be dimmed
-        prefix_text = f"[dim]{prefix}:[/dim]"
+        path = ""
+        if self.print_path:
+            classname = getattr(record, "classname", None)
+            if classname:
+                path = f"({classname}.{record.funcName})"
+            else:
+                filename = os.path.basename(record.pathname).replace(".py", "")
+                path = f"({filename}.{record.funcName})"
+
+            path = f"[dim]{path}:[/dim]"
 
         # For multiline messages, place them on a new line after the prefix
-        if "\n" in message:
-            return Text.from_markup(f"{prefix_text}\n{message}")
+        msg = None
+        if isinstance(record.msg, str):
+            msg = record.msg
+        elif isinstance(record.msg, Table):
+            msg = PrintedText(record.msg).markup
+        elif isinstance(record.msg, Text):
+            msg = record.msg.markup
+        elif isinstance(record.msg, RenderableType):
+            msg = str(record.msg)
+        elif isinstance(record.msg, Panel):
+            msg = str(record.msg)
         else:
-            return Text.from_markup(f"{prefix_text} {message}")
+            # raise ValueError(f"Unsupported message type: {type(record.msg)}")
+            msg = PrintedText(record.msg).markup
+
+        assert msg is not None
+
+        if self.print_path and "\n" in msg:
+            return Text.from_markup(f"{path}\n{msg}")
+        else:
+            return Text.from_markup(f"{msg}")
 
 
 def setup_logging(
     level: str = "DEBUG",
+    print_path: bool = True
 ) -> None:
     """
     Setup basic logging configuration for the errloom package.
 
     Args:
+        :param print_path:
         :param level: The logging level to use. Defaults to "DEBUG".
     """
 
@@ -125,7 +167,7 @@ def setup_logging(
 
     # Create a RichHandler
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True)
+        handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True, print_path=print_path)
         handler.addFilter(ContextualFilter())
         logger.addHandler(handler)
 

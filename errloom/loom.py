@@ -138,13 +138,14 @@ class Loom(ABC):
 
             return rollouts
 
-        coro = run_rows()
-        loop = asyncio.new_event_loop()
-        setup_executor(loop)
-        asyncio.set_event_loop(loop)
+
         # TODO this used to be try/catch, but do we really want to fail safely here? are there cases where it would randomly fail for just one random instance? usually it's better to let it blow up early and make the code more stable for the future
-        rollouts = Rollouts(loop.run_until_complete(coro))
-        loop.close()
+        evloop = asyncio.new_event_loop()
+        setup_executor(evloop)
+        asyncio.set_event_loop(evloop)
+        coro = run_rows() # TOOD this used to be before evloop, but I bet we can but it here
+        rollouts = Rollouts(evloop.run_until_complete(coro))
+        evloop.close()
         asyncio.set_event_loop(None)
         # try:
         # except RuntimeError:
@@ -158,19 +159,10 @@ class Loom(ABC):
 
         rollouts.max_concurrent = self.max_concurrent
 
-        # TODO decide what we wanna do, probably just delete and leave it up to implementator
-        # self.attractor.feels(rollouts)
-
-        # ---------------------------------------
-
-        print(f"Received {len(rollouts.rollouts)} rollouts:")
-        for rollout in rollouts.rollouts:
-            print("")
-            print(rollout)
-
-        print("")
-        print("-" * 60)
-        print()
+        if self.dry:
+            logger.info(f"Received {len(rollouts.rollouts)} rollouts:")
+            for rollout in rollouts.rollouts:
+                logger.info(rollout)
 
         return rollouts
 

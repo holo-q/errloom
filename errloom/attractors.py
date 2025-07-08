@@ -62,8 +62,8 @@ class BingoAttractor(Attractor):
 
         return None
 
-    def __holo_end__(self):
+    def __holo_end__(self, holophore:Holophore, span:ClassSpan):
         """
         Called at the end of the holoware execution.
         """
-        logger.debug(f"BingoAttractor finished for span {self.span.uuid}")
+        logger.debug(f"BingoAttractor finished for span {span.uuid}")

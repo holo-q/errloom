@@ -52,7 +52,7 @@ class HolowareLoom(Loom):
         tb.add_row("Evaluator model", eval_model)
 
         logger.info(self.holoware.to_rich())
-        logger.info(PrintedText(tb))
+        logger.info(tb)
 
         super().__init__(
             train_data=dataset,
@@ -64,9 +64,8 @@ class HolowareLoom(Loom):
 
     def rollout(self, roll: Rollout):
         env = deepcopy(roll.row)
-        holophore = Holophore(self, roll, env)
-        self.holoware(holophore)
-        logger.info(PrintedText(holophore.to_rich()))
+        phore = self.holoware(Holophore(self, roll, env))
+        logger.info(PrintedText(phore.to_rich()))
         return roll
 
 # def generate(self,
