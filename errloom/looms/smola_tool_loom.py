@@ -7,15 +7,15 @@ from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan
 from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
-from errloom.parsers.smola_parser import SmolaParser
+from errloom.parsing.smola_parser import SmolaParser
 from errloom.hol.system_prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
 from errloom.attractors.smola_tool_attractor import SmolaToolAttractor
 from errloom.looms.multiturn_loom import MultiTurnLoom
 
 class SmolaToolLoom(MultiTurnLoom):
     def __init__(self,
-                 train_data: Dataset | None = None,
-                 bench_data: Dataset | None = None,
+                 data_train: Dataset | None = None,
+                 data_bench: Dataset | None = None,
                  tools: List[Any] = [],
                  system_prompt: str = DEFAULT_TOOL_PROMPT_TEMPLATE,
                  few_shot: MessageList = [],
@@ -25,15 +25,15 @@ class SmolaToolLoom(MultiTurnLoom):
         tool_descriptions = self._format_tool_descriptions(tools)
         formatted_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
         super().__init__(
-            roll_dataset=train_data,
-            eval_dataset=bench_data,
+            roll_dataset=data_train,
+            eval_dataset=data_bench,
             system_prompt=formatted_prompt,
             few_shot=few_shot,
             mask_env_response=mask_env_response,
             max_turns=max_turns,
             **kwargs
         )
-        self.dataset_name = train_data
+        self.dataset_name = data_train
         self.max_turns = max_turns
         self.tools = {tool.name: tool for tool in tools}
         self.attractor = SmolaToolAttractor(tools=tools)

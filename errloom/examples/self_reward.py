@@ -2,6 +2,8 @@ import verifiers as vf
 from openai import OpenAI
 from datasets import load_dataset
 
+import errloom.defaults
+
 model_name = "Qwen/Qwen2.5-7B-Instruct" # lol
 judge_prompt = "Q: {question}\nA: {answer}\nGiven: {response}\nRespond with a reward between 0.0 and 1.0."
 attractor = vf.CorrectnessAttractor(client=OpenAI(base_url="http://localhost:8000"), model=model_name, judge_prompt=judge_prompt)
@@ -11,5 +13,5 @@ vf_loom = vf.SingleTurnLoom(
     attractor=attractor
 )
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
-trainer = vf.GRPOTrainer(loom=vf_loom, model=model, processing_class=tokenizer, args=vf.grpo_defaults(run_name="self_reward"))
+trainer = vf.GRPOTrainer(loom=vf_loom, model=model, tokenizer=tokenizer, args=errloom.defaults.grpo_defaults(name="self_reward"))
 trainer.train()

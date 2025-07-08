@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Callable, Tuple
 from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
 from errloom.looms.multiturn_loom import MultiTurnLoom
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 from errloom.hol.system_prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
 from errloom.attractors import ToolUserAttractor
 

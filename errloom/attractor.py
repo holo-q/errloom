@@ -7,7 +7,7 @@ from typing import Callable, List
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan
-from errloom.parsers.parser import Parser
+from errloom.parsing.parser import Parser
 from errloom.rollout import Rollout, Rollouts
 
 FnRule = Callable[..., float]
@@ -104,64 +104,6 @@ class Attractor:
                 return 0.0
 
 
-    async def _evaluate_single(self, semaphore, rollout: Rollout):
-        async with semaphore:
-            self.feel(rollout)
-
-    async def _evaluate_all(self, rollouts: Rollouts, max_concurrent: int = 1024):
-        from tqdm.asyncio import tqdm
-        semaphore = Semaphore(max_concurrent)
-        tasks = [
-            asyncio.create_task(self._evaluate_single(semaphore, rollout))
-            for rollout in rollouts.rollouts
-        ]
-
-        for future in tqdm.as_completed(
-            tasks,
-            total=len(rollouts.rollouts),
-            desc=f"Evaluating {len(rollouts.rollouts)} rollouts"
-        ):
-            await future
-
-    def feels(self, rollouts: Rollouts):
-        """
-        Compute attraction gravities for a group of rollouts.
-
-        Default behavior:
-        - evaluate each rollout asynchronously
-        - return list of dictionaries of attraction rule names and their gravities
-
-        Potential overrides:
-        - inter-group comparisons (voting, ranking, Elo, etc.)
-        - gravities computed using global state stored in Attractor class
-        :param rollouts:
-        """
-
-        # Set up custom executor for the event loop if needed
-        def setup_executor(loop):
-            if loop._default_executor is None:
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=rollouts.max_concurrent)
-                loop.set_default_executor(executor)
-
-        coro = self._evaluate_all(rollouts, max_concurrent=rollouts.max_concurrent)
-        try:
-            # Create new event loop with custom executor
-            loop = asyncio.new_event_loop()
-            setup_executor(loop)
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(coro)
-            finally:
-                loop.close()
-                asyncio.set_event_loop(None)
-        except RuntimeError:
-            # Jupyter notebook or existing event loop
-            import nest_asyncio
-            nest_asyncio.apply()
-            loop = asyncio.get_running_loop()
-            setup_executor(loop)
-            return loop.run_until_complete(coro)
-
     def feel(self, rollout: Rollout) -> dict[str, float] | float:
         """
         Evaluate all attraction functions asynchronously for a single rollout.
@@ -174,4 +116,40 @@ class Attractor:
         gravities = asyncio.get_event_loop().run_until_complete(asyncio.gather(*futures))
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
+
+    def feels(self, tapestry: Rollouts):
+        """
+        Compute attraction gravities for a group of rollouts.
+
+        Default behavior:
+        - evaluate each rollout asynchronously
+        - return list of dictionaries of attraction rule names and their gravities
+
+        Potential overrides:
+        - inter-group comparisons (voting, ranking, Elo, etc.)
+        - gravities computed using global state stored in Attractor class
+        :param tapestry:
+        """
+
+        async def _evaluate_single(semaphore, rollout: Rollout):
+            async with semaphore:
+                self.feel(rollout)
+
+        async def _evaluate_all(tapestry: Rollouts, max_concurrent: int = 1024):
+            from tqdm.asyncio import tqdm
+            semaphore = Semaphore(max_concurrent)
+            tasks = [
+                asyncio.create_task(_evaluate_single(semaphore, rollout))
+                for rollout in tapestry.rollouts
+            ]
+
+            for future in tqdm.as_completed(
+                tasks,
+                total=len(tapestry.rollouts),
+                desc=f"Evaluating {len(tapestry.rollouts)} rollouts"
+            ):
+                await future
+
+        coro = _evaluate_all(tapestry, max_concurrent=tapestry.max_concurrent)
+        asyncio.get_running_loop().run_until_complete(coro)
 

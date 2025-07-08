@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 
-from errloom.parsers import Parser
+from errloom.parsing import Parser
 from errloom.attractor import Attractor
 
 DEFAULT_JUDGE_PROMPT = """Given a ground truth answer \

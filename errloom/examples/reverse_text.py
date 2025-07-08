@@ -1,6 +1,8 @@
 from datasets import load_dataset
 import verifiers as vf
 
+import errloom.defaults
+
 #model = 'Qwen/Qwen2.5-1.5B-Instruct'
 """
 inference:
@@ -48,10 +50,10 @@ vf_loom = vf.SingleTurnLoom(
     parser=parser,
     attractor=attractor
 )
-args = vf.grpo_defaults(run_name='reverse_text_warmup')
-args.num_iterations = 2
+args = errloom.defaults.grpo_defaults(name='reverse_text_warmup')
+args.num_accum = 2
 args.per_device_train_batch_size = 10
-args.num_generations = 10
+args.num_rows = 10
 args.gradient_accumulation_steps = 4
 args.eval_strategy = "steps"
 args.eval_steps = 10
@@ -60,7 +62,7 @@ args.max_steps = 100
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
 trainer = vf.GRPOTrainer(
     model=model,
-    processing_class=tokenizer,
+    tokenizer=tokenizer,
     loom=vf_loom,
     #peft_config=vf.lora_defaults(),
     args=args

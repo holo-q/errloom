@@ -8,7 +8,7 @@ nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 import textarena as ta
 
 from errloom.looms.multiturn_loom import MultiTurnLoom
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 from errloom.attractors import Attractor
 
 

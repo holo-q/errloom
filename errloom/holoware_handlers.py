@@ -1,15 +1,16 @@
 import logging
 
 from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan
+from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, SampleSpan
 from errloom.rollout import Context
 
 logger = logging.getLogger(__name__)
 
-class HolowareHandler:
+# noinspection PyUnusedLocal
+class HolowareHandlers:
     @classmethod
-    def SamplerSpan(cls, holophore, span):
-        sample = holophore.sample(holophore.rollout)
+    def SamplerSpan(cls, phore:Holophore, span:SampleSpan):
+        sample = phore.sample(phore.rollout)
         if sample:
             # If the SamplerSpan has a fence attribute, wrap the response in fence tags
             if span.goal:
@@ -17,10 +18,7 @@ class HolowareHandler:
             else:
                 text = sample
 
-            if holophore.context.messages and holophore.context.messages[-1]['role'] == 'assistant':
-                holophore.context.messages[-1]['content'] += '\n' + text
-            else:
-                holophore.context.messages.append({'role': 'assistant', 'content': text})
+            phore.add_text('assistant', text)
 
     @classmethod
     def ContextResetSpan(cls, phore:Holophore, span:ContextResetSpan):
@@ -39,7 +37,6 @@ class HolowareHandler:
         Class = phore.env.get(ClassName)
         if not Class:
             from errloom.discovery import get_class
-
             Class = get_class(ClassName)
 
         if not Class:
@@ -47,19 +44,16 @@ class HolowareHandler:
             logger.error(f"Class '{ClassName}' not found for __holo__ call.")
             return
 
-        try:
-            result = None
-            inst = phore.context.holofunc_targets.get(span.uuid, None)
-            if inst:
-                # TODO extract to _call_class_init
-                result = phore.call_holofunc(inst, '__holo__', *_get_holofunc_args(span), optional=False)
+        injection = cls.invoke_holo(phore, span)
+        phore.add_text(injection)
+        # try:
+        # except Exception as e:
+        #     logger.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
 
-            # TODO what is this doing
-            if isinstance(result, list) and all(isinstance(m, dict) and 'role' in m for m in result):
-                phore.context.messages.extend(result)
-            elif result is not None:
-                if 'holo_results' not in phore.extra:
-                    phore.extra['holo_results'] = []
-                phore.extra['holo_results'].append({span.class_name: result})
-        except Exception as e:
-            logger.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
+    @classmethod
+    def invoke_holo(cls, phore:Holophore, span:SampleSpan) -> str:
+        logger.info(phore.span_bindings)
+        inst = phore.span_bindings.get(span.uuid, None)
+        assert inst
+        result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)
+        return result or ""

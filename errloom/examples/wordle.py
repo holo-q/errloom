@@ -1,4 +1,6 @@
 import verifiers as vf
+
+import errloom.defaults
 from errloom.looms.textarena_loom import TextArenaLoom
 
 """
@@ -25,19 +27,19 @@ vf_loom = TextArenaLoom(
 )
 
 run_name = f"wordle-grpo-{size}"
-training_args=vf.grpo_defaults(run_name=run_name)
-training_args.num_iterations=1
+training_args= errloom.defaults.grpo_defaults(name=run_name)
+training_args.num_accum=1
 training_args.per_device_train_batch_size=8
-training_args.num_generations=16
+training_args.num_rows=16
 training_args.gradient_accumulation_steps=6
-training_args.max_prompt_length=1024
+training_args.max_context_size=1024
 training_args.max_completion_length=3072
 training_args.max_steps=100
 training_args.mask_env_responses=True
 
 trainer = vf.GRPOTrainer(
     model=model,
-    processing_class=tokenizer,
+    tokenizer=tokenizer,
     loom=vf_loom,
     args=training_args,
 )

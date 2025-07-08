@@ -12,13 +12,13 @@ class QuestionAnswerLoom(Loom):
     """
 
     def __init__(self,
-                 train_data: Dataset | None = None,
-                 bench_data: Dataset | None = None,
+                 data_train: Dataset | None = None,
+                 data_bench: Dataset | None = None,
                  question_key: str = "question",
                  answer_key: str = "answer",
                  few_shot: list[dict[str, Any]] | None = None,
                  **kwargs: Any):
-        super().__init__(train_data=train_data, bench_data=bench_data, **kwargs)
+        super().__init__(data_train=data_train, data_bench=data_bench, **kwargs)
 
         if few_shot is None:
             few_shot = []
@@ -36,8 +36,8 @@ class QuestionAnswerLoom(Loom):
                     'Please use message_type="chat" instead, or pre-format your dataset ' \
                     'to contain "prompt" and "answer" columns.'
                 )
-            self.dataset = train_data
-            self.eval_dataset = bench_data
+            self.dataset = data_train
+            self.eval_dataset = data_bench
 
 
     def format_prompt(self,

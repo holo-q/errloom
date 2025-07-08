@@ -116,7 +116,7 @@ class EgoSpan(HoloSpan):
     ego: str = ""
 
 @dataclass
-class SamplerSpan(HoloSpan):
+class SampleSpan(HoloSpan):
     """Sample tokens from the model"""
     goal: str = ""
     fence: str = ""
@@ -156,6 +156,8 @@ class Holoware:
     Structured representation of a parsed prompt template from the DSL.
     Contains a sequence of spans that define the entire prompt and its metadata.
     """
+    code: str = None
+    filepath: str = None
     spans: list[HoloSpan] = field(default_factory=list)
     span_by_uuid: dict[str, HoloSpan] = field(default_factory=dict)
 
@@ -181,6 +183,95 @@ class Holoware:
                     contexts.append(current)
 
         return contexts
+    def first_span_by_type(self, SpanType) -> HoloSpan:  # TODO can we annotate that the return type is of SpanType? it's basically a generic we want....
+        for span in self.spans:
+            if isinstance(span, SpanType):
+                return span
+        raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
+
+    def __call__(self, phore: "Holophore"):
+        from errloom.rollout import Context
+        from errloom.holoware_handlers import HolowareHandlers
+
+        # it is require since up above its only imported for type_checking whith ""
+        # it is literally the case that both pyright and pycharm's own inspections
+        # simply miss this and do not understand it. Behold the failures of modern
+        # software engineering:
+        # noinspection PyUnresolvedReferences
+        from errloom.holophore import Holophore  # noqa: F401
+        
+
+        logger.debug(f"Running {self}")
+
+        # holophore = Holophore(loom, roll, env)
+        phore.contexts.append(Context())
+
+        # --- Lifecycle: Start ---
+
+        for span in self.spans:
+            if isinstance(span, ClassSpan):
+                ClassName = span.class_name
+                Class = phore.env.get(ClassName)
+                if not Class:
+                    from errloom.discovery import get_class
+                    Class = get_class(ClassName)
+
+                if not Class:
+                    logger.error(f"Class '{ClassName}' not found in environment or registry.")
+                    phore.errors += 1
+                    continue
+
+                if getattr(Class, '_is_holostatic', False):
+                    phore.span_bindings[span.uuid] = Class
+                else:
+                    # TODO extract to call_class_init (formalizes the api)
+                    kspan, kwspan = phore.get_holofunc_args(span)
+                    inst = phore.invoke(Class, '__init__', span.args, kwspan, optional=False)
+                    phore.span_bindings[span.uuid] = inst
+
+                    # TODO extract to call_class_init (formalizes the api)
+                    inst_after_init = phore.invoke(inst, '__holo_init__', kspan, kwspan)
+                    if inst_after_init:
+                        phore.span_bindings[span.uuid] = inst_after_init
+
+        if phore.errors > 0:
+            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
+
+        # --- Lifecycle: Main ---
+        buf = phore.textbuf
+
+        for span in self.spans:
+            if isinstance(span, (TextSpan, ObjSpan)):
+                if isinstance(span, TextSpan):
+                    buf.append(span.text)
+                elif isinstance(span, ObjSpan):
+                    for var_id in span.var_ids:
+                        if var_id in phore.env:
+                            value = phore.env[var_id]
+                            buf.append(f"<obj id={var_id}>")
+                            buf.append(str(value))
+                            buf.append("</obj>")
+                            break
+                continue
+
+            phore.flush()
+
+            SpanClassName = type(span).__name__
+            logger.debug(f"-> {SpanClassName}({span})")
+            if SpanClassName in HolowareHandlers.__dict__:
+                getattr(HolowareHandlers, SpanClassName)(phore, span)
+
+        phore.flush()
+
+        # --- Lifecycle: End ---
+        for uid, target in phore.span_bindings.items():
+            if hasattr(target, '__holo_end__'):
+                span = self.span_by_uuid[uid]
+                # TODO extract to call_class_init (formalizes the api)
+                kspan, kwspan = phore.get_holofunc_args(span)
+                phore.invoke(target, '__holo_end__', kspan, kwspan)
+
+        return phore
 
     def _append_args_to_debug(self, text: Text, span: HoloSpan):
         """Append formatted var_args and var_kwargs to the rich text."""
@@ -193,6 +284,39 @@ class Holoware:
         if args_text:
             text.append(" | ", style="dim white")
             text.append(", ".join(args_text), style="magenta")
+
+    @classmethod
+    def parse(cls, content: str) -> "Holoware":
+        """
+        Parse a holoware DSL string into a Holoware object.
+
+        Args:
+            content: The holoware DSL string to parse
+
+        Returns:
+            A Holoware object representing the parsed template
+        """
+        from errloom.holoware_parse import HolowareParser
+        return HolowareParser(content).parse()
+
+
+    @classmethod
+    def load(cls, filepath: str) -> "Holoware":
+        """
+        Load and parse a holoware file.
+
+        Args:
+            filepath: Path to the holoware file
+
+        Returns:
+            A Holoware object representing the parsed template
+        """
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return cls.parse(content)
+    
+    def __repr__(self):
+        return f"Holoware({self.filepath})"
 
     def to_rich(self, indent_level=0) -> Text | Panel:
         """Format the prompt template spans for rich debug display."""
@@ -212,10 +336,10 @@ class Holoware:
             header.append(f"Spans: ", style="dim")
             header.append(f"{len(self.spans)}", style="cyan")
             header.append(" | ", style="dim")
-            header.append("Training Contexts: ", style="dim") 
+            header.append("Training Contexts: ", style="dim")
             header.append(f"{len(self.trained_contexts)}", style="cyan")
             header.append("\n")
-            
+
             text.append(header)
 
         processed_indices = set()
@@ -266,7 +390,7 @@ class Holoware:
 
                 text.append("\n")
 
-            elif isinstance(span, SamplerSpan):
+            elif isinstance(span, SampleSpan):
                 text.append("SamplerSpan (", style="bold green")
                 parts = []
                 if span.uuid:
@@ -312,122 +436,6 @@ class Holoware:
         # BUG it renders as   <rich.panel.Panel object at 0x7c8dc49ff380>   currently for some reason
         # else:
         #     return Panel(text, box=box.SIMPLE)
-
-    @classmethod
-    def parse(cls, content: str) -> "Holoware":
-        """
-        Parse a holoware DSL string into a Holoware object.
-
-        Args:
-            content: The holoware DSL string to parse
-
-        Returns:
-            A Holoware object representing the parsed template
-        """
-        from errloom.holoware_parse import HolowareParser
-        return HolowareParser(content).parse()
-
-    def __call__(self, phore: "Holophore"):
-        from errloom.rollout import Context
-        from errloom.holoware_handlers import HolowareHandler
-
-        # it is require since up above its only imported for type_checking whith ""
-        # it is literally the case that both pyright and pycharm's own inspections
-        # simply miss this and do not understand it. Behold the failures of modern
-        # software engineering:
-        # noinspection PyUnresolvedReferences
-        from errloom.holophore import Holophore  # noqa: F401
-
-        # holophore = Holophore(loom, roll, env)
-        phore.contexts.append(Context())
-
-        # --- Lifecycle: Start ---
-
-        for span in self.spans:
-            if isinstance(span, ClassSpan):
-                ClassName = span.class_name
-                Class = phore.env.get(ClassName)
-                if not Class:
-                    from errloom.discovery import get_class
-                    Class = get_class(ClassName)
-
-                if not Class:
-                    logger.error(f"Class '{ClassName}' not found in environment or registry.")
-                    phore.errors += 1
-                    continue
-
-                if getattr(Class, '_is_holostatic', False):
-                    phore.context.holofunc_targets[span.uuid] = Class
-                else:
-                    # TODO extract to call_class_init (formalizes the api)
-                    kspan, kwspan = phore.get_holofunc_args(span)
-                    inst = phore.call_holofunc(Class, '__init__', span.args, kwspan, optional=False)
-                    phore.context.holofunc_targets[span.uuid] = inst
-
-                    # try:
-                    # TODO extract to call_class_init (formalizes the api)
-                    inst_after_init = phore.call_holofunc(inst, '__holo_init__', kspan, kwspan)
-                    if inst_after_init:
-                        phore.context.holofunc_targets[span.uuid] = inst_after_init
-
-        if phore.errors > 0:
-            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
-
-        # --- Lifecycle: Main ---
-        buf = phore.textbuf
-
-        for span in self.spans:
-            if isinstance(span, (TextSpan, ObjSpan)):
-                if isinstance(span, TextSpan):
-                    buf.append(span.text)
-                elif isinstance(span, ObjSpan):
-                    for var_id in span.var_ids:
-                        if var_id in phore.env:
-                            value = phore.env[var_id]
-                            buf.append(f"<obj id={var_id}>")
-                            buf.append(str(value))
-                            buf.append("</obj>")
-                            break
-                continue
-
-            phore.flush()
-
-            SpanClassName = str(type(span))
-            if SpanClassName in HolowareHandler.__dict__:
-                HolowareHandler.__dict__[SpanClassName](phore, span)
-
-        phore.flush()
-
-        # --- Lifecycle: End ---
-        for uid, target in phore.context.holofunc_targets.items():
-            if hasattr(target, '__holo_end__'):
-                span = self.span_by_uuid[uid]
-                # TODO extract to call_class_init (formalizes the api)
-                kspan, kwspan = phore.get_holofunc_args(span)
-                phore.call_holofunc(target, '__holo_end__', kspan, kwspan)
-
-        return phore
-
-    @classmethod
-    def load(cls, filepath: str) -> "Holoware":
-        """
-        Load and parse a holoware file.
-
-        Args:
-            filepath: Path to the holoware file
-
-        Returns:
-            A Holoware object representing the parsed template
-        """
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return cls.parse(content)
-
-    def first_span_by_type(self, SpanType) -> HoloSpan:  # TODO can we annotate that the return type is of SpanType? it's basically a generic we want....
-        for span in self.spans:
-            if isinstance(span, SpanType):
-                return span
-        raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
 # def format_prompt(input: Union[Holoware, str, MessageListStr], **kwargs) -> Union[str, MessageListStr]:
 #     """Convenience function to format a prompt."""

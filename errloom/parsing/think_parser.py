@@ -1,7 +1,7 @@
 from typing import Callable
 
 from errloom.utils.openai_chat import MessageList
-from errloom.parsers import Parser
+from errloom.parsing import Parser
 
 
 class ThinkParser(Parser):

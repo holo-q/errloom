@@ -2,13 +2,12 @@ import logging
 from copy import deepcopy
 from typing import Optional
 
-from datasets import Dataset
 from rich import box
 from rich.table import Table
 
 from errloom import holoware_load
+from errloom.aliases import Data
 from errloom.holophore import Holophore
-from errloom.holoware_load import HolowareLoader
 from errloom.loom import Loom
 from errloom.rollout import Rollout
 from errloom.utils.log import PrintedText
@@ -32,13 +31,23 @@ class HolowareLoom(Loom):
     def __init__(
         self,
         path: str,
-        dataset: Dataset,
-        bench_data: Optional[Dataset] = None,
-        eval_model: str = "Qwen/Qwen2.5-7B-Instruct",
+        data: Optional[Data | str] = None,
+        data_bench: Optional[Data | str] = None,
+        data_train: Optional[Data | str] = None,
+        test_model: str = "Qwen/Qwen2.5-7B-Instruct",
         max_concurrent: int = 64,
         **kwargs
     ):
-        self.prompt_lib = HolowareLoader()
+        super().__init__(
+            data=data,
+            data_train=data_train,
+            data_bench=data_bench,
+            max_concurrent=max_concurrent,
+            message_type='chat',
+            **kwargs
+        )
+
+        self.prompt_lib = holoware_load.get_default_loader()
         self.holoware = holoware_load.load_holoware(path)
         self.message_type = 'completion'
 
@@ -47,20 +56,12 @@ class HolowareLoom(Loom):
         tb.add_column("Value", style="white")
 
         tb.add_row("Holoware path", path)
-        tb.add_row("Dataset size", str(len(dataset)))
+        tb.add_row("Dataset size", str(len(data)))
         tb.add_row("Max concurrent", f"{max_concurrent}")
-        tb.add_row("Evaluator model", eval_model)
+        tb.add_row("Test model", test_model)
 
-        logger.info(self.holoware.to_rich())
         logger.info(tb)
-
-        super().__init__(
-            train_data=dataset,
-            bench_data=bench_data,
-            max_concurrent=max_concurrent,
-            message_type='chat',
-            **kwargs
-        )
+        logger.info(self.holoware.to_rich())
 
     def rollout(self, roll: Rollout):
         env = deepcopy(roll.row)

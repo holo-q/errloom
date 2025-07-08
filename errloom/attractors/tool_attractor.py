@@ -2,7 +2,7 @@ import json
 from typing import Callable, List
 
 from errloom.utils.openai_chat import MessageList
-from errloom.parsers import Parser, XMLParser
+from errloom.parsing import Parser, XMLParser
 from errloom.attractor import Attractor
 from errloom.utils.eval_utils import evaluate_code
 

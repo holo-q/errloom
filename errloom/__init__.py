@@ -1,22 +1,21 @@
-import torch._dynamo
+__version__ = "0.1.0"
 
-from errloom.argp import errloom_args
+
+from errloom.argp import errlargs
 from errloom.comm import CommModel
 from errloom import discovery
 from errloom.attractor import Attractor
+from errloom.holoware import HoloSpan
 from errloom.loom import Loom
 from errloom.utils.log import setup_logging
 
-torch._dynamo.config.suppress_errors = True  # type: ignore
-__version__ = "0.1.0"
-
 setup_logging(
-    level=errloom_args.log_level,
-    print_path=errloom_args.log_more)
+    level=errlargs.log_level,
+    print_path=errlargs.log_more)
 
 discovery.crawl_package(
     'errloom',
-    base_classes=[Attractor, Loom, CommModel],
+    base_classes=[Attractor, Loom, CommModel, HoloSpan],
     check_has_attr=['__holo__']
 )
 

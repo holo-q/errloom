@@ -31,7 +31,9 @@ def crawl_package(
     if package_name in _crawled_packages:
         return
 
-    from errloom import Attractor, CommModel, Loom
+    from errloom.loom import Loom
+    from errloom.comm import CommModel
+    from errloom.attractor import Attractor
     DEFAULT_CLASSES = [Loom, CommModel, Attractor]  # TODO HoloFunca
 
     base_classes = base_classes or []
@@ -95,3 +97,4 @@ def get_all_classes() -> Dict[str, Type[Any]]:
     Returns the entire class registry.
     """
     return _class_registry.copy()
+

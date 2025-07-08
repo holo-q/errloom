@@ -4,7 +4,7 @@ Few-shot examples for verifiers.
 NOTE: We recommend leveraging SFT warmup rather than few-shot examples.
 """
 
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 
 math_parser = XMLParser(fields=["reasoning", "answer"])
 MATH_FEW_SHOT = [

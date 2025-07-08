@@ -1,4 +1,6 @@
 import verifiers as vf
+
+import errloom.defaults
 from errloom.utils.data_utils import load_example_dataset, extract_boxed_answer
 
 """
@@ -42,13 +44,13 @@ model_name = "willcb/Qwen3-0.6B"
 run_name = "gsm8k-grpo_" + model_name.split("/")[-1].lower()
 
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
-training_args=vf.grpo_defaults(run_name=run_name)
+training_args= errloom.defaults.grpo_defaults(name=run_name)
 
 training_args.per_device_train_batch_size=18
-training_args.num_generations=18
+training_args.num_rows=18
 training_args.gradient_accumulation_steps=8
-training_args.num_iterations=1
-training_args.max_prompt_length=512
+training_args.num_accum=1
+training_args.max_context_size=512
 training_args.max_completion_length=2048
 training_args.max_steps=100
 training_args.save_strategy="steps"
@@ -57,10 +59,10 @@ training_args.save_total_limit=10
 
 trainer = vf.GRPOTrainer(
     model=model,
-    processing_class=tokenizer,
+    tokenizer=tokenizer,
     loom=vf_loom,
     args=training_args,
-    peft_config=vf.lora_defaults()
+    peft_config=errloom.defaults.lora_defaults()
 )
 trainer.train()
 

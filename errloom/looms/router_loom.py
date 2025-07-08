@@ -117,8 +117,8 @@ class RouterLoom(Loom):
 
         # initialize parent Loom
         super().__init__(
-            train_data=dataset,
-            bench_data=eval_dataset,
+            data_train=dataset,
+            data_bench=eval_dataset,
             attractor=attractor,
             **kwargs
         )

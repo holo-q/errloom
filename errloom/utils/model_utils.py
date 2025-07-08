@@ -1,10 +1,14 @@
 from importlib.util import find_spec
-from typing import Dict, Any, Union, Tuple, Callable
+from typing import Any, Callable, Dict, Tuple, Union
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer # type: ignore
-
 import torch.nn as nn
+from datasets import IterableDataset, load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
+
+from errloom.aliases import Data
+
+data_cache: dict[str, Data] = dict()
 
 class _ForwardRedirection:
     """Implements the `forward-redirection`.
@@ -68,11 +72,11 @@ def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[
         )
     if is_liger_available() and use_liger:
         print("Using Liger kernel")
-        from liger_kernel.transformers import AutoLigerKernelForCausalLM # type: ignore
+        from liger_kernel.transformers import AutoLigerKernelForCausalLM  # type: ignore
         return AutoLigerKernelForCausalLM.from_pretrained(model_name, **model_kwargs)
     else:
         return AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-    
+
 def get_tokenizer(model_name: str) -> Any:
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if not hasattr(tokenizer, "chat_template"):
@@ -80,8 +84,23 @@ def get_tokenizer(model_name: str) -> Any:
                             and could not find a tokenizer with the same name as the model with suffix \
                             '-Instruct'. Please provide a tokenizer with the chat_template attribute.")
     return tokenizer
-            
-def get_model_and_tokenizer(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[str, Any], None] = None) -> Tuple[Any, Any]:
-    model = get_model(model_name, use_liger, model_kwargs)
-    tokenizer = get_tokenizer(model_name)
+
+
+def get_model_and_tokenizer(name: str, use_liger: bool = True, model_kwargs: Union[Dict[str, Any], None] = None) -> Tuple[Any, Any]:
+    model = get_model(name, use_liger, model_kwargs)
+    tokenizer = get_tokenizer(name)
     return model, tokenizer
+
+
+def load_data(data):
+    if isinstance(data, str):
+        if data in data_cache:
+            return data_cache[data]
+        data = load_dataset(data, split='train', streaming=True)
+        if not isinstance(data, IterableDataset):
+            raise f"[red]❌ Expected an IterableDataset for streaming, but got {type(data)}.[/red]"
+        return data
+    return data
+
+def clear_cache():
+    data_cache.clear()

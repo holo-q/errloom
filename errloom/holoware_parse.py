@@ -7,7 +7,7 @@ from typing import Dict, Optional, Tuple
 from rich.panel import Panel
 
 from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan, ContextResetSpan, HoloSpan, Holoware, ObjSpan, EgoSpan, SamplerSpan, TextSpan
+from errloom.holoware import ClassSpan, ContextResetSpan, HoloSpan, Holoware, ObjSpan, EgoSpan, SampleSpan, TextSpan
 from errloom.utils.log import PrintedText
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _create_role_or_sampler_span(base_tag, node_attrs, positional_args) -> list[
     spans = []
     if has_sampler_attrs:
         spans.append(EgoSpan(ego=role))
-        sampler_span = SamplerSpan(uuid=node_id.strip())
+        sampler_span = SampleSpan(uuid=node_id.strip())
         sampler_span.apply_arguments(node_attrs, {}, positional_args)
         spans.append(sampler_span)
     else:
@@ -275,7 +275,7 @@ class HolowareParser:
                     role = span.ego
                 elif isinstance(span, ContextResetSpan):
                     role = None  # Context resets clear the current role.
-                elif not role and isinstance(span, (SamplerSpan, ObjSpan, ClassSpan)):
+                elif not role and isinstance(span, (SampleSpan, ObjSpan, ClassSpan)):
                     raise ValueError(f"Cannot have {type(span).__name__} before a role.")
 
                 # Merge consecutive text spans for cleaner output.

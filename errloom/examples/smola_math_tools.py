@@ -1,6 +1,8 @@
 from datasets import concatenate_datasets
 
 import verifiers as vf
+
+import errloom.defaults
 from errloom.utils import load_example_dataset
 from errloom.prompts.system_prompts import MATH_SMOLA_PROMPT_TEMPLATE
 from errloom.prompts.few_shots import CALCULATOR_SMOLA_FEW_SHOTS
@@ -39,8 +41,8 @@ python_tool = PythonInterpreterTool(authorized_imports=["math", "sympy", "numpy"
 calculator_tool = CalculatorTool()
 
 vf_loom = SmolaToolLoom(
-    train_data=dataset,
-    bench_data=eval_dataset,
+    data_train=dataset,
+    data_bench=eval_dataset,
     system_prompt=MATH_SMOLA_PROMPT_TEMPLATE,
     few_shot=CALCULATOR_SMOLA_FEW_SHOTS,
     tools=[python_tool, calculator_tool],
@@ -52,10 +54,10 @@ model_name = "Qwen/Qwen2.5-7B-Instruct"
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
 run_name = "math-smola-grpo_" + model_name.split("/")[-1].lower()
 
-args = vf.grpo_defaults(run_name=run_name)
+args = errloom.defaults.grpo_defaults(name=run_name)
 trainer = vf.GRPOTrainer(
     model=model,
-    processing_class=tokenizer,
+    tokenizer=tokenizer,
     loom=vf_loom,
     args=args,
 )

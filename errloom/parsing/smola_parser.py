@@ -3,7 +3,7 @@ import json
 from typing import List, Dict, Any, Union, Tuple, Optional, Callable
 from types import SimpleNamespace
 
-from errloom.parsers import Parser
+from errloom.parsing import Parser
 
 class SmolaParser(Parser):
     def __init__(self, fields: List[Union[str, Tuple[str, ...]]]):

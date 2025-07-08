@@ -1,23 +1,30 @@
 import asyncio
 import concurrent.futures
-import logging
+import picologging as logging
+import typing
 from abc import ABC, abstractmethod
 from asyncio import Semaphore
 from copy import deepcopy
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
+from datasets import Dataset, IterableDataset
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 from errloom.aliases import Data
+from errloom.argp import errlargs
+from errloom.utils.model_utils import load_data
+from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
 from errloom.rollout import Rollout, Rollouts
+from errloom.utils.log import LogContext
 
-DEFAULT_MAX_CONCURRENT = 512
-DATASET_MAX_CONCURRENT = 32
-
-logger = logging.getLogger(__file__)
+if typing.TYPE_CHECKING:
+    import torch.nn
+    import transformers
 
 # noinspection PyDefaultArgument
+
 class Loom(ABC):
     """
     The loom is a machine to process a batch of entry data.
@@ -34,26 +41,90 @@ class Loom(ABC):
     """
 
     def __init__(self,
+                 model: str | Tuple[str, 'torch.nn.Module'] = None,
+                 tokenizer: str | Tuple[str, 'transformers.PreTrainedTokenizer'] = None,
                  client: OpenAI | None = None,
-                 model: str | None = None,
-                 data: Optional[Data] = None,
-                 train_data: Optional[Data] = None,
-                 bench_data: Optional[Data] = None,
-                 system_prompt: str | None = None,
-                 sampling_args: Dict[str, Any] = {},
-                 max_concurrent: int = DEFAULT_MAX_CONCURRENT,
+                 client_args: Dict[str, Any] = {},
                  message_type: Literal['chat', 'completion'] = 'chat',
-                 dry: bool = False,
-                 **kwargs: Any):
+                 data: Optional[Data | str] = None,
+                 data_train: Optional[Data | str] = None,
+                 data_bench: Optional[Data | str] = None,
+                 data_split: Optional[float] = None,
+                 max_concurrent: int = DEFAULT_MAX_CONCURRENT,
+                 dry: bool = False):
+        self.trainer: Optional['GRPOTrainer'] = None
         self.client = client or MockClient()
-        self.model = model or "mock-model"
+        self.client_args = {
+            **client_args,
+            'n':          1,  # n > 1 not supported; use duplicate prompts for multiple completions
+            'extra_body': {
+                'skip_special_tokens':           False,
+                'spaces_between_special_tokens': False,
+            }
+        }
         self.message_type: Literal['chat', 'completion'] = message_type
         self.max_concurrent = max_concurrent
-        self.data = data
-        self.train_data = train_data
-        self.bench_data = bench_data
-        self.system_prompt = system_prompt  # optional; environments can use this or do their own thing
+        self.data = load_data(data)
         self.dry = dry
+        self.logger = logging.getLogger(f'errloom.looms.{self.__class__.__name__}')
+
+        # Split the base dataset so train & bench don't see the same thing (50:50 by default)
+        if data_split is not None and data == data_train and data == data_bench:
+            base = self.data
+            if isinstance(base, Dataset):
+                sz = len(base)
+                sz1 = int(sz * data_split)
+                data1 = base.select(range(sz1))
+                data2 = base.select(range(sz1, sz))
+                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
+            elif isinstance(base, IterableDataset):
+                self.logger.error("[yellow]⚠ Dataset is iterable, taking first 1500 items.[/]")
+                items = list(base.take(1500))
+                split_idx = int(len(items) * data_split)
+                data1 = Dataset.from_list(items[:split_idx])
+                data2 = Dataset.from_list(items[split_idx:])
+                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
+            else:
+                raise TypeError(f"Cannot process dataset of type {type(base)}")
+        else:
+            self.data_train = load_data(data_train or data)
+            self.data_bench = load_data(data_bench or data)
+
+        if isinstance(model, Tuple):
+            self.model_name = model[0]
+            self.model = model[1]
+        elif isinstance(model, str):
+            from errloom.utils.model_utils import get_model
+            self.model_name = model
+            self.model, _ = get_model(model) if not dry else None
+
+        if isinstance(tokenizer, Tuple):
+            self.tokenizer = tokenizer[0]
+            self.tokenizer_name = tokenizer[1]
+        elif isinstance(tokenizer, str):
+            from errloom.utils.model_utils import get_tokenizer
+            self.tokenizer_name = model
+            _, self.tokenizer = get_tokenizer(model) if not dry else None
+
+        if not dry:
+            with LogContext("👟 Initializing trainer...", "✓ Trainer ready", logger=self.logger):
+                from errloom.training.grpo_trainer import GRPOTrainer
+                from errloom.defaults import grpo_defaults
+                assert self.model
+                assert self.tokenizer
+                self.trainer = GRPOTrainer(model=self.model, tokenizer=self.tokenizer, args=grpo_defaults(name=model[0]))
+
+
+        valid_data = self.data or self.data_train and self.data_bench
+        if not valid_data:
+            raise ValueError('Either data or data_train & data_bench must be provided.')
+
+        # TODO not sure what this is
+        if client_args is not None and 'extra_body' in client_args:
+            self.client_args['extra_body'].update(client_args['extra_body'])
+        for k, v in client_args.items():
+            if k != 'extra_body':
+                self.client_args[k] = v
 
         # Ensure asyncio.to_thread doesn't hit default 32 thread limit
         try:
@@ -64,24 +135,6 @@ class Loom(ABC):
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent)
             loop.set_default_executor(executor)
 
-        self.client_args = {
-            'n':          1,  # n > 1 not supported; use duplicate prompts for multiple completions
-            'extra_body': {
-                'skip_special_tokens':           False,
-                'spaces_between_special_tokens': False,
-            },
-        }
-        if sampling_args is not None and 'extra_body' in sampling_args:
-            self.client_args['extra_body'].update(sampling_args['extra_body'])
-        for k, v in sampling_args.items():
-            if k != 'extra_body':
-                self.client_args[k] = v
-        self.logger = logging.getLogger(f'errloom.looms.{self.__class__.__name__}')
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        if self.train_data is None and self.bench_data is None:
-            raise ValueError('Either dataset or eval_dataset must be provided')
 
     @abstractmethod
     def rollout(self, roll: Rollout) -> Rollout:
@@ -90,7 +143,19 @@ class Loom(ABC):
         """
         pass
 
-    def weave(self, rows: Data) -> Rollouts:
+    def take_data(self, n=None) -> Data:
+        if n is None:
+            n = errlargs.n
+
+        data = list(self.data.take(n))
+        if not data:
+            raise "[red]Not enough data in the training set to perform a dry run.[/red]"
+        if len(data) < n:
+            raise f"[yellow]Warning: Could only fetch {len(data)} samples for the dry run.[/yellow]"
+
+        return Dataset.from_list(data)
+
+    def weave(self, rows: Data | int = None) -> Rollouts:
         """
         Weave rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
@@ -101,15 +166,11 @@ class Loom(ABC):
         # sample_args = deepcopy(self.client_args)  # TODO this feels poor performance for no reason
         # sample_args.update(sampling_args)  # TODO we should probably configure this on the env beforehand
 
-        # if 'task' not in bag.column_names:
-        #     bag = bag.add_column('task', ['default'] * len(bag))  # type: ignore
-        # if 'info' not in bag.column_names:
-        #     bag = bag.add_column('info', ['default'] * len(bag))  # type: ignore
+        if rows is None or isinstance(rows, int):
+            rows = self.take_data(rows)
 
-        def setup_executor(loop):
-            if loop._default_executor is None:
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent)
-                loop.set_default_executor(executor)
+        assert isinstance(rows, Data)
+
 
         async def run_row(semaphore: Semaphore, state: Rollout) -> Rollout:
             """
@@ -132,49 +193,32 @@ class Loom(ABC):
                 rollouts.append(rollout)
                 rollout_tasks.append(run_row(semaphore, rollout))
 
-            logger.info(f'Running {len(rollout_tasks)} rollouts')
+            self.logger.info(f'Running {len(rollout_tasks)} rollouts')
             for f in asyncio.as_completed(rollout_tasks):
                 await f
 
             return rollouts
 
-
-        # TODO this used to be try/catch, but do we really want to fail safely here? are there cases where it would randomly fail for just one random instance? usually it's better to let it blow up early and make the code more stable for the future
-        evloop = asyncio.new_event_loop()
-        setup_executor(evloop)
-        asyncio.set_event_loop(evloop)
-        coro = run_rows() # TOOD this used to be before evloop, but I bet we can but it here
-        rollouts = Rollouts(evloop.run_until_complete(coro))
-        evloop.close()
-        asyncio.set_event_loop(None)
-        # try:
-        # except RuntimeError:
-        #     # Jupyter notebook or existing event loop
-        #     import nest_asyncio
-        #     nest_asyncio.apply()
-        #     loop = asyncio.get_running_loop()
-        #     # noinspection PyTypeChecker
-        #     setup_executor(loop)
-        #     rollouts = Rollouts(loop.run_until_complete(coro))
-
-        rollouts.max_concurrent = self.max_concurrent
+        tapestry = asyncio.get_running_loop().run_until_complete(run_rows())
+        tapestry = Rollouts(tapestry)
+        tapestry.max_concurrent = self.max_concurrent
 
         if self.dry:
-            logger.info(f"Received {len(rollouts.rollouts)} rollouts:")
-            for rollout in rollouts.rollouts:
-                logger.info(rollout)
+            self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
+            for rollout in tapestry.rollouts:
+                self.logger.info(rollout)
 
-        return rollouts
+        return tapestry
 
     def get_train_data(self, n: int = -1, seed: int = 0) -> Data | None:
-        if n > 0 and self.train_data is not None:
-            return self.train_data.shuffle(seed=seed).select(range(n))  # type: ignore
-        return self.train_data
+        if n > 0 and self.data_train is not None:
+            return self.data_train.shuffle(seed=seed).select(range(n))  # type: ignore
+        return self.data_train
 
     def get_bench_data(self, n: int = -1, seed: int = 0) -> Data | None:
-        if n > 0 and self.bench_data is not None:
-            return self.bench_data.shuffle(seed=seed).select(range(n))  # type: ignore
-        return self.bench_data
+        if n > 0 and self.data_bench is not None:
+            return self.data_bench.shuffle(seed=seed).select(range(n))  # type: ignore
+        return self.data_bench
 
     # def get_rule_funcs(self) -> List[FnRule]:
     #     return self.attractor.rule_funcs
@@ -201,14 +245,14 @@ class Loom(ABC):
         """
         # use class-level client and model if not provided
         assert self.client is not None
-        assert self.model is not None
+        assert self.model_name is not None
 
-        if self.bench_data is None:
+        if self.data_bench is None:
             self.logger.info('eval_dataset is not set, falling back to train dataset')
-            assert self.train_data is not None
-            inputs = self.train_data
+            assert self.data_train is not None
+            inputs = self.data_train
         else:
-            inputs = self.bench_data
+            inputs = self.data_bench
         if num_samples > 0:
             inputs = inputs.select(range(num_samples))
 
@@ -223,7 +267,7 @@ class Loom(ABC):
         Returns special error messages for context length issues.
         """
         client = self.client
-        model = self.model
+        model = self.model_name
 
         if sanitize_sampling_args:
             sanitized_args = self.sanitize_sampling_args(client, rollout.sampling_args)
@@ -232,20 +276,21 @@ class Loom(ABC):
 
         def _sample():
             try:
+                res: ChatCompletion
                 if self.message_type == 'chat':
                     assert isinstance(rollout.context.messages, list)
-                    response = client.chat.completions.create(model=model, messages=rollout.context.messages, **sanitized_args)
+                    res = client.chat.completions.create(model=model, messages=rollout.context.messages, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
-                    if response.choices[0].finish_reason == 'length':
+                    if res.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
-                    return response.choices[0].message.content  # type: ignore
+                    return res.choices[0].message.content  # type: ignore
                 elif self.message_type == 'completion':
                     assert isinstance(rollout.context.text, str)
-                    response = client.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
+                    res = client.chat.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
-                    if response.choices[0].finish_reason == 'length':
+                    if res.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
-                    return response.choices[0].text  # type: ignore
+                    return res.choices[0].message.content  # type: ignore
 
                 raise ValueError
             except Exception as e:
@@ -261,7 +306,7 @@ class Loom(ABC):
         return ret
 
     def make_dataset(self,
-                     results: Dict[str, Any] | None = None,
+                     tapestry: Dict[str, Any] | None = None,
                      push_to_hub: bool = False,
                      hub_name: str | None = None,
                      num_samples: int = -1,
@@ -270,38 +315,38 @@ class Loom(ABC):
         """
         Make a dataset from the evaluation results.
         """
-        if results is None and self.client is None:
-            raise ValueError('Either results or client must be provided')
+        if tapestry is None and self.client is None:
+            raise ValueError('Either tapestry or client must be provided')
         if push_to_hub and hub_name is None:
             raise ValueError('hub_name must be provided if push_to_hub is True')
 
-        if results is None:
+        if tapestry is None:
             assert self.client is not None
-            assert self.model is not None
-            results = self.test(num_samples)
+            assert self.model_name is not None
+            tapestry = self.test(num_samples)
 
         cols = ['prompt', 'completion', 'answer', 'gravity']
-        if results['task'][0] is not None:
+        if tapestry['task'][0] is not None:
             cols.append('task')
-        if 'state' in results:
+        if 'state' in tapestry:
             for col in state_columns:
-                if col in results['state'][0]:
-                    results[col] = [state[col] for state in results['state']]
+                if col in tapestry['state'][0]:
+                    tapestry[col] = [state[col] for state in tapestry['state']]
                     cols.append(col)
                 else:
                     self.logger.warning(f'Column {col} not found in state, skipping from dataset.')
         for col in extra_columns:
-            if col in results:
+            if col in tapestry:
                 cols.append(col)
             else:
-                self.logger.warning(f'Column {col} not found in results, skipping from dataset.')
-        dataset = Data.from_dict({col: results[col] for col in cols})
+                self.logger.warning(f'Column {col} not found in tapestry, skipping from dataset.')
+        dataset = Data.from_dict({col: tapestry[col] for col in cols})
         if push_to_hub:
             assert hub_name is not None
             dataset.push_to_hub(hub_name)
         return dataset
 
-    def format_dataset_qa(self, few_shot=None):
+    def format_dataset_qa(self, system: str, few_shot: str = None):
         """
         Transforms the dataset to [prompt, answer] where the prompt is the entire
         pre-baked context prefix up to the model's point where it should run inference.
@@ -358,22 +403,22 @@ class Loom(ABC):
 
         if self.message_type == 'chat':
             if dtrain is not None:
-                self.train_data = _format(dtrain, self.system_prompt)
+                self.data_train = _format(dtrain, system)
             else:
-                self.train_data = None
+                self.data_train = None
             if dbench is not None:
-                self.bench_data = _format(dbench, self.system_prompt)
+                self.data_bench = _format(dbench, system)
             else:
-                self.bench_data = None
+                self.data_bench = None
         else:
-            if self.system_prompt or few_shot:
+            if system or few_shot:
                 raise ValueError(
                     'The fields "system_prompt" and "few_shot" are not supported for completion tasks.'
                     'Please use message_type="chat" instead, or pre-format your dataset '
                     'to contain "prompt" and "answer" columns.'
                 )
-            self.train_data = dtrain
-            self.bench_data = dbench
+            self.data_train = dtrain
+            self.data_bench = dbench
 
     # def process_item(self,
     #                  item: Any,

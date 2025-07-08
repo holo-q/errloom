@@ -1,33 +1,29 @@
-import logging
 import inspect
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType
-from typing import Iterable, List, Optional, Union
+from typing import Optional
 
 import rich.traceback
-from rich._log_render import FormatTimeCallable
-from rich.abc import RichRenderable
-from rich.console import Console, RenderableType
-from rich.highlighter import Highlighter
+from rich.console import Console
 from rich.logging import RichHandler
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.panel import Panel
 
 cl = Console()
 rich.traceback.install(
-    show_locals=False,           # You have False - but True is great for debugging
-    word_wrap=True,             # ✓ You already have this
-    extra_lines=2,              # Show more context lines around the error
-    max_frames=10,              # Limit very deep stacks (default is 100)
-    indent_guides=True,         # Visual indentation guides
-    locals_max_length=10,       # Limit local var representation length
-    locals_max_string=80,       # Limit string local var length
-    locals_hide_dunder=True,    # Hide __dunder__ variables in locals
-    locals_hide_sunder=True,    # Hide _private variables in locals
-    suppress=[],                # You can add modules to suppress here
+    show_locals=False,  # You have False - but True is great for debugging
+    word_wrap=True,  # ✓ You already have this
+    extra_lines=2,  # Show more context lines around the error
+    max_frames=10,  # Limit very deep stacks (default is 100)
+    indent_guides=True,  # Visual indentation guides
+    locals_max_length=10,  # Limit local var representation length
+    locals_max_string=80,  # Limit string local var length
+    locals_hide_dunder=True,  # Hide __dunder__ variables in locals
+    locals_hide_sunder=True,  # Hide _private variables in locals
+    suppress=[],  # You can add modules to suppress here
 )
 
 class ContextualFilter(logging.Filter):
@@ -94,8 +90,6 @@ class ContextualFilter(logging.Filter):
         return Text.from_markup(message)
 
 
-
-
 class CustomRichHandler(RichHandler):
     """
     A custom RichHandler that formats log messages to include the
@@ -120,30 +114,35 @@ class CustomRichHandler(RichHandler):
                 filename = os.path.basename(record.pathname).replace(".py", "")
                 path = f"({filename}.{record.funcName})"
 
-            path = f"[dim]{path}:[/dim]"
-
         # For multiline messages, place them on a new line after the prefix
-        msg = None
-        if isinstance(record.msg, str):
-            msg = record.msg
-        elif isinstance(record.msg, Table):
-            msg = PrintedText(record.msg).markup
-        elif isinstance(record.msg, Text):
-            msg = record.msg.markup
-        elif isinstance(record.msg, RenderableType):
-            msg = str(record.msg)
-        elif isinstance(record.msg, Panel):
-            msg = str(record.msg)
-        else:
-            # raise ValueError(f"Unsupported message type: {type(record.msg)}")
-            msg = PrintedText(record.msg).markup
+        # msg = None
+        # if isinstance(record.msg, str):
+        #     msg = record.msg
+        # elif isinstance(record.msg, Table):
+        #     msg = PrintedText(record.msg).markup
+        # elif isinstance(record.msg, Text):
+        #     msg = record.msg.markup
+        # elif isinstance(record.msg, RenderableType):
+        #     msg = str(record.msg)
+        # elif isinstance(record.msg, Panel):
+        #     msg = PrintedText(record.msg).markup
+        # else:
+        #     # raise ValueError(f"Unsupported message type: {type(record.msg)}")
+        msg = PrintedText(record.msg).markup
 
         assert msg is not None
 
-        if self.print_path and "\n" in msg:
-            return Text.from_markup(f"{path}\n{msg}")
+        if self.print_path:
+            prefix = f"{path}: "
+            prefix_len = len(prefix)
+            if "\n" in msg:
+                # indent the message if it's multiline
+                lines = msg.split("\n")
+                indent = " " * prefix_len
+                msg = lines[0] + "\n" + "\n".join(indent + line for line in lines[1:])
+            return Text.from_markup(f"[dim]{prefix}[/dim]{msg}")
         else:
-            return Text.from_markup(f"{msg}")
+            return Text.from_markup(msg)
 
 
 def setup_logging(
@@ -251,7 +250,7 @@ def print_prompt_completions_sample(
 
         table.add_row(formatted_prompt, formatted_completion, Text(f"{reward:.2f}"))
         if i < samples_to_show - 1:  # Don't add section after last row
-            pass # table.add_section()  # Adds a separator between rows
+            pass  # table.add_section()  # Adds a separator between rows
 
     panel = Panel(table, expand=False, title=f"Step {step}", border_style="bold white")
     console.print(panel)
@@ -272,7 +271,47 @@ def PrintedText(renderable) -> Text:
     This captures the output and converts it to ANSI text, so it can be
     included in standard logging messages without breaking formatting.
     """
-    console = Console()
-    with console.capture() as capture:
-        console.print(renderable)
+    c = Console(width=120)
+    with c.capture() as capture:
+        c.print(renderable)
     return Text.from_ansi(capture.get())
+
+logger_main = logging.getLogger("main")
+
+def log(*s, logger=logger_main):
+    if not s:
+        s = ""
+    logger.info(*s)
+
+def logc(logger=logger_main):
+    # cl.clear()
+    pass
+
+def logl(*s, logger=logger_main):
+    logger.info(*s)
+    logger.info("")
+
+def logi(text, logger=logger_main):
+    logger.info(f"[cyan]{text}[/]")
+    logger.info("")
+
+class LogContext:
+    """Context manager for wrapping code blocks with intro/outro logging."""
+
+    def __init__(self, intro_msg: str, outro_msg: str = None, logger=logger_main):
+        self.intro = intro_msg
+        self.outro = outro_msg or intro_msg.replace("Starting", "Completed").replace(
+            "Initializing", "Initialized"
+        )
+        self.logger = logger
+
+    def __enter__(self):
+        log(f"[cyan]{self.intro}[/]", logger=self.logger)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            logl(f"[green]✓[/] {self.outro}", logger=self.logger)
+        else:
+            logl(f"[red]✗[/] {self.outro} failed: {exc_val}", logger=self.logger)
+            return False

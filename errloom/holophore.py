@@ -7,11 +7,9 @@ from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.rule import Rule
-from rich.table import Table
 
 from errloom.holoware import HoloSpan
 from errloom.rollout import Context, Rollout
-from errloom.utils.log import cl
 from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:
@@ -31,18 +29,32 @@ class Holophore:
         self._rollout = rollout
         self.env = env or {}
         self.ego = "system"
-        self.textbuf = []
+        self.textbuf:list[str] = []
         self.errors = 0
-        
-    def flush(self):
-        if self.textbuf:
-            # buftext <- self.textbuf
-            text, self.textbuf = "".join(self.textbuf), []
+        self.span_bindings: dict[str, Any] = dict()
 
-            if self.context.messages and self.context.messages[-1]['role'] == self.ego:
-                self.context.messages[-1]['content'] += text
-            else:
-                self.context.messages.append({'role': self.ego, 'content': text})
+    def add_text(self, text: str):
+        ctx = self.contexts[-1]
+        if len(ctx.messages) == 0:
+            ctx.add_message(self.ego, text)
+        else:
+            ctx.add_text(text)
+
+    def add_message(self, ego: str, text: str):
+        self.contexts[-1].add_message(ego, text)
+
+    def flush(self):
+        if not self.textbuf:
+            logger.warning("textbuf is already empty.")
+            return
+        
+        # buftext <- self.textbuf
+        text, self.textbuf = "".join(self.textbuf), []
+
+        if self.context.messages and self.context.messages[-1]['role'] == self.ego:
+            self.add_text(text)
+        else:
+            self.add_message(self.ego, text)
 
     def __getattr__(self, name):
         # Delegate attribute access to the original rollout, then loom
@@ -76,13 +88,15 @@ class Holophore:
         """For backward compatibility - returns the original rollout object."""
         return self._rollout
         
-    def call_holofunc(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
+    def invoke(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
         """
         Walks the MRO of a class or instance to find and call a __holo__ method
         from its defining base class.
         If `filter_missing_arguments` is True, it inspects the function signature
         and only passes keyword arguments that are expected by the function.
         """
+        
+        logger.debug("enter")
         if funcname == '__init__':
             if not isinstance(target, type):
                 raise TypeError(f"Target for __init__ must be a class, not {type(target)}")
@@ -125,7 +139,7 @@ class Holophore:
                 return ret
         return None
 
-    def to_rich(self) -> Table:
+    def to_rich(self) -> Panel:
         renderables = []
         for i, ctx in enumerate(self.contexts):
             if i > 0:
@@ -133,21 +147,15 @@ class Holophore:
             renderables.append(ctx.text_rich)
         group = Group(*renderables)
 
-        cl.print(Panel(
+        panel = Panel(
             group,
             title="[bold yellow]Dry Run: Full Conversation Flow[/]",
             border_style="yellow",
             box=box.ROUNDED,
             title_align="left"
-        ))
+        )
 
-        # Create a table for beautiful logging
-        table = Table(box=box.MINIMAL, show_header=False, expand=True)
-        table.add_column(style="bold magenta")
-        table.add_column(style="white")
-        # table.add_row("Evaluation:", evaluation)
-
-        return table
+        return panel
 
     def __str__(self) -> str:
         return str(self.to_rich())

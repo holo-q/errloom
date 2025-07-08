@@ -1,11 +1,12 @@
 import logging
 import re
-from typing import Any, Dict, List, Optional, TypeAlias, Union
+from typing import Any, Dict, List, Optional, Tuple, TypeAlias, Union
 
 logger = logging.getLogger(__name__)
 
 Message: TypeAlias = Dict[str, Any]
 MessageList: TypeAlias = List[Message]
+MessageTuple: TypeAlias = Tuple[Message]
 ContextType: TypeAlias = Union[str, List[Message]]
 
 # TODO take a ContextType

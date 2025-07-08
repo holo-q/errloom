@@ -1,6 +1,6 @@
 from typing import List
 
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 from errloom.attractor import Attractor
 from errloom.attractor import FnRule
 

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from datasets import Dataset
 from openai import OpenAI
-from transformers import PreTrainedTokenizerBase
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from errloom.loom import Loom
 from errloom.rollout import Rollout, Rollouts
@@ -56,26 +56,18 @@ class AsyncBatchGenerator:
     def __init__(
         self,
         loom: Loom,
-        model_name: str,
-        client: Optional[OpenAI] = None,
-        base_url: str = "http://localhost:8000",
-        api_key: Optional[str] = None,
-        port: int = 8000,
-        max_concurrent_requests: int = 100,
-        generation_timeout: float = 300.0,  # 5 minutes default
+        num_batches_ahead: int = 1,
+        max_queue_size: Optional[int] = None,
+        generation_timeout: float = 5 * 60,
     ):
         self.loom = loom
-        self.client = client
-        self.model_name = model_name
-        self.base_url = base_url
-        self.api_key = api_key
-        self.port = port
-        self.max_concurrent_requests = max_concurrent_requests
+        self.num_batches_ahead = num_batches_ahead
+        self.max_queue_size = max_queue_size or max(num_batches_ahead * 2, 4)
         self.generation_timeout = generation_timeout
 
         # Queues for communication
         self.request_queue = queue.Queue()
-        self.result_queue = queue.Queue(maxsize=self.max_concurrent_requests)
+        self.result_queue = queue.Queue(maxsize=self.num_batches_ahead)
 
         # Tracking
         self.pending_batches = set()  # batch_ids currently being processed
@@ -132,7 +124,7 @@ class AsyncBatchGenerator:
             if request.batch_id in self.pending_batches:
                 return True  # Already submitted
 
-            if len(self.pending_batches) >= self.max_concurrent_requests:
+            if len(self.pending_batches) >= self.num_batches_ahead:
                 return False  # Queue full
 
             self.pending_batches.add(request.batch_id)
@@ -203,7 +195,7 @@ class AsyncBatchGenerator:
         """Check if we should submit more batches for generation"""
         with self._lock:
             total_pending = len(self.pending_batches) + len(self.completed_batches)
-            return total_pending < self.max_concurrent_requests
+            return total_pending < self.num_batches_ahead
 
     def _generation_worker(self):
         """Worker thread that processes generation requests"""
@@ -227,28 +219,48 @@ class AsyncBatchGenerator:
             except queue.Empty:
                 continue
 
-    def _generate_batch(self, request: BatchRequest, all_reward_dict=None) -> BatchResult:
+    def _generate_batch(self, request: BatchRequest) -> BatchResult:
         """
         Generate a single batch. This runs in the worker thread.
         """
-        # Call environment generation
+        # Call loom generation
         loom_results = self.loom.weave(
             request.rows,
-            # model=self.model_name,
-            # base_url=self.base_url,
-            # api_key=self.api_key,
-            # port=self.port,
-            # max_concurrent=request.max_concurrent,
         )
 
         logger.info(f"Loom generated {len(loom_results.rollouts)} rollouts")
-        # Send rollouts to task queue
 
-        # Extract all reward-related keys
-        # all_reward_dict = {}
-        # reward_keys = [k for k in loom_results.keys() if k.endswith('_func') or k == 'reward']
-        # for key in reward_keys:
-        #     all_reward_dict[key] = loom_results[key]
+        # Extract rewards from rollouts
+        all_reward_dict = {}
+        gravity_scores = []
+        gravities_dict = {}
+        
+        # Collect all gravity and gravities data
+        for rollout in loom_results.rollouts:
+            gravity_scores.append(rollout.gravity)
+            for key, value in rollout.gravities.items():
+                if key not in gravities_dict:
+                    gravities_dict[key] = []
+                gravities_dict[key].append(value)
+        
+        # Store in all_reward_dict
+        all_reward_dict['reward'] = gravity_scores
+        all_reward_dict.update(gravities_dict)
+
+        # Extract completions and prompts
+        completions = []
+        prompts = []
+        
+        for rollout in loom_results.rollouts:
+            completions.append(rollout.samples)
+            # Extract prompt from rollout context
+            if hasattr(rollout.context, 'messages') and rollout.context.messages:
+                prompts.append(rollout.context.messages)
+            elif hasattr(rollout.context, 'text'):
+                prompts.append(rollout.context.text)
+            else:
+                # Fallback to row data
+                prompts.append(rollout.row.get('prompt', ''))
 
         # Process results
         processed_results = process_rollouts(
@@ -263,8 +275,8 @@ class AsyncBatchGenerator:
             batch_id=request.batch_id,
             processed_results=processed_results,
             all_reward_dict=all_reward_dict,
-            completions=loom_results['completion'],
-            prompts=loom_results['prompt']
+            completions=completions,
+            prompts=prompts
         )
 
 # TODO there may be a better location for these, it's not exactly the batch generator's job either
@@ -325,7 +337,7 @@ def process_rollouts(
 def process_completion(
     rollout: Rollout,
     processing_class: PreTrainedTokenizerBase
-) -> Tuple[List[int], List[int], List[int], List[int]]: # TODO dataclass
+) -> Tuple[List[int], List[int], List[int], List[int]]:
     """
     Process completion format text.
 
@@ -337,6 +349,15 @@ def process_completion(
     Returns:
         prompt_ids, prompt_mask, completion_ids, completion_mask
     """
+    # Extract prompt and completion from rollout
+    # TODO we need to actually properly track which indices in the context were AI generated and which were user generated. We are not doing simple prefix->completion stuff.
+    
+    # Get completion from samples
+    if isinstance(rollout.samples, list) and rollout.samples:
+        completion = rollout.samples[0] if isinstance(rollout.samples[0], str) else str(rollout.samples[0])
+    else:
+        completion = str(rollout.samples) if rollout.samples else ''
+
     # Tokenize prompt
     prompt_ids = processing_class.encode(prompt)
     prompt_mask = [1] * len(prompt_ids)
@@ -363,10 +384,15 @@ def process_chat_format(
     Returns:
         prompt_ids, prompt_mask, completion_ids, completion_mask
     """
-    prompt = rollout.context
+
+    # Extract prompt messages from rollout context
+    messages = rollout.context.messages
+
+    # Get completion messages from samples
+    completion = rollout.samples if isinstance(rollout.samples, list) else [rollout.samples]
 
     # tokenize just the prompt
-    prompt_text = processing_class.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
+    prompt_text = processing_class.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     assert isinstance(prompt_text, str)
     prompt_ids = processing_class.encode(prompt_text)
     prompt_mask = [1] * len(prompt_ids)
@@ -381,7 +407,7 @@ def process_chat_format(
     # process each completion message incrementally
     for i, msg in enumerate(completion):
         # create conversation prefix: prompt + completion[:i+1]
-        conversation_prefix = prompt + completion[:i + 1]
+        conversation_prefix = messages + completion[:i + 1]
 
         # tokenize the full prefix
         prefix_text = processing_class.apply_chat_template(
@@ -399,9 +425,9 @@ def process_chat_format(
         completion_ids.extend(new_tokens)
 
         # create mask
-        if msg["role"] == "assistant":
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
             msg_mask = [1] * len(new_tokens)
-        elif msg["role"] != "assistant" and mask_env_responses:
+        elif isinstance(msg, dict) and msg.get("role") != "assistant" and mask_env_responses:
             # mask intermediate 'user' and/or 'tool' messages
             msg_mask = [0] * len(new_tokens)
         else:

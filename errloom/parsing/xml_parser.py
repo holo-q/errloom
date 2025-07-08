@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Union, Tuple, Optional, Callable
 from types import SimpleNamespace
 
 from errloom.utils.openai_chat import MessageList
-from errloom.parsers import Parser
+from errloom.parsing import Parser
 
 
 

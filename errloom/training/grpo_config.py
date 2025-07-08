@@ -56,13 +56,13 @@ class GRPOConfig(TrainingArguments):
             "that requires any column other than 'prompts' and 'completions', you should keep this to `False`."
         },
     )
-    max_prompt_length: Optional[int] = field(
+    max_context_size: Optional[int] = field(
         default=512,
         metadata={
             "help": "Maximum length of the prompt. If the prompt is longer than this value, it will be truncated left."
         },
     )
-    num_generations: int = field(
+    num_rows: int = field(
         default=8,
         metadata={
             "help": "Number of generations to sample. The effective batch size (num_processes * per_device_batch_size "
@@ -88,17 +88,17 @@ class GRPOConfig(TrainingArguments):
     )
 
     # Parameters that control generation
-    generation_batch_size: Optional[int] = field(
+    batch_size: Optional[int] = field(
         default=None,
         metadata={
             "help": "Batch size to use for generation. If `None`, it defaults to the effective training batch size: "
             "`per_device_train_batch_size * num_processes * gradient_accumulation_steps`."
         },
     )
-    steps_per_generation: Optional[int] = field(
+    batch_passes: Optional[int] = field(
         default=None,
         metadata={
-            "help": "Number of optimization steps per generation. If `None`, it defaults to gradient_accumulation_steps."
+            "help": "How many optimization pass per generation. If `None`, it defaults to gradient_accumulation_steps."
         },
     )
     temperature: float = field(
@@ -213,7 +213,7 @@ class GRPOConfig(TrainingArguments):
             "training speed, but may be numerically unstable for long training runs."
         },
     )
-    num_iterations: int = field(
+    num_accum: int = field(
         default=1,
         metadata={"help": "Number of iterations per batch (denoted as μ in the algorithm)."},
     )
@@ -321,40 +321,39 @@ class GRPOConfig(TrainingArguments):
 
         num_processes = self.world_size
         # The current default effective batch size
-        if self.generation_batch_size is not None and self.steps_per_generation is not None:
+        if self.batch_size is not None and self.batch_passes is not None:
             raise ValueError(
-                "'generation_batch_size' and 'steps_per_generation' can not be both configured at the same time"
+                "'batch_size' and 'batch_passes' can not be both configured at the same time"
             )
 
-        if self.steps_per_generation is None:
-            self.steps_per_generation = self.gradient_accumulation_steps
+        if self.batch_passes is None:
+            self.batch_passes = self.gradient_accumulation_steps
 
-        if self.generation_batch_size is None:
-            self.generation_batch_size = self.per_device_train_batch_size * num_processes * self.steps_per_generation
+        if self.batch_size is None:
+            self.batch_size = self.per_device_train_batch_size * num_processes * self.batch_passes
 
-        if self.generation_batch_size % self.per_device_train_batch_size * num_processes != 0:
+        if self.batch_size % self.per_device_train_batch_size * num_processes != 0:
             raise ValueError(
-                f"generation_batch_size ({self.generation_batch_size}) must be divisible by the global batch size "
+                f"generation_batch_size ({self.batch_size}) must be divisible by the global batch size "
                 f"({self.per_device_train_batch_size * num_processes})."
             )
 
-        self.steps_per_generation = self.generation_batch_size // (self.per_device_train_batch_size * num_processes)
+        self.batch_passes = self.batch_size // (self.per_device_train_batch_size * num_processes)
 
         # Check if the effective batch size can be divided by the number of generations
-        if self.num_generations < 2:
+        if self.num_rows < 2:
             raise ValueError(
-                "GRPO requires at least 2 generations per prompt to calculate the advantages. You provided "
-                f"{self.num_generations}, which is less than the minimum required."
+                "GRPO requires at least 2 rows per tapestry to calculate an advantage. You provided "
+                f"{self.num_rows}, which is less than the minimum required."
+                f"RL cannot work without 2+ rollouts to contrast, as this is self-regulation."
             )
-        possible_values = [
-            n_gen for n_gen in range(2, self.generation_batch_size + 1) if (self.generation_batch_size) % n_gen == 0
-        ]
+        possible_values = [n_gen for n_gen in range(2, self.batch_size + 1) if self.batch_size % n_gen == 0]
 
-        if self.num_generations not in possible_values:
+        if self.num_rows not in possible_values:
             raise ValueError(
                 f"The effective train batch size ({num_processes} x {self.per_device_train_batch_size} x "
-                f"{self.steps_per_generation}) must be evenly divisible by the number of generations per "
-                f"prompt ({self.num_generations}). Given the current effective train batch size, the valid values for "
+                f"{self.batch_passes}) must be evenly divisible by the number of generations per "
+                f"prompt ({self.num_rows}). Given the current effective train batch size, the valid values for "
                 f"the number of generations are: {possible_values}."
             )
         if self.eval_strategy != "no":
@@ -362,10 +361,10 @@ class GRPOConfig(TrainingArguments):
             possible_values = [
                 n_gen for n_gen in range(2, global_eval_batch_size + 1) if (global_eval_batch_size) % n_gen == 0
             ]
-            if self.num_generations not in possible_values:
+            if self.num_rows not in possible_values:
                 raise ValueError(
                     f"The global eval batch size ({num_processes} x {self.per_device_eval_batch_size}) must be "
-                    f"evenly divisible by the number of generations per prompt ({self.num_generations}). Given the "
+                    f"evenly divisible by the number of generations per prompt ({self.num_rows}). Given the "
                     "current global eval batch size, the valid values for the number of generations are: "
                     f"{possible_values}."
                 )

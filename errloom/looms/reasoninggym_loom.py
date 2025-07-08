@@ -6,7 +6,7 @@ import reasoning_gym as rg
 from reasoning_gym.composite import DatasetSpec
 from reasoning_gym.dataset import ProceduralDataset
 
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 from errloom.attractors import Attractor
 from errloom.looms.qa_loom import QuestionAnswerLoom
 
@@ -35,8 +35,8 @@ class ReasoningGymLoom(QuestionAnswerLoom):
         attractor.add_rule(parser.get_format_attraction_rule(), weight=0.2)
         system_prompt = rg.utils.SYSTEM_PROMPTS["DeepSeekZero"] # type: ignore
         super().__init__(
-            train_data=dataset,
-            bench_data=eval_dataset,
+            data_train=dataset,
+            data_bench=eval_dataset,
             system_prompt=system_prompt,
             parser=parser,
             attractor=attractor,

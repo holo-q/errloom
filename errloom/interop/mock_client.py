@@ -12,27 +12,24 @@ class MockCompletions(Completions):
         self.placeholder = placeholder
 
     def create(self, *args, **kwargs) -> ChatCompletion:
-        message = ChatCompletionMessage(
-            content=self.placeholder,
-            role="assistant",
-        )
-        choice = Choice(
-            finish_reason="stop",
-            index=0,
-            message=message,
-        )
-        usage = CompletionUsage(
-            completion_tokens=5,
-            prompt_tokens=5,
-            total_tokens=10,
-        )
         return ChatCompletion(
             id="mock-completion",
-            choices=[choice],
+            choices=[Choice(
+                finish_reason="stop",
+                index=0,
+                message=ChatCompletionMessage(
+                    content=self.placeholder,
+                    role="assistant",
+                ),
+            )],
             created=12345,
             model="mock-model",
             object="chat.completion",
-            usage=usage,
+            usage=CompletionUsage(
+                completion_tokens=5,
+                prompt_tokens=5,
+                total_tokens=10,
+            ),
         )
 
 

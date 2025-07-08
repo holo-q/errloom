@@ -1,6 +1,6 @@
 from errloom.looms.reasoninggym_loom import ReasoningGymLoom
-from errloom.trainers import grpo_defaults
-from errloom.trainers.grpo_trainer import GRPOTrainer
+from errloom.training import grpo_defaults
+from errloom.training.grpo_trainer import GRPOTrainer
 from errloom.utils.model_utils import get_model_and_tokenizer
 
 """
@@ -24,18 +24,18 @@ vf_loom = ReasoningGymLoom(
 
 run_name = f"arc_1d-grpo-{size}"
 training_args=grpo_defaults(run_name=run_name)
-training_args.num_iterations=1
+training_args.num_accum=1
 training_args.per_device_train_batch_size=4
-training_args.num_generations=16
+training_args.num_rows=16
 training_args.gradient_accumulation_steps=8
 training_args.max_concurrent = 512
-training_args.max_prompt_length=1024
+training_args.max_context_size=1024
 training_args.max_completion_length=4096
 training_args.max_steps=500
 
 trainer = GRPOTrainer(
     model=model,
-    processing_class=tokenizer,
+    tokenizer=tokenizer,
     loom=vf_loom,
     args=training_args,
 )

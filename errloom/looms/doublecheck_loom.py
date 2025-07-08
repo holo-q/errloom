@@ -13,16 +13,16 @@ class DoubleCheckLoom(MultiTurnLoom):
     def __init__(self,
                  client: OpenAI | None = None,
                  model: str | None = None,
-                 train_data: Dataset | None = None,
-                 bench_data: Dataset | None = None,
+                 data_train: Dataset | None = None,
+                 data_bench: Dataset | None = None,
                  system_prompt: str = SIMPLE_PROMPT,
                  few_shot: MessageList = [],
                  **kwargs):
         super().__init__(
             client=client,
             model=model,
-            dataset=train_data,
-            eval_dataset=bench_data,
+            dataset=data_train,
+            eval_dataset=data_bench,
             system_prompt=system_prompt,
             few_shot=few_shot,
             **kwargs

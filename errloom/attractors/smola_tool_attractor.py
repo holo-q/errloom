@@ -1,7 +1,7 @@
 import json
 from typing import List, Any
 
-from errloom.parsers.smola_parser import SmolaParser
+from errloom.parsing.smola_parser import SmolaParser
 from errloom.attractors.tool_attractor import ToolUserAttractor
 from errloom.utils.eval_utils import evaluate_code
 

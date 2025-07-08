@@ -29,10 +29,13 @@ from trl.trainer.utils import (
 )
 
 from errloom.loom import Loom
-from errloom.trainers.async_batch_generator import AsyncBatchGenerator, BatchRequest
-from errloom.trainers.async_dataloader_wrapper import AsyncDataLoaderWrapper
-from errloom.trainers.grpo_config import GRPOConfig
+from errloom.training.async_batch_generator import AsyncBatchGenerator, BatchRequest
+from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
+from errloom.training.grpo_config import GRPOConfig
 from errloom.utils.log import print_prompt_completions_sample
+
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True  # type: ignore
 
 class RepeatSampler(Sampler):
     """
@@ -115,7 +118,7 @@ class RepeatSampler(Sampler):
 
         #    [2, 4, 3, 1, 0, 6, 5]
         # -> [[2, 4, 3], [1, 0, 6], [5]]  (batch_size = 3)
-        indexes = [indexes[i : i + self.batch_size] for i in range(0, len(indexes), self.batch_size)]
+        indexes = [indexes[i: i + self.batch_size] for i in range(0, len(indexes), self.batch_size)]
 
         #    [[2, 4, 3], [1, 0, 6], [5]]
         # -> [[2, 4, 3], [1, 0, 6]]
@@ -170,7 +173,7 @@ def split_tensor_dict(
     chunk_size = first_tensor.shape[0] // num_chunks
     return [
         {
-            key: tensor[i * chunk_size : (i + 1) * chunk_size] if tensor is not None else None
+            key: tensor[i * chunk_size: (i + 1) * chunk_size] if tensor is not None else None
             for key, tensor in tensor_dict.items()
         }
         for i in range(num_chunks)
@@ -230,19 +233,17 @@ class GRPOTrainer(Trainer):
     def __init__(
         self,
         model: PreTrainedModel,
-        loom: Loom,
         args: GRPOConfig,
-        processing_class: PreTrainedTokenizerBase,
+        tokenizer: PreTrainedTokenizerBase,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
-        peft_config: Optional[PeftConfig] = None,
-        **kwargs,
+        peft_config: Optional[PeftConfig] = None
     ):
         self.logger = logging.getLogger(__name__)
 
         # Models
         if peft_config is not None:
-            model = get_peft_model(model, peft_config) # type: ignore
+            model = get_peft_model(model, peft_config)  # type: ignore
             # Override sync_ref_model if PEFT is used since ref_model will be None
             if args.sync_ref_model:
                 self.logger.warning("sync_ref_model=True is not compatible with PEFT. Setting sync_ref_model=False.")
@@ -250,20 +251,20 @@ class GRPOTrainer(Trainer):
 
         # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
-            model = self._enable_gradient_checkpointing(model, args) # type: ignore
+            model = self._enable_gradient_checkpointing(model, args)  # type: ignore
 
         # Suppress irrelevant warning
         model.warnings_issued["estimate_tokens"] = True
 
         # Tokenizer pad token
-        if processing_class.pad_token is None: # type: ignore
-            processing_class.pad_token = processing_class.eos_token # type: ignore
+        if tokenizer.pad_token is None:  # type: ignore
+            tokenizer.pad_token = tokenizer.eos_token  # type: ignore
 
         # Training arguments
         self.per_device_train_batch_size = args.per_device_train_batch_size
-        self.max_prompt_length = args.max_prompt_length
+        self.max_prompt_length = args.max_context_size
         self.max_completion_length = args.max_completion_length  # = |o_i| in the GRPO paper
-        self.num_generations = args.num_generations  # = G in the GRPO paper
+        self.num_generations = args.num_rows  # = G in the GRPO paper
         self.max_concurrent = args.max_concurrent
         self.max_num_processes = args.max_num_processes
         self.temperature = args.temperature
@@ -281,10 +282,10 @@ class GRPOTrainer(Trainer):
         # Reference model parameters
         self.beta = args.beta
         self.sync_ref_model = args.sync_ref_model
-        self.generation_batch_size: int = args.generation_batch_size # type: ignore
+        self.generation_batch_size: int = args.batch_size  # type: ignore
 
         # Multi-step
-        self.num_iterations = args.num_iterations  # = 𝜇 in the GRPO paper
+        self.num_iterations = args.num_accum  # = 𝜇 in the GRPO paper
         self.epsilon_low = args.epsilon
         self.epsilon_high = args.epsilon_high if args.epsilon_high is not None else args.epsilon
         self.gradient_accumulation_steps = args.gradient_accumulation_steps
@@ -308,11 +309,11 @@ class GRPOTrainer(Trainer):
                 # Tokenize prompt to check length
                 if isinstance(prompt, list):
                     # Chat format
-                    prompt_text = processing_class.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
+                    prompt_text = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
                 else:
                     # Completion format
                     prompt_text = prompt
-                prompt_ids = processing_class.encode(prompt_text) # type: ignore
+                prompt_ids = tokenizer.encode(prompt_text)  # type: ignore
                 return len(prompt_ids) <= max_length
 
             original_size = len(train_dataset)
@@ -324,13 +325,15 @@ class GRPOTrainer(Trainer):
         # dummy data collator
         def data_collator(features):
             return features
+
+        self.tokenizer = tokenizer
         super().__init__(
             model=model,
             args=args,
             data_collator=data_collator,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
-            processing_class=processing_class,
+            processing_class=tokenizer,
             callbacks=callbacks,
             optimizers=optimizers,
         )
@@ -349,7 +352,7 @@ class GRPOTrainer(Trainer):
             self.ref_model = None
         else:
             # If PEFT configuration is not provided, create a reference model based on the initial model.
-            self.ref_model = create_reference_model(model) # type: ignore
+            self.ref_model = create_reference_model(model)  # type: ignore
 
         # Disable dropout in the models
         if args.disable_dropout:
@@ -372,9 +375,9 @@ class GRPOTrainer(Trainer):
         # final optimization step.
         maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
         self._textual_logs = {
-            "prompt": deque(maxlen=maxlen),
+            "prompt":     deque(maxlen=maxlen),
             "completion": deque(maxlen=maxlen),
-            "rewards": defaultdict(lambda: deque(maxlen=maxlen)),
+            "rewards":    defaultdict(lambda: deque(maxlen=maxlen)),
         }
 
         # OpenAI client for Environment generation (using vLLM server)
@@ -418,20 +421,32 @@ class GRPOTrainer(Trainer):
             else:
                 self.ref_model = self.accelerator.prepare_model(self.ref_model, evaluation_mode=True)
         if self.sync_ref_model:
-            self.add_callback(SyncRefModelCallback(ref_model=self.ref_model, accelerator=self.accelerator)) # type: ignore
+            self.add_callback(SyncRefModelCallback(ref_model=self.ref_model, accelerator=self.accelerator))  # type: ignore
 
         # Environment
-        self.loom = loom
+        self.loom: Loom | None = None
 
+        # # Async generation setup
+        # self.batch_generator = AsyncBatchGenerator(
+        #     loom=loom,
+        #     model_name=args.model_name,
+        #     client=self.oai_client,
+        #     base_url=vllm_base_url,
+        #     api_key="EMPTY",
+        #     port=port,
+        #     max_concurrent_requests=args.max_concurrent,
+        #     generation_timeout=args.async_generation_timeout,
+        # )
         # Async generation setup
-        self.batch_generator = AsyncBatchGenerator(
-            loom=loom,
-            model_name=args.model_name,
+        self._next_batch_id: int = 0
+        self._async_started = False
+        self.num_batches_ahead = args.num_batches_ahead
+
+        # num_batches_ahead=0 will behave synchronously (submit and wait immediately)
+        self.async_generator = AsyncBatchGenerator(
+            loom=self.loom,
             client=self.oai_client,
-            base_url=vllm_base_url,
-            api_key="EMPTY",
-            port=port,
-            max_concurrent_requests=args.max_concurrent,
+            model_name=self._get_model_name(),
             generation_timeout=args.async_generation_timeout,
         )
 
@@ -446,13 +461,13 @@ class GRPOTrainer(Trainer):
         else:
             data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
 
-        batch_size = self._train_batch_size * self.gradient_accumulation_steps # type: ignore
+        batch_size = self._train_batch_size * self.gradient_accumulation_steps  # type: ignore
 
         dataloader_params = {
-            "batch_size": batch_size, # type: ignore (None case handled by config __post_init__)
-            "collate_fn": data_collator,
-            "num_workers": self.args.dataloader_num_workers,
-            "pin_memory": self.args.dataloader_pin_memory,
+            "batch_size":         batch_size,  # type: ignore (None case handled by config __post_init__)
+            "collate_fn":         data_collator,
+            "num_workers":        self.args.dataloader_num_workers,
+            "pin_memory":         self.args.dataloader_pin_memory,
             "persistent_workers": self.args.dataloader_persistent_workers,
         }
 
@@ -462,7 +477,7 @@ class GRPOTrainer(Trainer):
             dataloader_params["worker_init_fn"] = seed_worker
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
-        dataloader = DataLoader(train_dataset, **dataloader_params) # type: ignore
+        dataloader = DataLoader(train_dataset, **dataloader_params)  # type: ignore
 
         # Always wrap with AsyncDataLoaderWrapper for consistent behavior
         # Store the wrapped dataloader for async access
@@ -472,7 +487,7 @@ class GRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
-    def _get_train_sampler(self, train_dataset = None) -> Sampler:
+    def _get_train_sampler(self, train_dataset=None) -> Sampler:
         # Returns a sampler that
         # 1. ensures each prompt is repeated across multiple processes. This guarantees that identical prompts are
         #    distributed to different GPUs, allowing rewards to be computed and normalized correctly within each prompt
@@ -500,7 +515,7 @@ class GRPOTrainer(Trainer):
         #                                          ...
 
         return RepeatSampler(
-            data_source=self.train_dataset, # type: ignore
+            data_source=self.train_dataset,  # type: ignore
             mini_repeat_count=self.num_generations,
             batch_size=self.generation_batch_size // self.num_generations,
             repeat_count=self.num_iterations * self.gradient_accumulation_steps,
@@ -515,7 +530,7 @@ class GRPOTrainer(Trainer):
 
         # Enable gradient checkpointing on the base model for PEFT
         if is_peft_model(model):
-            model.base_model.gradient_checkpointing_enable() # type: ignore
+            model.base_model.gradient_checkpointing_enable()  # type: ignore
         # Enable gradient checkpointing for non-PEFT models
         else:
             model.gradient_checkpointing_enable()
@@ -553,8 +568,8 @@ class GRPOTrainer(Trainer):
         batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
         all_logps = []
         for i in range(0, input_ids.size(0), batch_size):
-            input_ids_batch = input_ids[i : i + batch_size]
-            attention_mask_batch = attention_mask[i : i + batch_size]
+            input_ids_batch = input_ids[i: i + batch_size]
+            attention_mask_batch = attention_mask[i: i + batch_size]
 
             # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
             logits = model(
@@ -592,13 +607,13 @@ class GRPOTrainer(Trainer):
         if is_peft_model(self.model):
             # With PEFT and DeepSpeed ZeRO Stage 3, we must gather the full model at once before merging
             with gather_if_zero3(list(self.model.parameters())):  # type: ignore
-                self.model.merge_adapter() # type: ignore
+                self.model.merge_adapter()  # type: ignore
 
                 # Update vLLM weights while parameters are gathered
-                for name, param in self.model.named_parameters(): # type: ignore
+                for name, param in self.model.named_parameters():  # type: ignore
                     # When using PEFT, we need to recover the original parameter name and discard some parameters
                     name = name.removeprefix("base_model.model.").replace(".base_layer", "")
-                    if self.model.prefix in name: # type: ignore
+                    if self.model.prefix in name:  # type: ignore
                         continue
                     # When module to save, remove its prefix and discard the original module
                     if "original_module" in name:
@@ -608,10 +623,10 @@ class GRPOTrainer(Trainer):
                     if self.accelerator.is_main_process:
                         self.vllm_client.update_named_param(name, param.data)
 
-                self.model.unmerge_adapter() # type: ignore
+                self.model.unmerge_adapter()  # type: ignore
         else:
             # For non-PEFT models, gather and update each parameter individually
-            for name, param in self.model.named_parameters(): # type: ignore
+            for name, param in self.model.named_parameters():  # type: ignore
                 with gather_if_zero3([param]):
                     if self.accelerator.is_main_process:
                         self.vllm_client.update_named_param(name, param.data)
@@ -626,15 +641,15 @@ class GRPOTrainer(Trainer):
     def _get_sampling_args(self) -> Dict[str, Any]:
         """Get sampling arguments for Environment generation."""
         args = {
-            'temperature': self.temperature,
-            'top_p': self.top_p,
-            'max_tokens': self.max_completion_length,
-            'n': 1,
-            'presence_penalty': self.presence_penalty,
+            'temperature':       self.temperature,
+            'top_p':             self.top_p,
+            'max_tokens':        self.max_completion_length,
+            'n':                 1,
+            'presence_penalty':  self.presence_penalty,
             'frequency_penalty': self.frequency_penalty,
-            'extra_body': {
-                'top_k': self.top_k,
-                'min_p': self.min_p,
+            'extra_body':        {
+                'top_k':              self.top_k,
+                'min_p':              self.min_p,
                 'repetition_penalty': self.repetition_penalty,
             }
         }
@@ -642,7 +657,7 @@ class GRPOTrainer(Trainer):
 
     def _get_model_name(self) -> str:
         """Get model name for Environment generation."""
-        return self.model.config._name_or_path # type: ignore
+        return self.model.config._name_or_path  # type: ignore
 
     def _ids_to_tensors(self,
                         prompt_ids: List[List[int]],
@@ -650,7 +665,6 @@ class GRPOTrainer(Trainer):
                         completion_ids: List[List[int]],
                         completion_mask: List[List[int]],
                         device: torch.device) -> Dict[str, torch.Tensor]:
-
         ids = [prompt_ids[i] + completion_ids[i] for i in range(len(prompt_ids))]
         mask = [prompt_mask[i] + completion_mask[i] for i in range(len(prompt_mask))]
         max_len = max(len(ids[i]) for i in range(len(ids)))
@@ -665,7 +679,7 @@ class GRPOTrainer(Trainer):
         ids = torch.stack(ids, dim=0)
         mask = torch.stack(mask, dim=0)
         return {
-            'ids': ids,
+            'ids':  ids,
             'mask': mask
         }
 
@@ -704,7 +718,7 @@ class GRPOTrainer(Trainer):
         all_infos = gather_object(infos)
         return all_prompts, all_answers, all_tasks, all_infos
 
-    def _prepare_inputs( # type: ignore
+    def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         """
@@ -796,14 +810,14 @@ class GRPOTrainer(Trainer):
 
                 # Package raw data for broadcast (not tensors yet)
                 broadcast_data = {
-                    'prompt_ids': processed_results['prompt_ids'],
-                    'prompt_mask': processed_results['prompt_mask'],
-                    'completion_ids': processed_results['completion_ids'],
+                    'prompt_ids':      processed_results['prompt_ids'],
+                    'prompt_mask':     processed_results['prompt_mask'],
+                    'completion_ids':  processed_results['completion_ids'],
                     'completion_mask': processed_results['completion_mask'],
-                    'rewards': processed_results['rewards'],
+                    'rewards':         processed_results['rewards'],
                     'all_reward_dict': batch_result.all_reward_dict if hasattr(batch_result, 'all_reward_dict') else {'reward': processed_results['rewards']},
-                    'completions': batch_result.completions if hasattr(batch_result, 'completions') else [],
-                    'prompts': batch_result.prompts if hasattr(batch_result, 'prompts') else [],
+                    'completions':     batch_result.completions if hasattr(batch_result, 'completions') else [],
+                    'prompts':         batch_result.prompts if hasattr(batch_result, 'prompts') else [],
                 }
             else:
                 broadcast_data = None
@@ -839,9 +853,9 @@ class GRPOTrainer(Trainer):
                 completion_mask_list.append(torch.tensor(broadcast_data['completion_mask'][i], device=self.accelerator.device))
 
             # Pad sequences
-            prompt_ids = pad(prompt_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='left') # type: ignore
-            prompt_mask = pad(prompt_mask_list, padding_side='left') # type: ignore
-            completion_ids = pad(completion_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='right') # type: ignore
+            prompt_ids = pad(prompt_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='left')  # type: ignore
+            prompt_mask = pad(prompt_mask_list, padding_side='left')  # type: ignore
+            completion_ids = pad(completion_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='right')  # type: ignore
             completion_mask = pad(completion_mask_list)
 
             # Truncate if needed
@@ -881,12 +895,12 @@ class GRPOTrainer(Trainer):
 
             # Concatenate all data for shuffling
             full_batch = {
-                "prompt_ids": prompt_ids,
-                "prompt_mask": prompt_mask,
-                "completion_ids": completion_ids,
-                "completion_mask": completion_mask,
+                "prompt_ids":          prompt_ids,
+                "prompt_mask":         prompt_mask,
+                "completion_ids":      completion_ids,
+                "completion_mask":     completion_mask,
                 "old_per_token_logps": None,
-                "advantages": advantages,
+                "advantages":          advantages,
             }
 
             # Shuffle and split for gradient accumulation
@@ -961,7 +975,7 @@ class GRPOTrainer(Trainer):
                         self.ref_model, input_ids, attention_mask, logits_to_keep
                     )
                 else:
-                    with self.accelerator.unwrap_model(self.model).disable_adapter(): # type: ignore
+                    with self.accelerator.unwrap_model(self.model).disable_adapter():  # type: ignore
                         ref_per_token_logps = self._get_per_token_logps(
                             self.model, input_ids, attention_mask, logits_to_keep
                         )
@@ -970,14 +984,14 @@ class GRPOTrainer(Trainer):
             )
             per_token_loss = per_token_loss + self.beta * per_token_kl
             mean_kl = (per_token_kl * completion_mask).sum() / completion_mask.sum()
-            self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).nanmean().item()) # type: ignore
+            self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).nanmean().item())  # type: ignore
 
         if self.loss_type == "grpo":
             loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
         elif self.loss_type == "bnpo":
             loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
         elif self.loss_type == "dr_grpo":
-            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length) # type: ignore
+            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)  # type: ignore
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
 
@@ -991,13 +1005,13 @@ class GRPOTrainer(Trainer):
         clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
 
         gathered_low_clip = self.accelerator.gather_for_metrics(low_clip)
-        self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item()) # type: ignore
-        self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item()) # type: ignore
+        self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item())  # type: ignore
+        self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item())  # type: ignore
         gathered_high_clip = self.accelerator.gather_for_metrics(high_clip)
-        self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item()) # type: ignore
-        self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item()) # type: ignore
+        self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item())  # type: ignore
+        self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())  # type: ignore
         gathered_clip_ratio = self.accelerator.gather_for_metrics(clip_ratio)
-        self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item()) # type: ignore
+        self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())  # type: ignore
         return loss
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval", **kwargs):
@@ -1039,13 +1053,13 @@ class GRPOTrainer(Trainer):
             completions = eval_results['completion']
             if isinstance(completions[0], str):
                 # Completion format - directly tokenize strings
-                completion_lengths = [len(self.processing_class.encode(c)) for c in completions] # type: ignore
+                completion_lengths = [len(self.processing_class.encode(c)) for c in completions]  # type: ignore
             else:
                 # Chat format - use apply_chat_template
                 completion_lengths = []
                 for comp in completions:
                     # Apply chat template to get the full text
-                    tokens = self.processing_class.apply_chat_template(comp, tokenize=True, add_generation_prompt=False) # type: ignore
+                    tokens = self.processing_class.apply_chat_template(comp, tokenize=True, add_generation_prompt=False)  # type: ignore
                     # Tokenize and count
                     completion_lengths.append(len(tokens))
 
@@ -1080,8 +1094,8 @@ class GRPOTrainer(Trainer):
                 import pandas as pd
 
                 table_data = {
-                    "step": [str(self.state.global_step)] * len(prompts),
-                    "prompt": prompts,
+                    "step":       [str(self.state.global_step)] * len(prompts),
+                    "prompt":     prompts,
                     "completion": completions,
                 }
                 for k, v in reward_dict.items():
@@ -1097,7 +1111,7 @@ class GRPOTrainer(Trainer):
         return metrics
 
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
-        mode = "train" if self.model is not None and self.model.training else "eval" # type: ignore
+        mode = "train" if self.model is not None and self.model.training else "eval"  # type: ignore
         metrics = {key: sum(val) / len(val) for key, val in self._metrics[mode].items()}  # average the metrics
 
         # This method can be called both in training and evaluation. When called in evaluation, the keys in `logs`
@@ -1125,8 +1139,8 @@ class GRPOTrainer(Trainer):
                 import pandas as pd
 
                 table = {
-                    "step": [str(self.state.global_step)] * len(self._textual_logs["prompt"]),
-                    "prompt": list(self._textual_logs["prompt"]),
+                    "step":       [str(self.state.global_step)] * len(self._textual_logs["prompt"]),
+                    "prompt":     list(self._textual_logs["prompt"]),
                     "completion": list(self._textual_logs["completion"]),
                     **{k: list(v) for k, v in self._textual_logs["rewards"].items()},
                 }
@@ -1159,7 +1173,7 @@ class GRPOTrainer(Trainer):
         self._metrics[mode]["reward"].append(mean_rewards.mean().item())
         self._metrics[mode]["reward_std"].append(std_rewards.mean().item())
 
-                    # Log individual attraction rule gravities as metrics
+        # Log individual attraction rule gravities as metrics
         for reward_key in all_reward_dict:
             if reward_key != 'reward':  # Skip the consolidated reward
                 reward_values = all_reward_dict[reward_key]
@@ -1216,7 +1230,7 @@ class GRPOTrainer(Trainer):
         # Check for EOS tokens
         term_lengths = []
         for comp_ids, comp_mask in zip(all_completion_ids, all_completion_mask):
-            has_eos = any(token == self.processing_class.eos_token_id for token, mask in zip(comp_ids, comp_mask) if mask) # type: ignore
+            has_eos = any(token == self.processing_class.eos_token_id for token, mask in zip(comp_ids, comp_mask) if mask)  # type: ignore
             if has_eos:
                 term_lengths.append(sum(comp_mask))
 

@@ -3,7 +3,7 @@ from typing import List
 from errloom.attractor import FnRule
 from errloom.attractors.math_attractor import MathAttractor
 from errloom.utils.openai_chat import MessageList
-from errloom.parsers import XMLParser
+from errloom.parsing import XMLParser
 
 
 class CoderMathAttractor(MathAttractor):

@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 import re
 
-from errloom.utils.openai_chat import MessageList
+from errloom.utils.openai_chat import MessageList, MessageTuple
 
 @dataclass
 class Context:
@@ -13,9 +13,18 @@ class Context:
     Represents a conversation context with messages and related data.
     """
     text: str = ""
-    messages: MessageList = field(default_factory=list)
+    _messages: MessageList = field(default_factory=list)
     # attractors: List[Any] = field(default_factory=list)
-    holofunc_targets: dict[str, Any] = field(default_factory=dict)
+
+    def add_text(self, text: str):
+        self._messages[-1]['content'] += text
+
+    def add_message(self, ego: str, text: str):
+        self._messages.append({'role': ego, 'content': text})
+
+    @property
+    def messages(self) -> MessageTuple:
+        return tuple(self._messages)
 
     @property
     def text_rich(self):
@@ -120,6 +129,12 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
+    
+    def add_text(self, text: str):
+        self.contexts[-1].add_text(text)
+
+    def add_message(self, ego: str, text: str):
+        self.contexts[-1].add_message(ego, text)
 
     def __rich_repr__(self):
         yield "row", self.row

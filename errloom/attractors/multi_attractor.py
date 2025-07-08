@@ -40,7 +40,7 @@ class MultiAttractor(Attractor):
         self.logger.warning("Adding attraction rule to the first attractor in the group.")
         self.attractors[0].add_rule(func, weight)
 
-    def feels(self, rollouts: Rollouts, max_concurrent: int = 1024, **kwargs: List[Any]):
+    def feels(self, tapestry: Rollouts, max_concurrent: int = 1024, **kwargs: List[Any]):
         """
         Run all attractors sequentially and return the aggregated gravities.
 
@@ -48,7 +48,7 @@ class MultiAttractor(Attractor):
         """
         all_gravities = {}
         for attractor in self.attractors:
-            attractor_gravities = attractor.feels(rollouts, max_concurrent=max_concurrent)
+            attractor_gravities = attractor.feels(tapestry, max_concurrent=max_concurrent)
             for key, value in attractor_gravities.items():
                 if key in all_gravities:
                     all_gravities[key] = [a + b for a, b in zip(all_gravities[key], value)]
