@@ -5,7 +5,8 @@
 ![](media/logo.png)
 
 
-> Errloom /ˈɜːrluːm/ – _From the combination of "err" (to wander) and "loom" (classic concept of shoggoth whispering). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, guided by the gravitation of attractors, rewards, and penalties—learning from and being shaped by error.
+> **Errloom /ˈɜːrluːm/**—
+> _From the combination of **err** (to wander) and **loom** (text weaving machine). It reflects the core philosophy of the framework: allowing language models to wander through a space of possibilities, steered by the gravitation force of attractors (reward) and penalties—learning from and being shaped by error._
 
 **Errloom** is the schizo prompt theorist's swiss army knife for context engineering and reinforcement learning brought together as one in the unified Holoware language (.hol) of prompt engineering. It is a framework for training LLMs with reinforcement learning with verifiable reward (attractors & gravitation rules). It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms strug together in .hol recipes. It can be used as a library or standlone CLI, and supports deploying to cloud compute. It aims to demoncratize reinforcement learning experimentation and usher a new era of prompt engineering.
 
