@@ -31,14 +31,17 @@ The DSL uses a tag-based system with the `<|...|>` delimiter.
 The parser converts a prompt file into a structured `Holoware` object,
 which contains a sequence of spans representing the parsed DSL.
 """
-import logging
 import typing
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
-from rich.panel import Panel
+import picologging as logging
 from rich.text import Text
+
+from errloom.utils import log
+from errloom.utils.log import indent
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +65,7 @@ def holostatic(cls):
 # ----------------------------------------
 
 @dataclass
-class HoloSpan:
+class HoloSpan(ABC):
     """Base class for spans in the holoware DSL.
 
     A span represents a prompting segment with specific injection behavior.
@@ -79,6 +82,11 @@ class HoloSpan:
     uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
     args: list[str] = field(default_factory=list)
     kwargs: dict[str, str] = field(default_factory=dict)
+
+    @abstractmethod
+    def get_color(self) -> str:
+        """Return the rich color style for this span type."""
+        pass
 
     def apply_arguments(self, node_attrs: dict[str, str], fence_attrs: dict[str, str], positional_args: list[str]) -> None:
         """Apply parsed arguments to span attributes.
@@ -110,10 +118,16 @@ class ContextResetSpan(HoloSpan):
     """Reset the context."""
     train: bool = False
 
+    def get_color(self) -> str:
+        return "bold yellow" if self.train else "yellow"
+
 @dataclass
 class EgoSpan(HoloSpan):
     """Sets the current ego (role tag in OpenAI) by printing the special token."""
     ego: str = ""
+
+    def get_color(self) -> str:
+        return "bold cyan"
 
 @dataclass
 class SampleSpan(HoloSpan):
@@ -122,6 +136,9 @@ class SampleSpan(HoloSpan):
     fence: str = ""
 
     # TODO we an add other arguments for temperature and stuff, which might not be static
+
+    def get_color(self) -> str:
+        return "bold green"
 
     @property
     def display_goal(self):
@@ -132,6 +149,9 @@ class TextSpan(HoloSpan):
     """Represents a block of plain text content."""
     text: str = ""
 
+    def get_color(self) -> str:
+        return "white"
+
     @property
     def display_text(self):
         return self.text[:30].replace('\n', '\\n').replace('\r', '\\r')
@@ -141,11 +161,17 @@ class ObjSpan(HoloSpan):
     """Represents a data variable placeholder (e.g. <|sample|>)."""
     var_ids: list[str] = field(default_factory=list)
 
+    def get_color(self) -> str:
+        return "bold magenta"
+
 @dataclass
 class ClassSpan(HoloSpan):
     """Represents a class with a __holo__ method."""
     class_name: str = ""
     body: Optional["Holoware"] = None
+
+    def get_color(self) -> str:
+        return "bold blue"
 
 # HOLOWARE
 # ----------------------------------------
@@ -156,8 +182,8 @@ class Holoware:
     Structured representation of a parsed prompt template from the DSL.
     Contains a sequence of spans that define the entire prompt and its metadata.
     """
-    code: str = None
-    filepath: str = None
+    code: Optional[str] = None
+    filepath: Optional[str] = None
     spans: list[HoloSpan] = field(default_factory=list)
     span_by_uuid: dict[str, HoloSpan] = field(default_factory=dict)
 
@@ -183,14 +209,15 @@ class Holoware:
                     contexts.append(current)
 
         return contexts
+
     def first_span_by_type(self, SpanType) -> HoloSpan:  # TODO can we annotate that the return type is of SpanType? it's basically a generic we want....
         for span in self.spans:
             if isinstance(span, SpanType):
                 return span
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
+    @indent
     def __call__(self, phore: "Holophore"):
-        from errloom.tapestry import Context
         from errloom.holoware_handlers import HolowareHandlers
 
         # it is require since up above its only imported for type_checking whith ""
@@ -199,15 +226,11 @@ class Holoware:
         # software engineering:
         # noinspection PyUnresolvedReferences
         from errloom.holophore import Holophore  # noqa: F401
-        
 
         logger.debug(f"Running {self}")
 
-        # holophore = Holophore(loom, roll, env)
-        phore.contexts.append(Context())
-
         # --- Lifecycle: Start ---
-
+        logger.debug("lifecycle.start:")
         for span in self.spans:
             if isinstance(span, ClassSpan):
                 ClassName = span.class_name
@@ -234,36 +257,44 @@ class Holoware:
                     if inst_after_init:
                         phore.span_bindings[span.uuid] = inst_after_init
 
+        logger.debug("Span Bindings:")
+        logger.debug(phore.span_bindings)
+
         if phore.errors > 0:
             raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
 
         # --- Lifecycle: Main ---
-        buf = phore.textbuf
-
+        logger.debug("lifecycle.main:")
         for span in self.spans:
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
-                    buf.append(span.text)
+                    phore.add_text(span.text)
                 elif isinstance(span, ObjSpan):
                     for var_id in span.var_ids:
                         if var_id in phore.env:
                             value = phore.env[var_id]
-                            buf.append(f"<obj id={var_id}>")
-                            buf.append(str(value))
-                            buf.append("</obj>")
+                            phore.add_text(f"<obj id={var_id}>")
+                            phore.add_text(str(value))
+                            phore.add_text("</obj>")
                             break
                 continue
 
-            phore.flush()
-
             SpanClassName = type(span).__name__
-            logger.debug(f"-> {SpanClassName}({span})")
+            # Create a rich-formatted log message with color
+            logger.debug(f"[{span.get_color()}]--> {span}[/]")
             if SpanClassName in HolowareHandlers.__dict__:
                 getattr(HolowareHandlers, SpanClassName)(phore, span)
+            else:
+                logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
-        phore.flush()
+            if phore._newtext:
+                log.push_indent()
+                logger.info(Text("> " + phore._newtext), style="dim italic")
+                phore._newtext = ""
+                log.pop_indent()
 
         # --- Lifecycle: End ---
+        logger.debug("lifecycle.end:")
         for uid, target in phore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
                 span = self.span_by_uuid[uid]
@@ -314,11 +345,11 @@ class Holoware:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
         return cls.parse(content)
-    
+
     def __repr__(self):
         return f"Holoware({self.filepath})"
 
-    def to_rich(self, indent_level=0) -> Text | Panel:
+    def to_rich(self, indent_level=0) -> Text:
         """Format the prompt template spans for rich debug display."""
         text = Text()
         if not self.spans:
@@ -358,19 +389,20 @@ class Holoware:
             text.append(index_format.format(i), style="dim white")
 
             if isinstance(span, ContextResetSpan):
-                style = "bold yellow" if span.train else "yellow"
-                text.append("ContextResetSpan", style=style)
+                color = span.get_color()
+                text.append("ContextResetSpan", style=color)
                 if span.train:
-                    text.append(" (train=True)", style=style)
+                    text.append(" (train=True)", style=color)
                 self._append_args_to_debug(text, span)
                 text.append("\n")
 
             elif isinstance(span, EgoSpan):
-                text.append("RoleSpan (", style="bold cyan")
+                color = span.get_color()
+                text.append("RoleSpan (", style=color)
                 role_display = span.ego.replace('\n', '\\n').replace('\r', '\\r')
-                text.append(f"role={role_display}", style="cyan")
+                text.append(f"role={role_display}", style=color)
                 self._append_args_to_debug(text, span)
-                text.append(")", style="cyan")
+                text.append(")", style=color)
 
                 # Look ahead - if next span is a single TextSpan, combine them for compact view
                 next_span_idx = i + 1
@@ -391,7 +423,8 @@ class Holoware:
                 text.append("\n")
 
             elif isinstance(span, SampleSpan):
-                text.append("SamplerSpan (", style="bold green")
+                color = span.get_color()
+                text.append("SamplerSpan (", style=color)
                 parts = []
                 if span.uuid:
                     parts.append(f"id={span.uuid}")
@@ -400,26 +433,29 @@ class Holoware:
                 if span.fence:
                     fence_display = span.fence.replace('\n', '\\n').replace('\r', '\\r')
                     parts.append(f"fence={fence_display}")
-                text.append(", ".join(parts), style="green")
+                text.append(", ".join(parts), style=color)
                 self._append_args_to_debug(text, span)
-                text.append(")\n", style="green")
+                text.append(")\n", style=color)
 
             elif isinstance(span, TextSpan):
-                text.append(f"TextSpan ('{span.display_text}{'...' if len(span.text) > 30 else ''}')", style="white")
+                color = span.get_color()
+                text.append(f"TextSpan ('{span.display_text}{'...' if len(span.text) > 30 else ''}')", style=color)
                 self._append_args_to_debug(text, span)
                 text.append("\n")
 
             elif isinstance(span, ObjSpan):
-                text.append("ObjSpan (", style="bold magenta")
-                text.append(f"vars={span.var_ids}", style="magenta")
+                color = span.get_color()
+                text.append("ObjSpan (", style=color)
+                text.append(f"vars={span.var_ids}", style=color)
                 self._append_args_to_debug(text, span)
-                text.append(")\n", style="magenta")
+                text.append(")\n", style=color)
 
             elif isinstance(span, ClassSpan):
-                text.append("ClassSpan (", style="bold blue")
-                text.append(f"class={span.class_name}", style="blue")
+                color = span.get_color()
+                text.append("ClassSpan (", style=color)
+                text.append(f"class={span.class_name}", style=color)
                 self._append_args_to_debug(text, span)
-                text.append(")", style="blue")
+                text.append(")", style=color)
                 if span.body:
                     text.append("\n")
                     text.append(span.body.to_rich(indent_level + 1))
@@ -431,11 +467,7 @@ class Holoware:
             text.append("═" * 60, style="bright_black")
             text.append("\n\n")
 
-        # if indent_level > 0:
         return text
-        # BUG it renders as   <rich.panel.Panel object at 0x7c8dc49ff380>   currently for some reason
-        # else:
-        #     return Panel(text, box=box.SIMPLE)
 
 # def format_prompt(input: Union[Holoware, str, MessageListStr], **kwargs) -> Union[str, MessageListStr]:
 #     """Convenience function to format a prompt."""

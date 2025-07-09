@@ -12,7 +12,7 @@ Supports:
 - /v1/completions
 """
 import argparse
-import logging
+import picologging as logging
 import os
 import time
 import asyncio
@@ -237,7 +237,7 @@ class WeightSyncWorkerExtension:
             shape (`Sequence[int]`):
                 Shape of the weight tensor.
         """
-        import logging
+        import picologging as logging
         logger = logging.getLogger(__name__)
         logger.debug(f"[WORKER] Received weight update request for {name}, dtype={dtype}, shape={shape}")
 

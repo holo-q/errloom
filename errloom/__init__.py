@@ -7,10 +7,10 @@ from errloom import discovery
 from errloom.attractor import Attractor
 from errloom.holoware import HoloSpan
 from errloom.loom import Loom
-from errloom.utils.log import setup_logging
+from errloom.utils.log import log, setup_logging
 
 setup_logging(
-    level=errlargs.log_level,
+    level='debug' if errlargs.debug else errlargs.log_level,
     print_path=errlargs.log_more)
 
 discovery.crawl_package(
@@ -24,3 +24,10 @@ discovery.crawl_package(
 # you must investigate what is the new path and name of the class
 # this means that we get closer to truth together and is crucial
 # for exponential acceleration without plateaus
+
+from errloom.holoware_handlers import HolowareHandlers
+
+for name,Class in discovery.get_all_classes().items():
+    if issubclass(Class, HoloSpan):
+        if type(Class).__name__ not in HolowareHandlers.__dict__:
+            log(f"HoloSpan class {name} has no handler in HolowareHandlers")

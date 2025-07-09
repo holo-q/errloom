@@ -1,4 +1,4 @@
-import logging
+import picologging as logging
 import queue
 import threading
 import time

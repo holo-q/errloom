@@ -1,7 +1,7 @@
 import asyncio
 import concurrent.futures
 import inspect
-import logging
+import picologging as logging
 from asyncio import Semaphore
 from typing import Callable, List
 
@@ -109,11 +109,14 @@ class Attractor:
         Evaluate all attraction functions asynchronously for a single rollout.
         :param rollout:
         """
-        futures = [
-            asyncio.to_thread(self._evaluate_rule, func, rollout)
-            for func in self._rule_funcs
-        ]
-        gravities = asyncio.get_event_loop().run_until_complete(asyncio.gather(*futures))
+        # Use concurrent.futures directly to avoid nested event loop issues
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self._evaluate_rule, func, rollout)
+                for func in self._rule_funcs
+            ]
+            gravities = [future.result() for future in futures]
+        
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
 
@@ -130,26 +133,18 @@ class Attractor:
         - gravities computed using global state stored in Attractor class
         :param tapestry:
         """
-
-        async def _evaluate_single(semaphore, rollout: Rollout):
-            async with semaphore:
-                self.feel(rollout)
-
-        async def _evaluate_all(tapestry: Tapestry, max_concurrent: int = 1024):
-            from tqdm.asyncio import tqdm
-            semaphore = Semaphore(max_concurrent)
-            tasks = [
-                asyncio.create_task(_evaluate_single(semaphore, rollout))
+        from tqdm import tqdm
+        
+        # Use concurrent.futures directly to avoid nested event loop issues
+        with concurrent.futures.ThreadPoolExecutor(max_workers=tapestry.max_concurrent) as executor:
+            futures = [
+                executor.submit(self.feel, rollout)
                 for rollout in tapestry.rollouts
             ]
-
-            for future in tqdm.as_completed(
-                tasks,
-                total=len(tapestry.rollouts),
-                desc=f"Evaluating {len(tapestry.rollouts)} rollouts"
-            ):
-                await future
-
-        coro = _evaluate_all(tapestry, max_concurrent=tapestry.max_concurrent)
-        asyncio.get_running_loop().run_until_complete(coro)
+            
+            # Use tqdm to show progress
+            for future in tqdm(concurrent.futures.as_completed(futures), 
+                              total=len(tapestry.rollouts), 
+                              desc=f"Evaluating {len(tapestry.rollouts)} rollouts"):
+                future.result()  # Wait for completion
 

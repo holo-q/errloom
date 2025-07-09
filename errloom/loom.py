@@ -199,7 +199,9 @@ class Loom(ABC):
 
             return rolls
 
-        tapestry = asyncio.get_running_loop().run_until_complete(run_rows())
+        # Run the async function in a new event loop
+        # This avoids issues with nested event loops
+        tapestry = asyncio.run(run_rows())
         tapestry = Tapestry(tapestry)
         tapestry.max_concurrent = self.max_concurrent
 

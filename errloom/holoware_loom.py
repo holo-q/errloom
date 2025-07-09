@@ -1,4 +1,4 @@
-import logging
+import picologging as logging
 from copy import deepcopy
 from typing import Optional
 

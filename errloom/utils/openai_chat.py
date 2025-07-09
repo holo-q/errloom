@@ -1,4 +1,4 @@
-import logging
+import picologging as logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, TypeAlias, Union
 

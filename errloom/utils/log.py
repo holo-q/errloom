@@ -1,9 +1,7 @@
-import inspect
-import logging
+import picologging as logging
 import os
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from functools import wraps
+from threading import local
 
 import rich.traceback
 from rich.console import Console
@@ -26,69 +24,42 @@ rich.traceback.install(
     suppress=[],  # You can add modules to suppress here
 )
 
-class ContextualFilter(logging.Filter):
-    def render(
-        self,
-        *,
-        record: logging.LogRecord,
-        traceback: Optional[inspect.Traceback],
-        message_renderable,
-    ):
-        """Render log for display."""
-        # Original render logic from RichHandler
-        path = Path(record.pathname).name
-        level = self.get_level_text(record)
-        time_format = None if self.formatter is None else self.formatter.datefmt
-        log_time = datetime.fromtimestamp(record.created)
+# Global indent tracker - thread-local to handle concurrent logging
+_indent_state = local()
 
-        # Get our custom prefix
-        classname = getattr(record, "classname", None)
-        if classname:
-            prefix = f"{classname}.{record.funcName}"
-        else:
-            filename = os.path.basename(record.pathname).replace(".py", "")
-            prefix = f"{filename}.{record.funcName}"
+def _get_indent_level() -> int:
+    """Get current indent level, defaulting to 0."""
+    return getattr(_indent_state, 'level', 0)
 
-        prefix_text = Text.from_markup(f"[dim]{prefix}:[/]", style="log.level")
+def _set_indent_level(level: int) -> None:
+    """Set current indent level."""
+    _indent_state.level = level
 
-        # Create a grid for layout
-        table = Table.grid(padding=(0, 1), expand=True)
-        table.add_column(style="log.time")
-        table.add_column(style="log.level", width=self.level_width)
+def indent(func):
+    """
+    Decorator that increments log indentation for the duration of the function.
 
-        # New column for our prefix
-        table.add_column(style="log.level")
+    Usage:
+        @indent
+        def my_function():
+            log("This will be indented")
+            # ... function body
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        current_level = _get_indent_level()
+        _set_indent_level(current_level + 1)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _set_indent_level(current_level)
+    return wrapper
 
-        table.add_column(ratio=1, style="log.message", overflow="fold")
+def push_indent(i=1):
+    _set_indent_level(_get_indent_level() + i)
 
-        # For multiline messages, render on a new line
-        is_multiline = "\n" in message_renderable.plain
-
-        if is_multiline:
-            table.add_row(
-                self.render_time(log_time, time_format),
-                level,
-                prefix_text,
-            )
-            table.add_row("", "", "", message_renderable)
-        else:
-            table.add_row(
-                self.render_time(log_time, time_format),
-                level,
-                prefix_text,
-                message_renderable,
-            )
-
-        if traceback:
-            table.add_row("", "", "", traceback)
-        return table
-
-    def render_message(self, record: logging.LogRecord, message: str):
-        """
-        Renders the log message with a prefix containing the caller's context.
-        """
-        return Text.from_markup(message)
-
+def pop_indent(i=1):
+    _set_indent_level(_get_indent_level() - i)
 
 class CustomRichHandler(RichHandler):
     """
@@ -96,9 +67,10 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_path=False, **kwargs):
+    def __init__(self, *kargs, print_path=False, highlight=True, **kwargs):
         super().__init__(*kargs, **kwargs)
         self.print_path = print_path
+        self.highlight = highlight
 
     def render_message(self, record: logging.LogRecord, message: str):
         """
@@ -128,26 +100,45 @@ class CustomRichHandler(RichHandler):
         #     msg = PrintedText(record.msg).markup
         # else:
         #     # raise ValueError(f"Unsupported message type: {type(record.msg)}")
-        msg = PrintedText(record.msg).markup
 
+        msg = record.msg
+        msgtext = PrintedText(msg, highlight=self.highlight).markup
         assert msg is not None
 
+        # Compute the whole prefix so we can measure it
+        lvl = _get_indent_level()
+        prefix_indent = f"{'... ' * lvl}"
+        prefix_path = ""
+
         if self.print_path:
-            prefix = f"{path}: "
-            prefix_len = len(prefix)
-            if "\n" in msg:
-                # indent the message if it's multiline
-                lines = msg.split("\n")
-                indent = " " * prefix_len
-                msg = lines[0] + "\n" + "\n".join(indent + line for line in lines[1:])
-            return Text.from_markup(f"[dim]{prefix}[/dim]{msg}")
-        else:
-            return Text.from_markup(msg)
+            prefix_path = f"{path}: "
+
+        # Measure the prefix
+        idt = lvl * 2 # len(prefix_indent)
+        if self.print_path and "\n" in msgtext:
+            idt += len(prefix_path)
+
+        # Render to text
+        msgtext = PrintedText(msgtext, highlight=False).markup # TODO idt needs to also contain the prefix created by the logging library (timestamp & level)
+
+        # everything after the first line needs to be pushed horizontally to align
+        if "\n" in msgtext:
+            lines = msgtext.split("\n")
+            msgtext = ""
+            if lines[0].strip():
+                msgtext = lines[0] + "\n"
+            else:
+                lines = lines[1:]
+            msgtext += "\n".join(" " * (idt + 1) + line for line in lines[1:])
+
+        full = f"[dim]{prefix_indent} {prefix_path}[/dim]{msgtext}"
+        return Text.from_markup(full)
 
 
 def setup_logging(
     level: str = "DEBUG",
-    print_path: bool = True
+    print_path: bool = True,
+    highlight: bool = True
 ) -> None:
     """
     Setup basic logging configuration for the errloom package.
@@ -161,13 +152,12 @@ def setup_logging(
     logger = logging.getLogger()
     logger.setLevel(level.upper())
 
-    if logger.hasHandlers():
-        logger.handlers.clear()
+    # if logger.hasHandlers():
+    #     logger.handlers.clear()
 
     # Create a RichHandler
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True, print_path=print_path)
-        handler.addFilter(ContextualFilter())
+        handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True, print_path=print_path, highlight=highlight)
         logger.addHandler(handler)
 
     # Prevent the logger from propagating messages to the root logger
@@ -265,15 +255,22 @@ def ellipse(text: str, max_length: int = 50) -> str:
     return text
 
 
-def PrintedText(renderable) -> Text:
+def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Text:
     """
     Renders any rich renderable to a Text object that can be safely logged.
     This captures the output and converts it to ANSI text, so it can be
     included in standard logging messages without breaking formatting.
     """
-    c = Console(width=120)
+    import shutil
+    if prefix_cols:
+        width, _ = shutil.get_terminal_size()
+        width = width - prefix_cols - 1
+
+    if not width:
+        width = 120
+    c = Console(width=width)
     with c.capture() as capture:
-        c.print(renderable)
+        c.print(renderable, highlight=highlight)
     return Text.from_ansi(capture.get())
 
 logger_main = logging.getLogger("main")
@@ -284,8 +281,7 @@ def log(*s, logger=logger_main):
     logger.info(*s)
 
 def logc(logger=logger_main):
-    # cl.clear()
-    pass
+    cl.clear()
 
 def logl(*s, logger=logger_main):
     logger.info(*s)
@@ -315,3 +311,6 @@ class LogContext:
         else:
             logl(f"[red]✗[/] {self.outro} failed: {exc_val}", logger=self.logger)
             return False
+
+
+

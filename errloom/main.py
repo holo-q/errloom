@@ -55,7 +55,7 @@ def setup_async():
         evloop = asyncio.new_event_loop()
         setup_executor(evloop)
         asyncio.set_event_loop(evloop)
-        evloop.close()
+        # Don't close the loop here - we need it for later execution
     except RuntimeError:
         # Jupyter notebook or existing event loop
         import nest_asyncio
@@ -74,7 +74,7 @@ def main(title=None,
     name_ext = f"{name}-{model_name.split('/')[-1].lower()}"
     title = title or name_ext
 
-    # logc()
+    logc()
     log(Rule(f"[bold cyan]{title}", style="cyan"))
 
     # ----------------------------------------

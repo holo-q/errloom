@@ -17,22 +17,65 @@
 Install errloom to your system using pip:
 
 ```
+pip install errloom --break-system-packages
 ```
-
-It is recommended to break the system packages to avoid taking on the unnecessary stress and confusion of others.
 
 We then write a .hol holoware:
 
-```
+```hol
+# smola.hol
+<|+++|>
+<|o_o|>
+<|ToolPrompt|>
+<|few_shot|>
+<|query|>
+
+<|ToolTurns max=10|>
+    <|@_@|>
+    <|@_@ <>think|>
+
+<|Attractor|>
+    <|CorrectAnswerRule|>
+    <|ToolRule|>
 ```
 
 Finally we launch the training using vast.ai for compute:
 
 ```
+errl smola.hol -vai --train-upload
+
+TODO demonstrate some logs
 ```
 
-We **greatly** encourage the community to self-organize and implement as many compute providers under an abstraction in this interface to multiply the power of Errloom.
+This deploys using [your configured API keys](TODO link to relevant wiki) either in the environment or configured into errloom.
 
+We use the menu to select an instance, it rents and deploys the errloom library with our script, and the training is launched.
+We get back a link for wandb, tensorboard, etc. and we can observe training progress.
+
+Training happens over a live SSH connection.
+If the connection drops, errloom will continue to train on the remote.
+If we reconnect...
+
+```
+errl smola.hol -vaic
+```
+
+then it will establish a new SSH connection and re-launch training again, continuing from the latest checkpoint.
+Alternatively we can do
+
+```
+errl smola.hol -vaip
+
+TODO show output of the active loom being pinged
+```
+
+to ping and get back information about the training run still actively running.
+If you used the `--train-upload` argument in the initial creation of the training instance,
+the model will be automatically upload to huggingface to a private dataset.
+
+TODO show a training report example, image of tensorboard, wandb, etc.
+
+We **greatly** encourage the community to self-organize and implement as many compute providers under an abstraction in this interface to multiply the power of Errloom.
 
 ## 3. Roadmap
 

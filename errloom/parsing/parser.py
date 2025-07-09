@@ -1,4 +1,4 @@
-import logging
+import picologging as logging
 from typing import Any, Callable
 
 from errloom.utils.openai_chat import MessageList

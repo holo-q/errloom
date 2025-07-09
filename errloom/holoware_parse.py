@@ -1,5 +1,5 @@
 import inspect
-import logging
+import picologging as logging
 import sys
 import textwrap
 from typing import Dict, Optional, Tuple

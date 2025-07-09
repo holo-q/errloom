@@ -1,5 +1,5 @@
 import inspect
-import logging
+import picologging as logging
 import typing
 from typing import Any, Optional
 
@@ -10,6 +10,7 @@ from rich.rule import Rule
 
 from errloom.holoware import HoloSpan
 from errloom.tapestry import Context, Rollout
+from errloom.utils.log import indent
 from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:
@@ -29,32 +30,37 @@ class Holophore:
         self._rollout = rollout
         self.env = env or {}
         self.ego = "system"
-        self.textbuf:list[str] = []
+        # self.textbuf:list[str] = []
         self.errors = 0
         self.span_bindings: dict[str, Any] = dict()
+        self._newtext = ""
 
     def add_text(self, text: str):
         ctx = self.contexts[-1]
-        if len(ctx.messages) == 0:
+        if len(ctx.messages) == 0 or self.ego != ctx.messages[-1]['role']:
             ctx.add_message(self.ego, text)
         else:
             ctx.add_text(text)
+        self._newtext += text
+
 
     def add_message(self, ego: str, text: str):
         self.contexts[-1].add_message(ego, text)
+        self._newtext += text
 
-    def flush(self):
-        if not self.textbuf:
-            logger.warning("textbuf is already empty.")
-            return
-        
-        # buftext <- self.textbuf
-        text, self.textbuf = "".join(self.textbuf), []
-
-        if self.context.messages and self.context.messages[-1]['role'] == self.ego:
-            self.add_text(text)
-        else:
-            self.add_message(self.ego, text)
+    # @indent
+    # def flush(self):
+    #     if not self.textbuf:
+    #         logger.warning("textbuf is already empty.")
+    #         return
+    #     
+    #     # buftext <- self.textbuf
+    #     text, self.textbuf = "".join(self.textbuf), []
+    # 
+    #     if self.context.messages and self.context.messages[-1]['role'] == self.ego:
+    #         self.add_text(text)
+    #     else:
+    #         self.add_message(self.ego, text)
 
     def __getattr__(self, name):
         # Delegate attribute access to the original rollout, then loom
@@ -96,7 +102,6 @@ class Holophore:
         and only passes keyword arguments that are expected by the function.
         """
         
-        logger.debug("enter")
         if funcname == '__init__':
             if not isinstance(target, type):
                 raise TypeError(f"Target for __init__ must be a class, not {type(target)}")
@@ -110,7 +115,7 @@ class Holophore:
         Impl = target if isinstance(target, type) else type(target)
         for Base in Impl.__mro__:
             if funcname in Base.__dict__:
-                logger.debug("%s.%s", Base, funcname)
+                # logger.debug("%s.%s", Base.__name__, funcname)
                 # if args:
                 #     logger.debug(PrintedText(args))
                 # if kwargs:

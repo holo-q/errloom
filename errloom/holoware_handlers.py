@@ -1,4 +1,4 @@
-import logging
+import picologging as logging
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, SampleSpan
@@ -9,16 +9,19 @@ logger = logging.getLogger(__name__)
 # noinspection PyUnusedLocal
 class HolowareHandlers:
     @classmethod
-    def SamplerSpan(cls, phore:Holophore, span:SampleSpan):
+    def SampleSpan(cls, phore:Holophore, span:SampleSpan):
         sample = phore.sample(phore.rollout)
-        if sample:
-            # If the SamplerSpan has a fence attribute, wrap the response in fence tags
-            if span.goal:
-                text = f"<{span.goal}>{sample}</{span.goal}>"
-            else:
-                text = sample
+        if not sample:
+            logger.error("Got a null sample from the loom.")
+            return
 
-            phore.add_text('assistant', text)
+        # If the SamplerSpan has a fence attribute, wrap the response in fence tags
+        if span.goal:
+            text = f"<{span.goal}>{sample}</{span.goal}>"
+        else:
+            text = sample
+
+        phore.add_text(text)
 
     @classmethod
     def ContextResetSpan(cls, phore:Holophore, span:ContextResetSpan):
@@ -28,8 +31,7 @@ class HolowareHandlers:
     @classmethod
     def EgoSpan(cls, phore:Holophore, span:EgoSpan):
         if phore.ego != span.ego:
-            phore.flush()
-            ego = span.ego
+            phore.ego = span.ego
 
     @classmethod
     def ClassSpan(cls, phore: Holophore, span: ClassSpan):
@@ -52,7 +54,6 @@ class HolowareHandlers:
 
     @classmethod
     def invoke_holo(cls, phore:Holophore, span:SampleSpan) -> str:
-        logger.info(phore.span_bindings)
         inst = phore.span_bindings.get(span.uuid, None)
         assert inst
         result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)

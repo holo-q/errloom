@@ -1,6 +1,6 @@
 import importlib
 import inspect
-import logging
+import picologging as logging
 import os
 import pkgutil
 from typing import Any, Dict, List, Optional, Type
