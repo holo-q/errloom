@@ -16,13 +16,17 @@ from .holoware import (
     Span,
     TextSpan,
 )
+from errloom.utils.log import indent
+from .utils import log
 
 logger = logging.getLogger(__name__)
+
+EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
 
 # --- Grammar Definition ---
 
 def is_ego_or_sampler(base, kargs, kwargs) -> bool:
-    return base in ("o_o", "@_@", "x_x") or "goal" in kwargs
+    return base in ("o_o", "@_@", "x_x") or "goal" in kwargs or "<>" in kwargs
 
 def is_context_reset(base, kargs, kwargs) -> bool:
     return base in ("+++", "===")
@@ -41,32 +45,33 @@ def _build_class_span(out: list[Span], base, kargs, kwargs):
     span.body = None
     out.append(span)
 
-def _build_ego_or_sampler_span(out: list[Span], base, kargs, kwargs):
-    """Handler for creating EgoSpans and optionally SampleSpans."""
-    has_ego = any(e in base for e in ("o_o", "@_@", "x_x"))
-    
-    if has_ego:
-        parts = base.split(':', 1)
-        ego_str = parts[0]
-        ego_map = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
-        
-        ego_span = EgoSpan(ego=ego_map[ego_str])
-        if len(parts) > 1:
-            ego_span.uuid = parts[1]
+def _build_ego_or_sampler_span(out: list, base: str, kargs: list, kwargs: dict):
+    # Split ego and potential UUID
+    parts = base.split(":", 1)
+    ego = parts[0]
+    uuid = parts[1] if len(parts) > 1 else ""
 
-        out.append(ego_span)
+    out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=uuid))
 
-    if "goal" in kwargs:
-        uuid = base if not has_ego else (base.split(':', 1)[1] if ':' in base else "")
-        span = SampleSpan(uuid=uuid).set_args(kargs, kwargs, {})
-        out.append(span)
+    # A sampler can be defined with kargs/kwargs on the ego span
+    sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "goal")}
+    goal = kwargs.get("<>", "") or kwargs.get("goal", "")
+    if kargs or sampler_kwargs or goal:
+        if not goal:
+            # It's not a sampler if it doesn't have a goal
+            # This can happen if there are only kargs, which are not supported for samplers.
+            # We just ignore them.
+            pass
+        else:
+            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, goal=goal))
+
 
 def _build_context_reset_span(train: bool):
-    def _builder(out: list[Span], base, kargs, kwargs):
+    def _handler(out: list, base: str, kargs: list, kwargs: dict):
         """Handler for creating ContextResetSpans."""
         out.append(ContextResetSpan(train=train))
 
-    return _builder
+    return _handler
 
 def _build_obj_span(out: list[Span], base, kargs, kwargs):
     """Fallback handler for creating ObjSpans from one or more IDs."""
@@ -82,28 +87,31 @@ def build_span(out: list[Span], spantext: str):
         return
     base, kargs, kwargs = parse_span_tag(tag_content)
 
-    logger.debug(spantext)
+    logger.debug(f"base='{base}' kargs={kargs} kwargs={kwargs}")
 
     for rule in HOLOWARE_GRAMMAR:
         if rule['match'](base, kargs, kwargs):
+            logger.debug(f"  matched rule: {rule['match'].__name__}")
             rule['handler'](out, base, kargs, kwargs)
             return
 
     # Fallback for ObjSpans or unhandled ClassSpans
     if base:
         if base[0].isupper():
+            logger.debug("fallback to ClassSpan")
             _build_class_span(out, base, kargs, kwargs)
         else:
+            logger.debug("fallback to ObjSpan")
             _build_obj_span(out, base, kargs, kwargs)
 
 def parse_span_tag(tag: str) -> Tuple[str, list[str], Dict[str, str]]:
     kwargs: Dict[str, str] = {}
     kargs: list[str] = []
-    
+
     parts = shlex.split(tag)
     if not parts:
         return "", [], {}
-        
+
     base_span = parts[0]
     new_kargs = []
     for part in parts[1:]:
@@ -117,7 +125,7 @@ def parse_span_tag(tag: str) -> Tuple[str, list[str], Dict[str, str]]:
                 raise ValueError("Empty <> attribute")
         else:
             new_kargs.append(part)
-    
+
     kargs.extend(new_kargs)
 
     return base_span, kargs, kwargs
@@ -143,10 +151,9 @@ class HolowareParser:
         self.ego: Optional[str] = None
 
     def parse(self) -> "Holoware":
-        logger.info("parsing holoware ...")
-
+        logger.info("START")
         self.code = filter_comments(self.code)
-        
+
         if self.code.strip() and not self.code.lstrip().startswith('<|'):
             self.ego = 'system'
             self.ware.spans.append(EgoSpan(ego='system'))
@@ -166,13 +173,19 @@ class HolowareParser:
             self._parse_span(spantext)
 
         self._add_implicit_ego_if_needed()
+        self._finalize_text_span()
+
+        for span in self.ware.spans:
+            if span.uuid:
+                self.ware.span_by_uuid[span.uuid] = span
+
         return self.ware
 
     def _add_implicit_ego_if_needed(self):
         # Implicitly create a system ego if there's text content before any ego is set.
         if self.ego:
             return
-            
+
         text_span_found = False
         for s in self.ware.spans:
             if isinstance(s, TextSpan):
@@ -182,7 +195,7 @@ class HolowareParser:
             if isinstance(s, (EgoSpan, ContextResetSpan)):
                 # Don't add implicit ego if an explicit one is already there
                 return
-        
+
         if text_span_found:
             new_ego = EgoSpan(ego='system')
             self.ware.spans.insert(0, new_ego)
@@ -190,6 +203,7 @@ class HolowareParser:
 
     def _add_span(self, span: Span):
         """Adds a span to the current holoware object."""
+        logger.debug(f"+ {type(span).__name__}")
         last_span = self.ware.spans[-1] if self.ware.spans else None
         is_text = isinstance(span, TextSpan)
 
@@ -228,18 +242,20 @@ class HolowareParser:
         self.ware.spans.append(span)
 
     def _parse_span(self, spantext: str):
+        log.push("PARSE", f"<|{spantext}|>")
         spanbuf = []
         build_span(spanbuf, spantext)
         for span in spanbuf:
             self._add_span(span)
-            
+
         # check for an indented block to be its body.
         last_span = self.ware.spans[-1] if self.ware.spans else None
         if isinstance(last_span, ClassSpan):
-            body_holoware, new_pos = self._read_and_parse_indented_block(self.code, self.pos)
+            body_holoware, new_pos = self._parse_indented_block(self.code, self.pos)
             if body_holoware:
                 last_span.body = body_holoware
                 self.pos = new_pos
+        log.pop(f"PARSE")
 
     def _parse_text(self, text: str):
         if not text:
@@ -251,85 +267,100 @@ class HolowareParser:
         if not processed_text:
             return
 
+        logger.debug(f"[text] {repr(processed_text[:40])}")
         span = TextSpan(text=processed_text)
         self._add_span(span)
 
     def _find_next_span_start(self) -> int:
         pos = self.pos
         while True:
-            pos = self.code.find("<|", pos)
-            if pos == -1:
+            found_pos = self.code.find("<|", pos)
+            if found_pos == -1:
+                logger.debug(f"  [find_next_span_start] no more spans from pos {self.pos}")
                 return -1
 
             num_backslashes = 0
-            i = pos - 1
+            i = found_pos - 1
             while i >= 0 and self.code[i] == '\\':
                 num_backslashes += 1
                 i -= 1
-            
+
             if num_backslashes % 2 == 1:
                 # Escaped, continue searching
-                pos += 1
-                continue
-            
-            return pos
-
-    def _read_and_parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
-        if start_pos >= len(code) or code[start_pos] != '\n':
-            return None, start_pos
-
-        line_start = start_pos + 1
-        if line_start >= len(code):
-            return None, start_pos
-
-        first_line_end = code.find('\n', line_start)
-        if first_line_end == -1:
-            first_line_end = len(code)
-
-        first_line = code[line_start:first_line_end]
-        indent_level = len(first_line) - len(first_line.lstrip(' '))
-        if indent_level == 0:
-            return None, start_pos
-
-        block_lines = [first_line.lstrip()]
-        consumed_chars = len(first_line) + 1
-
-        current_pos = first_line_end + 1
-        while current_pos < len(code):
-            next_line_end = code.find('\n', current_pos)
-            if next_line_end == -1:
-                next_line_end = len(code)
-
-            line = code[current_pos:next_line_end]
-            if not line.strip():
-                block_lines.append("")
-                consumed_chars += len(line) + 1
-                current_pos = next_line_end + 1
+                logger.debug(f"  [find_next_span_start] found escaped span at {found_pos}, continuing search from {found_pos + 1}")
+                pos = found_pos + 1
                 continue
 
-            current_indent = len(line) - len(line.lstrip(' '))
-            if current_indent < indent_level:
+            logger.debug(f"  [find_next_span_start] found span at {found_pos}")
+            return found_pos
+
+    # @indent("PARSE BLOCK")
+    def _parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
+        log.push("PARSE_BLOCK", "")
+        block_content, end_pos = self._read_indented_block_content(code, start_pos)
+        if block_content is None:
+            logger.debug("[block] x (no content)")
+            log.pop("PARSE_BLOCK")
+            return None, start_pos
+
+        # --- Dedent and Prepare for Parsing ---
+        dedented_block = textwrap.dedent(block_content)
+
+        logger.debug(Panel(
+            dedented_block.strip(),
+            title="Parsing Indented Block",
+            border_style="dim",
+            expand=False,
+            padding=(1, 4)
+        ))
+        # Check if the block is empty or contains only whitespace
+        if not dedented_block.strip():
+            logger.debug("x (empty after dedent)")
+            log.pop("PARSE_BLOCK")
+            return None, end_pos
+
+        # --- Recursive Parsing ---
+        parser = HolowareParser(dedented_block)
+        body_ware = parser.parse()
+        log.pop("PARSE_BLOCK")
+        return body_ware, end_pos
+
+    def _read_indented_block_content(self, code: str, start_pos: int) -> Tuple[Optional[str], int]:
+        """Reads an indented block of text, returning the content and new position."""
+        lines = code[start_pos:].splitlines(True)
+        if not lines:
+            return None, start_pos
+
+        first_line = lines[0]
+        if not first_line.strip(): # Skip empty line after span
+            start_pos += len(first_line)
+            lines.pop(0)
+            if not lines:
+                return None, start_pos
+            first_line = lines[0]
+
+        indentation = len(first_line) - len(first_line.lstrip(' '))
+        if indentation == 0:
+            return None, start_pos
+
+        block_lines = []
+        current_pos = start_pos
+        for line in lines:
+            line_indent = len(line) - len(line.lstrip(' '))
+            if line.strip() == "": # allow empty lines within block
+                block_lines.append(line)
+                current_pos += len(line)
+                continue
+            if line_indent >= indentation:
+                block_lines.append(line)
+                current_pos += len(line)
+            else:
                 break
 
-            block_lines.append(line[indent_level:])
-            consumed_chars += len(line) + 1
-            current_pos = next_line_end + 1
+        if not block_lines:
+            return None, start_pos
 
-        dedented_text = "\n".join(block_lines)
-
-        panel_text = (
-            f"Parsing Indented Block\n"
-            f"Start Position: {start_pos}\n"
-            f"Indent Level: {indent_level}\n"
-            f"Consumed Chars: {consumed_chars}\n"
-            f"Block Content:\n{dedented_text}"
-        )
-        logger.debug(Panel(panel_text))
-
-        # Parse the dedented block recursively
-        innerware = HolowareParser(dedented_text.rstrip()).parse()
-
-        return innerware, start_pos + consumed_chars
+        return "".join(block_lines), current_pos
 
     def read_until_span_end(self) -> str:
         if self.code[self.pos:self.pos+2] != '<|':
@@ -342,5 +373,18 @@ class HolowareParser:
             return self.code[start:end]
         except ValueError:
             raise ValueError("Unclosed tag")
+
+    def _finalize_text_span(self):
+        """Merges consecutive TextSpans and removes leading whitespace."""
+        last_span = None
+        for i, span in enumerate(self.ware.spans):
+            if isinstance(span, TextSpan):
+                if last_span and isinstance(last_span, TextSpan):
+                    last_span.text += span.text
+                    self.ware.spans.pop(i) # Remove the duplicate
+                else:
+                    last_span = span
+            else:
+                last_span = span
 
 

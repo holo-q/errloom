@@ -231,38 +231,12 @@ class Holoware:
         logger.debug(f"Running {self}")
 
         # --- Lifecycle: Start ---
-        logger.debug("lifecycle.start:")
-        for span in self.spans:
-            if isinstance(span, ClassSpan):
-                ClassName = span.class_name
-                Class = phore.env.get(ClassName)
-                if not Class:
-                    from errloom.discovery import get_class
-                    Class = get_class(ClassName)
+        phore.invoke(self, "__holo_start__", [phore], {})
 
-                if not Class:
-                    raise f"Class '{ClassName}' not found in environment or registry."
-                    # phore.errors += 1
-                    # continue
-
-                if getattr(Class, '_is_holostatic', False):
-                    phore.span_bindings[span.uuid] = Class
-                else:
-                    # TODO extract to call_class_init (formalizes the api)
-                    kspan, kwspan = phore.get_holofunc_args(span)
-                    inst = phore.invoke(Class, '__init__', span.kargs, kwspan, optional=False)
-                    phore.span_bindings[span.uuid] = inst
-
-                    # TODO extract to call_class_init (formalizes the api)
-                    inst_after_init = phore.invoke(inst, '__holo_init__', kspan, kwspan)
-                    if inst_after_init:
-                        phore.span_bindings[span.uuid] = inst_after_init
-                        
-        if phore.errors > 0:
-            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
-
-        logger.debug("Span Bindings:")
-        logger.debug(phore.span_bindings)
+        # --- Context Management ---
+        # Ensure there's an initial context if the holoware starts with content
+        if self.spans and not isinstance(self.spans[0], ContextResetSpan):
+            phore.new_context()
 
         # --- Lifecycle: Main ---
         logger.debug("lifecycle.main:")
@@ -289,10 +263,16 @@ class Holoware:
                 logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
             if phore._newtext:
-                log.push_indent()
-                logger.info(Text("> " + phore._newtext), style="dim italic")
+                log.push()
+                logger.info(Text("> " + phore._newtext, style="dim italic"))
                 phore._newtext = ""
-                log.pop_indent()
+                log.pop()
+
+        if phore.errors > 0:
+            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
+
+        logger.debug("Span Bindings:")
+        logger.debug(phore.span_bindings)
 
         # --- Lifecycle: End ---
         logger.debug("lifecycle.end:")

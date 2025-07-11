@@ -11,7 +11,7 @@ from errloom.utils.log import log, setup_logging
 
 setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
-    print_path=errlargs.log_more)
+    print_path=True)
 
 discovery.crawl_package(
     'errloom',

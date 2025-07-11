@@ -2,6 +2,7 @@ import logging
 import os
 from functools import wraps
 from threading import local
+from typing import Optional
 
 import rich.traceback
 from rich.console import Console
@@ -10,54 +11,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+logger = logging.getLogger(__name__)
 
-# TODO we need to find a way to disable all this stuff in the log
-#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-# [07/10/25 20:55:30] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
-#                     DEBUG     (_api.acquire): Lock %s acquired on %s
-#                     DEBUG     (local.__init__): open file: %s
-#                     DEBUG     (_api.release): Attempting to release lock %s on %s
-#                     DEBUG     (_api.release): Lock %s released on %s
-# [07/10/25 20:55:31] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
-#                     DEBUG     (_api.acquire): Lock %s acquired on %s
-#                     DEBUG     (local.__init__): open file: %s
-#                     DEBUG     (_api.release): Attempting to release lock %s on %s
-#                     DEBUG     (_api.release): Lock %s released on %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-# [07/10/25 20:55:32] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
-#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
-#                     DEBUG     (_api.acquire): Lock %s acquired on %s
-#                     DEBUG     (local.__init__): open file: %s
-
+# MAIN SETUP
+# ----------------------------------------
 
 cl = Console()
 rich.traceback.install(
@@ -73,117 +30,6 @@ rich.traceback.install(
     suppress=[],  # You can add modules to suppress here
 )
 
-# Global indent tracker - thread-local to handle concurrent logging
-_indent_state = local()
-
-def _get_indent_level() -> int:
-    """Get current indent level, defaulting to 0."""
-    return getattr(_indent_state, 'level', 0)
-
-def _set_indent_level(level: int) -> None:
-    """Set current indent level."""
-    _indent_state.level = level
-
-def indent(func):
-    """
-    Decorator that increments log indentation for the duration of the function.
-
-    Usage:
-        @indent
-        def my_function():
-            log("This will be indented")
-            # ... function body
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        current_level = _get_indent_level()
-        _set_indent_level(current_level + 1)
-        try:
-            return func(*args, **kwargs)
-        finally:
-            _set_indent_level(current_level)
-    return wrapper
-
-def push_indent(i=1):
-    _set_indent_level(_get_indent_level() + i)
-
-def pop_indent(i=1):
-    _set_indent_level(_get_indent_level() - i)
-
-class CustomRichHandler(RichHandler):
-    """
-    A custom RichHandler that formats log messages to include the
-    class and function name of the caller.
-    """
-
-    def __init__(self, *kargs, print_path=False, highlight=True, **kwargs):
-        super().__init__(*kargs, **kwargs)
-        self.print_path = print_path
-        self.highlight = highlight
-
-    def render_message(self, record: logging.LogRecord, message: str):
-        """
-        Renders the log message with a prefix containing the caller's context.
-        """
-
-        path = ""
-        if self.print_path:
-            # TODO this is now broken and does not display the correct path. It seems to be offset by one in the would-be stacktrace...
-            classname = getattr(record, "classname", None)
-            if classname:
-                path = f"({classname}.{record.funcName})"
-            else:
-                filename = os.path.basename(record.pathname).replace(".py", "")
-                path = f"({filename}.{record.funcName})"
-
-        # For multiline messages, place them on a new line after the prefix
-        # msg = None
-        # if isinstance(record.msg, str):
-        #     msg = record.msg
-        # elif isinstance(record.msg, Table):
-        #     msg = PrintedText(record.msg).markup
-        # elif isinstance(record.msg, Text):
-        #     msg = record.msg.markup
-        # elif isinstance(record.msg, RenderableType):
-        #     msg = str(record.msg)
-        # elif isinstance(record.msg, Panel):
-        #     msg = PrintedText(record.msg).markup
-        # else:
-        #     # raise ValueError(f"Unsupported message type: {type(record.msg)}")
-
-        msg = record.msg or ""
-        msgtext = PrintedText(msg, highlight=self.highlight).markup
-        assert msg is not None
-
-        # Compute the whole prefix so we can measure it
-        lvl = _get_indent_level()
-        prefix_indent = f"{'... ' * lvl}"
-        prefix_path = ""
-
-        if self.print_path:
-            prefix_path = f"{path}: "
-
-        # Measure the prefix
-        idt = lvl * 2 # len(prefix_indent)
-        if self.print_path and "\n" in msgtext:
-            idt += len(prefix_path)
-
-        # Render to text
-        msgtext = PrintedText(msgtext, highlight=False).markup # TODO idt needs to also contain the prefix created by the logging library (timestamp & level)
-
-        # everything after the first line needs to be pushed horizontally to align
-        if "\n" in msgtext:
-            lines = msgtext.split("\n")
-            msgtext = ""
-            if lines[0].strip():
-                msgtext = lines[0] + "\n"
-            else:
-                lines = lines[1:]
-            msgtext += "\n".join(" " * (idt + 1) + line for line in lines[1:])
-
-        full = f"[dim]{prefix_indent} {prefix_path}[/dim]{msgtext}"
-        return Text.from_markup(full)
-
 
 def setup_logging(
     level: str = "DEBUG",
@@ -194,6 +40,7 @@ def setup_logging(
     Setup basic logging configuration for the errloom package.
 
     Args:
+        :param highlight:
         :param print_path:
         :param level: The logging level to use. Defaults to "DEBUG".
     """
@@ -212,89 +59,101 @@ def setup_logging(
 
     # Prevent the logger from propagating messages to the root logger
     # logger.propagate = False
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("filelock").setLevel(logging.WARNING)
 
+# MAIN
+# ----------------------------------------
 
-def print_prompt_completions_sample(
-    prompts: list[str],
-    completions: list[dict],
-    rewards: dict[str, list[float]],
-    step: int,
-    num_samples: int = 1,  # Number of samples to display
-) -> None:
-    console = Console()
-    table = Table(show_header=True, header_style="bold white", expand=True)
+logger_main = logging.getLogger("main")
 
-    # Add columns
-    table.add_column("Prompt", style="bright_yellow")
-    table.add_column("Completion", style="bright_green")
-    table.add_column("Reward", style="bold cyan", justify="right")
+def log(*s, logger=logger_main, stacklevel=1):
+    if not s:
+        s = ""
+    logger.info(*s, stacklevel=stacklevel + 1)
 
-    # Get the reward values from the dictionary
-    reward_values = rewards.get("reward", [])
+def logc(logger=logger_main):
+    cl.clear()
 
-    # Ensure we have rewards for all prompts/completions
-    if len(reward_values) < len(prompts):
-        # Pad with zeros if we don't have enough rewards
-        reward_values = reward_values + [0.0] * (len(prompts) - len(reward_values))
+def logl(*s, logger=logger_main, stacklevel=1):
+    logger.info(*s, stacklevel=stacklevel + 1)
+    logger.info("")
 
-    # Only show the first num_samples samples
-    samples_to_show = min(num_samples, len(prompts))
+def logi(text, logger=logger_main, stacklevel=1):
+    logger.info(f"[cyan]{text}[/]", stacklevel=stacklevel + 1)
+    logger.info("")
 
-    for i in range(samples_to_show):
-        prompt = prompts[i]
-        completion = completions[i]
-        reward = reward_values[i]
+class LogContext:
+    """Context manager for wrapping code blocks with intro/outro logging."""
 
-        # Format prompt (can be string or list of dicts)
-        formatted_prompt = Text()
-        if isinstance(prompt, str):
-            formatted_prompt = Text(prompt)
-        elif isinstance(prompt, list):
-            # For chat format, only show the last message content (typically the user's question)
-            if prompt:
-                last_message = prompt[-1]
-                content = last_message.get("content", "")
-                formatted_prompt = Text(content, style="bright_yellow")
-            else:
-                formatted_prompt = Text("")
+    def __init__(self, intro_msg: str, outro_msg: Optional[str] = None, logger=logger_main):
+        self.intro = intro_msg
+        self.outro = outro_msg or intro_msg.replace("Starting", "Completed").replace(
+            "Initializing", "Initialized"
+        )
+        self.logger = logger
+
+    def __enter__(self):
+        log(f"[cyan]{self.intro}[/]", logger=self.logger, stacklevel=2)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            logl(f"[green]✓[/] {self.outro}", logger=self.logger, stacklevel=2)
         else:
-            formatted_prompt = Text(str(prompt))
+            logl(f"[red]✗[/] {self.outro} failed: {exc_val}", logger=self.logger, stacklevel=2)
+            return False
 
-        # Create a formatted Text object for completion with alternating colors based on role
-        formatted_completion = Text()
+# GLOBAL INDENT TRACKER - thread-local to handle concurrent logging
+# ----------------------------------------
 
-        if isinstance(completion, dict):
-            # Handle single message dict
-            role = completion.get("role", "")
-            content = completion.get("content", "")
-            style = "bright_cyan" if role == "assistant" else "bright_magenta"
-            formatted_completion.append(f"{role}: ", style="bold")
-            formatted_completion.append(content, style=style)
-        elif isinstance(completion, list):
-            # Handle list of message dicts
-            for i, message in enumerate(completion):
-                if i > 0:
-                    formatted_completion.append("\n\n")
+_indent_state = local()
 
-                role = message.get("role", "")
-                content = message.get("content", "")
+def _get_indent_level() -> int:
+    """Get current indent level, defaulting to 0."""
+    return getattr(_indent_state, 'level', 0)
 
-                # Set style based on role
-                style = "bright_cyan" if role == "assistant" else "bright_magenta"
+def _set_indent_level(level: int) -> None:
+    """Set current indent level."""
+    _indent_state.level = level
 
-                formatted_completion.append(f"{role}: ", style="bold")
-                formatted_completion.append(content, style=style)
-        else:
-            # Fallback for string completions
-            formatted_completion = Text(str(completion))
+def indent(func=None, *, a1=3, a2=None):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            push(a1, a2)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                pop(a1)
+        return wrapper
 
-        table.add_row(formatted_prompt, formatted_completion, Text(f"{reward:.2f}"))
-        if i < samples_to_show - 1:  # Don't add section after last row
-            pass  # table.add_section()  # Adds a separator between rows
+    if callable(func):
+        return decorator(func)
+    else:
+        # Handle @indent("string")
+        if func is not None:
+            a1 = func
+            a2 = ""
+        return decorator
 
-    panel = Panel(table, expand=False, title=f"Step {step}", border_style="bold white")
-    console.print(panel)
 
+def push(a1=3, a2=None):
+    if isinstance(a1, int):
+        _set_indent_level(_get_indent_level() + a1)
+    elif isinstance(a1, str) and isinstance(a2, str):
+        log(f"{a1} {a2}")
+        i = len(a1) + 1
+        _set_indent_level(_get_indent_level() + i)
+
+def pop(a=3):
+    if isinstance(a, int):
+        _set_indent_level(_get_indent_level() - a)
+    elif isinstance(a, str):
+        i = len(a) + 1
+        _set_indent_level(_get_indent_level() - i)
+
+# --- Additional Utilities ---
 
 def ellipse(text: str, max_length: int = 50) -> str:
     """
@@ -303,6 +162,9 @@ def ellipse(text: str, max_length: int = 50) -> str:
     if len(text) > max_length:
         return text[:max_length] + '...'
     return text
+
+# RICH HANDLER
+# ----------------------------------------
 
 
 def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Text:
@@ -323,44 +185,90 @@ def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Tex
         c.print(renderable, highlight=highlight)
     return Text.from_ansi(capture.get())
 
-logger_main = logging.getLogger("main")
 
-def log(*s, logger=logger_main):
-    if not s:
-        s = ""
-    logger.info(*s)
+class CustomRichHandler(RichHandler):
+    """
+    A custom RichHandler that formats log messages to include the
+    class and function name of the caller.
+    """
 
-def logc(logger=logger_main):
-    cl.clear()
+    def __init__(self, *kargs, print_path, path_width=10, highlight, **kwargs):
+        super().__init__(*kargs, **kwargs)
+        self.print_path = print_path
+        self.highlight = highlight
 
-def logl(*s, logger=logger_main):
-    logger.info(*s)
-    logger.info("")
+        import json
+        self.persistence_file = ".persistence/logging.json"
 
-def logi(text, logger=logger_main):
-    logger.info(f"[cyan]{text}[/]")
-    logger.info("")
+        saved_path_width = path_width
+        if os.path.exists(self.persistence_file):
+            try:
+                with open(self.persistence_file, 'r') as f:
+                    data = json.load(f)
+                    saved_path_width = data.get('max_path_width', path_width)
+            except (json.JSONDecodeError, IOError):
+                # If file is malformed or cannot be read, use default.
+                pass
 
-class LogContext:
-    """Context manager for wrapping code blocks with intro/outro logging."""
+        self.path_width = saved_path_width
 
-    def __init__(self, intro_msg: str, outro_msg: str = None, logger=logger_main):
-        self.intro = intro_msg
-        self.outro = outro_msg or intro_msg.replace("Starting", "Completed").replace(
-            "Initializing", "Initialized"
-        )
-        self.logger = logger
 
-    def __enter__(self):
-        log(f"[cyan]{self.intro}[/]", logger=self.logger)
-        return self
+    def render_message(self, record: logging.LogRecord, message: str):
+        """
+        Renders the log message with a prefix containing the caller's context.
+        """
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            logl(f"[green]✓[/] {self.outro}", logger=self.logger)
+        def _align_multiline(text, left, extra=0):
+            # Push everything after the first line with left width
+            if "\n" in text:
+                lines = text.split("\n")
+                text = ""
+                if lines[0].strip():
+                    text = lines[0] + "\n"
+                else:
+                    lines = lines[1:]
+                text += "\n".join(" " * (len(left) + extra) + line for line in lines[1:])
+            return text
+
+        # --- PATH ---
+        path = ""
+        cls = getattr(record, "classname", None)
+        if cls:
+            path = f"({cls}.{record.funcName})"
         else:
-            logl(f"[red]✗[/] {self.outro} failed: {exc_val}", logger=self.logger)
-            return False
+            filename = os.path.basename(record.pathname).replace(".py", "")
+            path = f"({filename}.{record.funcName})"
 
+        path = f"{path}: "
+        wpath = len(path)
+        path = path.rjust(self.path_width + 2)  # + colon space
+        idt = f"{'.' * _get_indent_level()}"
+        left = f"{path}: {idt} "
+
+        text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline
+        text = _align_multiline(text, left)
+
+        # idt = lvl * 3  # len(prefix_indent)
+        # if self.print_path and "\n" in text:
+        #     idt += len(prefix_path)
+        # text = PrintedText(text, highlight=False).markup
+
+        if self.print_path:
+            full = f"[dim]{left}[/dim]{text}"
+
+        # PERSISTENCE
+        # ----------------------------------------
+        if wpath > self.path_width:
+            self.path_width = wpath
+            os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
+            try:
+                with open(self.persistence_file, 'w') as f:
+                    import json
+                    json.dump({'max_path_width': self.path_width}, f)
+                    logger.info(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
+            except IOError:
+                pass  # Don't crash on logging persistence error
+
+        return Text.from_markup(full)
 
 

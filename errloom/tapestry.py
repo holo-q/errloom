@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import re
 
 from errloom.utils.openai_chat import MessageList, MessageTuple
@@ -122,7 +122,7 @@ class Rollout:
     # TODO Possible rename to String, Lstring, Wstring or Unstring. Treating it as a super-string is a very interesting continuation of the software engineering semantic.
     """
     row: Dict[str, Any]
-    contexts: list[Context] = field(default_factory=lambda: [Context()])
+    contexts: list[Context] = field(default_factory=list)
     mask: list[bool] = field(default_factory=list)
     samples: list[str] = field(default_factory=list)
     gravity: float = 0.0
@@ -130,6 +130,12 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
+
+    def __post_init__(self):
+        pass
+
+    def new_context(self):
+        self.contexts.append(Context())
 
     def add_text(self, text: str):
         self.contexts[-1].add_text(text)

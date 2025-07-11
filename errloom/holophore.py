@@ -20,20 +20,23 @@ logger = logging.getLogger(__name__)
 
 class Holophore:
     """
-    Binding delegator around Loom and Rollout as a superset execution context for an holoware.
-    All field access and modifications are delegated to the original loom and rollout object.
+    The Holophore is the "soul" of the holoware, containing the state of a single
+    execution of a holoware. This includes the rollout, which contains the sequence
+    of contexts and samples, and the environment, which contains any variables
+    or classes that are available to the holoware.
     """
 
-    def __init__(self, loom: 'Loom', rollout: Rollout, env: Optional[dict[str, Any]] = None):
-        # Store reference to original loom and rollout for delegation
+    def __init__(self, loom, rollout: Rollout, env: dict):
         self._loom = loom
         self._rollout = rollout
-        self.env = env or {}
-        self.ego = "system"
-        # self.textbuf:list[str] = []
+        self.env = env
+        self.span_bindings = {}
         self.errors = 0
-        self.span_bindings: dict[str, Any] = dict()
         self._newtext = ""
+        self.ego = "system"
+
+    def new_context(self):
+        self._rollout.new_context()
 
     def add_text(self, text: str):
         ctx = self.contexts[-1]
@@ -81,7 +84,7 @@ class Holophore:
             super().__setattr__(name, value)
 
     @property
-    def contexts(self) -> list[Context]:
+    def contexts(self):
         return self._rollout.contexts
 
     @property
@@ -107,15 +110,19 @@ class Holophore:
         If `filter_missing_arguments` is True, it inspects the function signature
         and only passes keyword arguments that are expected by the function.
         """
-        
+        def _filter_kwargs(func, passed_kwargs):
+            if not filter_missing_arguments or not passed_kwargs:
+                return passed_kwargs
+            sig = inspect.signature(func)
+            if any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
+                return passed_kwargs
+            return {k: v for k, v in passed_kwargs.items() if k in sig.parameters}
+
         if funcname == '__init__':
             if not isinstance(target, type):
                 raise TypeError(f"Target for __init__ must be a class, not {type(target)}")
 
-            final_kwargs = kwargs
-            if filter_missing_arguments:
-                sig = inspect.signature(target)
-                final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            final_kwargs = _filter_kwargs(target, kwargs)
             return target(*args, **final_kwargs)
 
         Impl = target if isinstance(target, type) else type(target)
@@ -128,10 +135,7 @@ class Holophore:
                 #     logger.debug(PrintedText(kwargs))
                 _holofunc_ = getattr(Base, funcname)
 
-                final_kwargs = kwargs
-                if filter_missing_arguments:
-                    sig = inspect.signature(_holofunc_)
-                    final_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                final_kwargs = _filter_kwargs(_holofunc_, kwargs)
 
                 return _holofunc_(target, *args, **final_kwargs)
 
