@@ -1,7 +1,7 @@
 import asyncio
 import concurrent.futures
 import inspect
-import picologging as logging
+import logging
 from asyncio import Semaphore
 from typing import Callable, List
 

@@ -37,7 +37,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
-import picologging as logging
+import logging
 from rich.text import Text
 
 from errloom.utils import log
@@ -65,7 +65,7 @@ def holostatic(cls):
 # ----------------------------------------
 
 @dataclass
-class HoloSpan(ABC):
+class Span(ABC):
     """Base class for spans in the holoware DSL.
 
     A span represents a prompting segment with specific injection behavior.
@@ -80,7 +80,7 @@ class HoloSpan(ABC):
     - Type-specific attributes defined in subclasses
     """
     uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
-    args: list[str] = field(default_factory=list)
+    kargs: list[str] = field(default_factory=list)
     kwargs: dict[str, str] = field(default_factory=dict)
 
     @abstractmethod
@@ -88,7 +88,7 @@ class HoloSpan(ABC):
         """Return the rich color style for this span type."""
         pass
 
-    def apply_arguments(self, node_attrs: dict[str, str], fence_attrs: dict[str, str], positional_args: list[str]) -> None:
+    def set_args(self, k: list[str], kw: dict[str, str], kwinject: dict[str, str]) -> 'Span':
         """Apply parsed arguments to span attributes.
 
         This method sets span attributes from parsed arguments, with the following priority:
@@ -97,24 +97,25 @@ class HoloSpan(ABC):
         3. Store positional_args in var_args
         """
         # Store positional args
-        self.args = positional_args.copy()
+        self.kargs = k.copy()
 
         # Get all field names for this span class
         field_names = {f.name for f in fields(self)}
 
-        # Apply node_attrs to matching fields, rest go to var_kwargs
-        remaining_attrs = {}
-        for key, value in node_attrs.items():
+        # Apply node_attrs to matching fields; rest go to var_kwargs
+        remaining = {}
+        for key, value in kw.items():
             if key in field_names:
                 setattr(self, key, value)
             else:
-                remaining_attrs[key] = value
+                remaining[key] = value
 
         # Combine remaining node_attrs and fence_attrs
-        self.kwargs = {**remaining_attrs, **fence_attrs}
+        self.kwargs = {**remaining, **kwinject}
+        return self
 
 @dataclass
-class ContextResetSpan(HoloSpan):
+class ContextResetSpan(Span):
     """Reset the context."""
     train: bool = False
 
@@ -122,7 +123,7 @@ class ContextResetSpan(HoloSpan):
         return "bold yellow" if self.train else "yellow"
 
 @dataclass
-class EgoSpan(HoloSpan):
+class EgoSpan(Span):
     """Sets the current ego (role tag in OpenAI) by printing the special token."""
     ego: str = ""
 
@@ -130,7 +131,7 @@ class EgoSpan(HoloSpan):
         return "bold cyan"
 
 @dataclass
-class SampleSpan(HoloSpan):
+class SampleSpan(Span):
     """Sample tokens from the model"""
     goal: str = ""
     fence: str = ""
@@ -145,7 +146,7 @@ class SampleSpan(HoloSpan):
         return self.goal[:30].replace('\n', '\\n').replace('\r', '\\r')
 
 @dataclass
-class TextSpan(HoloSpan):
+class TextSpan(Span):
     """Represents a block of plain text content."""
     text: str = ""
 
@@ -157,7 +158,7 @@ class TextSpan(HoloSpan):
         return self.text[:30].replace('\n', '\\n').replace('\r', '\\r')
 
 @dataclass
-class ObjSpan(HoloSpan):
+class ObjSpan(Span):
     """Represents a data variable placeholder (e.g. <|sample|>)."""
     var_ids: list[str] = field(default_factory=list)
 
@@ -165,7 +166,7 @@ class ObjSpan(HoloSpan):
         return "bold magenta"
 
 @dataclass
-class ClassSpan(HoloSpan):
+class ClassSpan(Span):
     """Represents a class with a __holo__ method."""
     class_name: str = ""
     body: Optional["Holoware"] = None
@@ -184,8 +185,8 @@ class Holoware:
     """
     code: Optional[str] = None
     filepath: Optional[str] = None
-    spans: list[HoloSpan] = field(default_factory=list)
-    span_by_uuid: dict[str, HoloSpan] = field(default_factory=dict)
+    spans: list[Span] = field(default_factory=list)
+    span_by_uuid: dict[str, Span] = field(default_factory=dict)
 
     @property
     def obj_ids(self) -> list[str]:
@@ -210,13 +211,13 @@ class Holoware:
 
         return contexts
 
-    def first_span_by_type(self, SpanType) -> HoloSpan:  # TODO can we annotate that the return type is of SpanType? it's basically a generic we want....
+    def first_span_by_type(self, SpanType) -> Span:  # TODO can we annotate that the return type is of SpanType? it's basically a generic we want....
         for span in self.spans:
             if isinstance(span, SpanType):
                 return span
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
-    @indent
+    # @indent
     def __call__(self, phore: "Holophore"):
         from errloom.holoware_handlers import HolowareHandlers
 
@@ -240,28 +241,28 @@ class Holoware:
                     Class = get_class(ClassName)
 
                 if not Class:
-                    logger.error(f"Class '{ClassName}' not found in environment or registry.")
-                    phore.errors += 1
-                    continue
+                    raise f"Class '{ClassName}' not found in environment or registry."
+                    # phore.errors += 1
+                    # continue
 
                 if getattr(Class, '_is_holostatic', False):
                     phore.span_bindings[span.uuid] = Class
                 else:
                     # TODO extract to call_class_init (formalizes the api)
                     kspan, kwspan = phore.get_holofunc_args(span)
-                    inst = phore.invoke(Class, '__init__', span.args, kwspan, optional=False)
+                    inst = phore.invoke(Class, '__init__', span.kargs, kwspan, optional=False)
                     phore.span_bindings[span.uuid] = inst
 
                     # TODO extract to call_class_init (formalizes the api)
                     inst_after_init = phore.invoke(inst, '__holo_init__', kspan, kwspan)
                     if inst_after_init:
                         phore.span_bindings[span.uuid] = inst_after_init
+                        
+        if phore.errors > 0:
+            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
 
         logger.debug("Span Bindings:")
         logger.debug(phore.span_bindings)
-
-        if phore.errors > 0:
-            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
 
         # --- Lifecycle: Main ---
         logger.debug("lifecycle.main:")
@@ -304,11 +305,11 @@ class Holoware:
 
         return phore
 
-    def _append_args_to_debug(self, text: Text, span: HoloSpan):
+    def _append_args_to_debug(self, text: Text, span: Span):
         """Append formatted var_args and var_kwargs to the rich text."""
         args_text = []
-        if span.args:
-            args_text.append(", ".join(map(str, span.args)))
+        if span.kargs:
+            args_text.append(", ".join(map(str, span.kargs)))
         if span.kwargs:
             args_text.append(", ".join(f"{k}={v}" for k, v in span.kwargs.items()))
 

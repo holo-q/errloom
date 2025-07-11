@@ -1,4 +1,4 @@
-import picologging as logging
+import logging
 import os
 from functools import wraps
 from threading import local
@@ -10,6 +10,55 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+
+# TODO we need to find a way to disable all this stuff in the log
+#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+# [07/10/25 20:55:30] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._new_conn): Starting new HTTPS connection (%d): %s:%s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
+#                     DEBUG     (_api.acquire): Lock %s acquired on %s
+#                     DEBUG     (local.__init__): open file: %s
+#                     DEBUG     (_api.release): Attempting to release lock %s on %s
+#                     DEBUG     (_api.release): Lock %s released on %s
+# [07/10/25 20:55:31] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
+#                     DEBUG     (_api.acquire): Lock %s acquired on %s
+#                     DEBUG     (local.__init__): open file: %s
+#                     DEBUG     (_api.release): Attempting to release lock %s on %s
+#                     DEBUG     (_api.release): Lock %s released on %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+# [07/10/25 20:55:32] DEBUG     (connectionpool._make_request): %s://%s:%s "%s %s %s" %s %s
+#                     DEBUG     (_api.acquire): Attempting to acquire lock %s on %s
+#                     DEBUG     (_api.acquire): Lock %s acquired on %s
+#                     DEBUG     (local.__init__): open file: %s
+
+
 cl = Console()
 rich.traceback.install(
     show_locals=False,  # You have False - but True is great for debugging
@@ -17,10 +66,10 @@ rich.traceback.install(
     extra_lines=2,  # Show more context lines around the error
     max_frames=10,  # Limit very deep stacks (default is 100)
     indent_guides=True,  # Visual indentation guides
-    locals_max_length=10,  # Limit local var representation length
-    locals_max_string=80,  # Limit string local var length
-    locals_hide_dunder=True,  # Hide __dunder__ variables in locals
-    locals_hide_sunder=True,  # Hide _private variables in locals
+    # locals_max_length=10,  # Limit local var representation length
+    # locals_max_string=80,  # Limit string local var length
+    # locals_hide_dunder=True,  # Hide __dunder__ variables in locals
+    # locals_hide_sunder=True,  # Hide _private variables in locals
     suppress=[],  # You can add modules to suppress here
 )
 
@@ -79,6 +128,7 @@ class CustomRichHandler(RichHandler):
 
         path = ""
         if self.print_path:
+            # TODO this is now broken and does not display the correct path. It seems to be offset by one in the would-be stacktrace...
             classname = getattr(record, "classname", None)
             if classname:
                 path = f"({classname}.{record.funcName})"
@@ -101,7 +151,7 @@ class CustomRichHandler(RichHandler):
         # else:
         #     # raise ValueError(f"Unsupported message type: {type(record.msg)}")
 
-        msg = record.msg
+        msg = record.msg or ""
         msgtext = PrintedText(msg, highlight=self.highlight).markup
         assert msg is not None
 

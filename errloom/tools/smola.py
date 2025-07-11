@@ -6,7 +6,7 @@ class ToolPrompt:
         Formats tool descriptions for the prompt.
         This is triggered by a <|ToolPrompt tools|> tag.
         """
-        tools_var_name = node.args[0]
+        tools_var_name = node.kargs[0]
         tools = holophore.rollout.env.get(tools_var_name, [])
 
         descriptions = []

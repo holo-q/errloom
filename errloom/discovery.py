@@ -1,8 +1,9 @@
 import importlib
 import inspect
-import picologging as logging
+import logging
 import os
 import pkgutil
+import sys
 from typing import Any, Dict, List, Optional, Type
 
 
@@ -98,3 +99,33 @@ def get_all_classes() -> Dict[str, Type[Any]]:
     """
     return _class_registry.copy()
 
+_holo_classes_cache = {}
+_cache_valid = False
+def find_holo_classes():
+    global _holo_classes_cache, _cache_valid
+
+    if _cache_valid:
+        return _holo_classes_cache
+
+    holo_classes = {}
+    modules = dict(sys.modules)
+    for module_name, module in modules.items():
+        if module is None:
+            continue
+
+        try:
+            for name, obj in inspect.getmembers(module, inspect.isclass):
+                if hasattr(obj, '__holo__') and callable(getattr(obj, '__holo__')):
+                    holo_classes[name] = obj
+        except Exception:
+            continue
+
+    _holo_classes_cache = holo_classes
+    _cache_valid = True
+    return holo_classes
+def resolve_holo_class(class_name):
+    holo_classes = find_holo_classes()
+    return holo_classes.get(class_name)
+def invalidate_holo_cache():
+    global _cache_valid
+    _cache_valid = False

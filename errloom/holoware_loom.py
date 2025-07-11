@@ -1,4 +1,4 @@
-import picologging as logging
+import logging
 from copy import deepcopy
 from typing import Optional
 
@@ -46,6 +46,8 @@ class HolowareLoom(Loom):
             message_type='chat',
             **kwargs
         )
+        
+        logger.info("Constructing HolowareLoom ...")
 
         self.prompt_lib = holoware_load.get_default_loader()
         self.holoware = holoware_load.load_holoware(path)
@@ -64,6 +66,7 @@ class HolowareLoom(Loom):
         logger.info(self.holoware.to_rich())
 
     def rollout(self, roll: Rollout):
+        logger.info("Constructing HolowareLoom ...")
         env = deepcopy(roll.row)
         phore = self.holoware(Holophore(self, roll, env))
         logger.info(PrintedText(phore.to_rich()))

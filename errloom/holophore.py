@@ -1,5 +1,5 @@
 import inspect
-import picologging as logging
+import logging
 import typing
 from typing import Any, Optional
 
@@ -8,7 +8,7 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.rule import Rule
 
-from errloom.holoware import HoloSpan
+from errloom.holoware import Span
 from errloom.tapestry import Context, Rollout
 from errloom.utils.log import indent
 from errloom.utils.openai_chat import extract_fence
@@ -93,7 +93,13 @@ class Holophore:
     def rollout(self) -> Rollout:
         """For backward compatibility - returns the original rollout object."""
         return self._rollout
-        
+
+    def invoke__holo__(self, phore:'Holophore', span:Span) -> str:
+        inst = phore.span_bindings.get(span.uuid, None)
+        assert inst
+        result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)
+        return result or ""
+    
     def invoke(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
         """
         Walks the MRO of a class or instance to find and call a __holo__ method
@@ -134,7 +140,7 @@ class Holophore:
 
         return None
 
-    def get_holofunc_args(self, span: HoloSpan):
+    def get_holofunc_args(self, span: Span):
         return [self, span], {}
 
     def extract_fence(self, tag, role="assistant") -> Optional[str]:

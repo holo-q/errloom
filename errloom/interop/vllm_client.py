@@ -1,7 +1,7 @@
 # adapted from trl/extras/vllm_client.py (huggingface/trl)
 
 import atexit
-import picologging as logging
+import logging
 import time
 from typing import Optional
 

@@ -11,7 +11,7 @@ import asyncio
 import concurrent
 from concurrent.futures import ThreadPoolExecutor
 
-import picologging as logging
+import logging
 import os
 
 import numpy as np
@@ -125,7 +125,4 @@ if __name__ == "__main__":
         setup_async()
         main()
     except KeyboardInterrupt:
-        logger_main.info("\nTraining interrupted by user")
-    except Exception as e:
-        logger_main.error(f"Training failed: {e}")
-        raise
+        logger_main.info("\nInterrupted by user")

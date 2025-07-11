@@ -1,6 +1,6 @@
 # adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py
 
-import picologging as logging
+import logging
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Sized, Tuple, Union

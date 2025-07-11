@@ -1,6 +1,6 @@
 import asyncio
 import concurrent.futures
-import picologging as logging
+import logging
 import typing
 from abc import ABC, abstractmethod
 from asyncio import Semaphore

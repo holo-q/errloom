@@ -12,7 +12,7 @@
 
 ##  2. Usage
 
-### Standalone
+### Standalone & Deploy
 
 Install errloom to your system using pip:
 
@@ -75,23 +75,30 @@ the model will be automatically upload to huggingface to a private dataset.
 
 TODO show a training report example, image of tensorboard, wandb, etc.
 
-We **greatly** encourage the community to self-organize and implement as many compute providers under an abstraction in this interface to multiply the power of Errloom.
 
 ## 3. Roadmap
 
-### Atropos
+### Atropos Integration
 
 Write an holoware environment for Nous Research Atropos reinforcement learning library. (optional dependency on Atropos)
 This will allow the experiments conducted by Errloom users to scale using their more sophisticated pipeline for
 distributed training across the globe. We envision a market of environments and holowares where users submit proposals
 that are taken by compute volunteers.
 
+The aim is to 
+
+### Contribution
+
+* We **greatly** encourage the community to self-organize and implement as many compute providers under an abstraction in this interface to multiply the power of Errloom.
+* Explore the power of holoware and experiment with new cognitive engineering methodologies.
+* Integration with Atropos is a great project for end-users to get involved with.
+
 ## 4. Wiki
 
 For more information, please visit the wiki pages.
 
-1. Definitions
-2. Holoware DSL (.hol)
+1. [Definitions & Jargon](TODO)
+2. [Holoware Language Spec (.hol)](TODO)
 
 ## 5. Citation
 

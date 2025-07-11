@@ -119,6 +119,7 @@ class Rollout:
     """
     Work state for a rollout and final returned output.
     Gravity work also occurs in this state and mutates it.
+    # TODO Possible rename to String, Lstring, Wstring or Unstring. Treating it as a super-string is a very interesting continuation of the software engineering semantic.
     """
     row: Dict[str, Any]
     contexts: list[Context] = field(default_factory=lambda: [Context()])
@@ -129,7 +130,7 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
-    
+
     def add_text(self, text: str):
         self.contexts[-1].add_text(text)
 

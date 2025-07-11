@@ -1,4 +1,4 @@
-import picologging as logging
+import logging
 from typing import Optional, TYPE_CHECKING
 
 from rich.console import Console

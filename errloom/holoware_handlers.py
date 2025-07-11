@@ -1,4 +1,4 @@
-import picologging as logging
+import logging
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, SampleSpan
@@ -46,15 +46,5 @@ class HolowareHandlers:
             logger.error(f"Class '{ClassName}' not found for __holo__ call.")
             return
 
-        injection = cls.invoke_holo(phore, span)
+        injection = phore.invoke__holo__(phore, span)
         phore.add_text(injection)
-        # try:
-        # except Exception as e:
-        #     logger.error(f"Failed to execute __holo__ for {span.class_name}: {e}", exc_info=True)
-
-    @classmethod
-    def invoke_holo(cls, phore:Holophore, span:SampleSpan) -> str:
-        inst = phore.span_bindings.get(span.uuid, None)
-        assert inst
-        result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)
-        return result or ""
