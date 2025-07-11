@@ -255,7 +255,7 @@ class HolowareParser:
             if body_holoware:
                 last_span.body = body_holoware
                 self.pos = new_pos
-        log.pop(f"PARSE")
+        log.pop()
 
     def _parse_text(self, text: str):
         if not text:
@@ -300,7 +300,7 @@ class HolowareParser:
         block_content, end_pos = self._read_indented_block_content(code, start_pos)
         if block_content is None:
             logger.debug("[block] x (no content)")
-            log.pop("PARSE_BLOCK")
+            log.pop()
             return None, start_pos
 
         # --- Dedent and Prepare for Parsing ---
@@ -316,13 +316,13 @@ class HolowareParser:
         # Check if the block is empty or contains only whitespace
         if not dedented_block.strip():
             logger.debug("x (empty after dedent)")
-            log.pop("PARSE_BLOCK")
+            log.pop()
             return None, end_pos
 
         # --- Recursive Parsing ---
         parser = HolowareParser(dedented_block)
         body_ware = parser.parse()
-        log.pop("PARSE_BLOCK")
+        log.pop()
         return body_ware, end_pos
 
     def _read_indented_block_content(self, code: str, start_pos: int) -> Tuple[Optional[str], int]:

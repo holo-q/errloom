@@ -1,6 +1,7 @@
 import logging
 import os
 from functools import wraps
+from math import ceil
 from threading import local
 from typing import Optional
 
@@ -109,15 +110,13 @@ class LogContext:
 
 _indent_state = local()
 
-def _get_indent_level() -> int:
-    """Get current indent level, defaulting to 0."""
-    return getattr(_indent_state, 'level', 0)
+def _get_indent_stack() -> list[str]:
+    """Get current indent stack, defaulting to an empty list."""
+    if not hasattr(_indent_state, 'stack'):
+        _indent_state.stack = []
+    return _indent_state.stack
 
-def _set_indent_level(level: int) -> None:
-    """Set current indent level."""
-    _indent_state.level = level
-
-def indent(func=None, *, a1=3, a2=None):
+def indent(func=None, *, a1=1, a2=None):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -125,7 +124,8 @@ def indent(func=None, *, a1=3, a2=None):
             try:
                 return fn(*args, **kwargs)
             finally:
-                pop(a1)
+                pop()
+
         return wrapper
 
     if callable(func):
@@ -138,20 +138,28 @@ def indent(func=None, *, a1=3, a2=None):
         return decorator
 
 
-def push(a1=3, a2=None):
+def push(a1=1, a2=None):
+    """Pushes an indentation string onto the stack."""
+    stack = _get_indent_stack()
+    seg = ".. "
+    segw = len(seg)
     if isinstance(a1, int):
-        _set_indent_level(_get_indent_level() + a1)
-    elif isinstance(a1, str) and isinstance(a2, str):
+        stack.append(seg * a1)
+    elif isinstance(a1, str) and a2 is not None:
         log(f"{a1} {a2}")
-        i = len(a1) + 1
-        _set_indent_level(_get_indent_level() + i)
+        # Push spaces to align subsequent logs under the message
+        stack.append(a1 + " ")
+    elif isinstance(a1, str):
+        log(a1)
+        i = ceil(len(a1) / segw) * segw
+        stack.append(a1 + " ")
 
-def pop(a=3):
-    if isinstance(a, int):
-        _set_indent_level(_get_indent_level() - a)
-    elif isinstance(a, str):
-        i = len(a) + 1
-        _set_indent_level(_get_indent_level() - i)
+
+def pop():
+    """Pops an indentation string from the stack."""
+    stack = _get_indent_stack()
+    if stack:
+        stack.pop()
 
 # --- Additional Utilities ---
 
@@ -218,17 +226,18 @@ class CustomRichHandler(RichHandler):
         Renders the log message with a prefix containing the caller's context.
         """
 
-        def _align_multiline(text, left, extra=0):
+        def _align_multiline(txt, left_, extra=0):
             # Push everything after the first line with left width
-            if "\n" in text:
-                lines = text.split("\n")
-                text = ""
+            lines = txt.splitlines()
+            if len(lines) > 1:
+                txt = ""
                 if lines[0].strip():
-                    text = lines[0] + "\n"
+                    txt = lines[0] + "\n"
                 else:
                     lines = lines[1:]
-                text += "\n".join(" " * (len(left) + extra) + line for line in lines[1:])
-            return text
+                newlines = list([" " * (len(left_) + extra) + line for line in lines[1:]])
+                txt += "\n".join(newlines)
+            return txt
 
         # --- PATH ---
         path = ""
@@ -240,26 +249,29 @@ class CustomRichHandler(RichHandler):
             path = f"({filename}.{record.funcName})"
 
         path = f"{path}: "
-        wpath = len(path)
+        path_w = len(path)
         path = path.rjust(self.path_width + 2)  # + colon space
-        idt = f"{'.' * _get_indent_level()}"
-        left = f"{path}: {idt} "
 
+        idt = "".join(_get_indent_stack())
+
+        left = f"{path}{idt}"
         text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline
-        text = _align_multiline(text, left)
+        # print(f"ALIGN TO {len(left)} (lines: {len(text.splitlines())})")
 
-        # idt = lvl * 3  # len(prefix_indent)
-        # if self.print_path and "\n" in text:
-        #     idt += len(prefix_path)
-        # text = PrintedText(text, highlight=False).markup
+        # print("BEFORE:")
+        # print(text)
+        text_aligned = _align_multiline(text, left)
+        # print("AFTER:")
+        # print(text)
+        text = PrintedText(text, highlight=False).markup
 
-        if self.print_path:
-            full = f"[dim]{left}[/dim]{text}"
+        # if self.print_path:
+        full = f"[dim]{left}[/dim]{text_aligned}"
 
         # PERSISTENCE
         # ----------------------------------------
-        if wpath > self.path_width:
-            self.path_width = wpath
+        if path_w > self.path_width:
+            self.path_width = path_w
             os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
             try:
                 with open(self.persistence_file, 'w') as f:
@@ -270,5 +282,3 @@ class CustomRichHandler(RichHandler):
                 pass  # Don't crash on logging persistence error
 
         return Text.from_markup(full)
-
-
