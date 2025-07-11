@@ -21,9 +21,8 @@ from .utils import log
 
 logger = logging.getLogger(__name__)
 
-EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
-
 # --- Grammar Definition ---
+EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
 
 def is_ego_or_sampler(base, kargs, kwargs) -> bool:
     return base in ("o_o", "@_@", "x_x") or "goal" in kwargs or "<>" in kwargs
@@ -91,17 +90,17 @@ def build_span(out: list[Span], spantext: str):
 
     for rule in HOLOWARE_GRAMMAR:
         if rule['match'](base, kargs, kwargs):
-            logger.debug(f"  matched rule: {rule['match'].__name__}")
+            logger.debug(f"handler={rule['match'].__name__}")
             rule['handler'](out, base, kargs, kwargs)
             return
 
     # Fallback for ObjSpans or unhandled ClassSpans
     if base:
         if base[0].isupper():
-            logger.debug("fallback to ClassSpan")
+            logger.debug("handler=_build_class_span ClassSpan")
             _build_class_span(out, base, kargs, kwargs)
         else:
-            logger.debug("fallback to ObjSpan")
+            logger.debug("handler=_build_class_span ObjSpan")
             _build_obj_span(out, base, kargs, kwargs)
 
 def parse_span_tag(tag: str) -> Tuple[str, list[str], Dict[str, str]]:
@@ -203,7 +202,7 @@ class HolowareParser:
 
     def _add_span(self, span: Span):
         """Adds a span to the current holoware object."""
-        logger.debug(f"+ {type(span).__name__}")
+        logger.debug(f"[bold green]{type(span).__name__}[/]")
         last_span = self.ware.spans[-1] if self.ware.spans else None
         is_text = isinstance(span, TextSpan)
 
@@ -241,8 +240,9 @@ class HolowareParser:
 
         self.ware.spans.append(span)
 
+    @indent("SPAN")
     def _parse_span(self, spantext: str):
-        log.push("PARSE", f"<|{spantext}|>")
+        # log.push("PARSE", f"<|{spantext}|>")
         spanbuf = []
         build_span(spanbuf, spantext)
         for span in spanbuf:
@@ -255,8 +255,9 @@ class HolowareParser:
             if body_holoware:
                 last_span.body = body_holoware
                 self.pos = new_pos
-        log.pop()
+        # log.pop()
 
+    @indent("TEXT")
     def _parse_text(self, text: str):
         if not text:
             return
@@ -267,7 +268,7 @@ class HolowareParser:
         if not processed_text:
             return
 
-        logger.debug(f"[text] {repr(processed_text[:40])}")
+        logger.debug(f"{repr(processed_text[:40])}")
         span = TextSpan(text=processed_text)
         self._add_span(span)
 
@@ -276,7 +277,7 @@ class HolowareParser:
         while True:
             found_pos = self.code.find("<|", pos)
             if found_pos == -1:
-                logger.debug(f"  [find_next_span_start] no more spans from pos {self.pos}")
+                logger.debug(f"no more spans from pos {self.pos}")
                 return -1
 
             num_backslashes = 0
@@ -287,20 +288,20 @@ class HolowareParser:
 
             if num_backslashes % 2 == 1:
                 # Escaped, continue searching
-                logger.debug(f"  [find_next_span_start] found escaped span at {found_pos}, continuing search from {found_pos + 1}")
+                logger.debug(f"found escaped span at {found_pos}, continuing search from {found_pos + 1}")
                 pos = found_pos + 1
                 continue
 
-            logger.debug(f"  [find_next_span_start] found span at {found_pos}")
+            logger.debug(f"found span at {found_pos}")
             return found_pos
 
-    # @indent("PARSE BLOCK")
+    @indent("BLOCK")
     def _parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
-        log.push("PARSE_BLOCK", "")
+        # log.push("PARSE_BLOCK", "")
         block_content, end_pos = self._read_indented_block_content(code, start_pos)
         if block_content is None:
             logger.debug("[block] x (no content)")
-            log.pop()
+            # log.pop()
             return None, start_pos
 
         # --- Dedent and Prepare for Parsing ---
@@ -316,13 +317,13 @@ class HolowareParser:
         # Check if the block is empty or contains only whitespace
         if not dedented_block.strip():
             logger.debug("x (empty after dedent)")
-            log.pop()
+            # log.pop()
             return None, end_pos
 
         # --- Recursive Parsing ---
         parser = HolowareParser(dedented_block)
         body_ware = parser.parse()
-        log.pop()
+        # log.pop()
         return body_ware, end_pos
 
     def _read_indented_block_content(self, code: str, start_pos: int) -> Tuple[Optional[str], int]:
@@ -332,7 +333,7 @@ class HolowareParser:
             return None, start_pos
 
         first_line = lines[0]
-        if not first_line.strip(): # Skip empty line after span
+        if not first_line.strip():  # Skip empty line after span
             start_pos += len(first_line)
             lines.pop(0)
             if not lines:
@@ -347,7 +348,7 @@ class HolowareParser:
         current_pos = start_pos
         for line in lines:
             line_indent = len(line) - len(line.lstrip(' '))
-            if line.strip() == "": # allow empty lines within block
+            if line.strip() == "":  # allow empty lines within block
                 block_lines.append(line)
                 current_pos += len(line)
                 continue
@@ -363,7 +364,7 @@ class HolowareParser:
         return "".join(block_lines), current_pos
 
     def read_until_span_end(self) -> str:
-        if self.code[self.pos:self.pos+2] != '<|':
+        if self.code[self.pos:self.pos + 2] != '<|':
             raise ValueError("Not at the start of a span")
 
         start = self.pos + 2
@@ -381,10 +382,8 @@ class HolowareParser:
             if isinstance(span, TextSpan):
                 if last_span and isinstance(last_span, TextSpan):
                     last_span.text += span.text
-                    self.ware.spans.pop(i) # Remove the duplicate
+                    self.ware.spans.pop(i)  # Remove the duplicate
                 else:
                     last_span = span
             else:
                 last_span = span
-
-

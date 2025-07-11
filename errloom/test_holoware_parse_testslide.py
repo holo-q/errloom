@@ -1,6 +1,8 @@
 
 import sys
 from testslide import TestCase
+from rich.panel import Panel
+import logging
 
 from errloom.holoware import (
     ClassSpan,
@@ -14,11 +16,17 @@ from errloom.holoware import (
 from errloom.holoware_parse import (_build_class_span, _build_context_reset_span, _build_ego_or_sampler_span, _build_obj_span, filter_comments, HolowareParser, parse_span_tag)
 from errloom.utils import log
 
+logger = logging.getLogger(__name__)
+
+def _load_and_print_holoware(code: str) -> Holoware:
+    """Loads holoware, prints it in a box, and returns the parsed object."""
+    logger.info(Panel(code, title="Holoware Code", expand=False, border_style="cyan"))
+    return HolowareParser(code).parse()
+
 
 class FilterCommentsTest(TestCase):
     def setUp(self) -> None:
         super().setUp()
-        print("WaenarsasTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTt")
         log.setup_logging("DEBUG", True, True)
 
     def test_filter_comments_empty(self):
@@ -232,7 +240,7 @@ class HolowareParserTest(TestCase):
         ]
         for code, expected_details in test_cases:
             with self.subTest(code=code):
-                spans = HolowareParser(code).parse().spans
+                spans = _load_and_print_holoware(code).spans
                 self.assertEqual(len(spans), len(expected_details))
                 for i, details in enumerate(expected_details):
                     span = spans[i]
@@ -242,7 +250,7 @@ class HolowareParserTest(TestCase):
                             self.assertEqual(getattr(span, attr), value)
 
     def test_parser_implicit_system_ego(self):
-        ware = HolowareParser("some text").parse()
+        ware = _load_and_print_holoware("some text")
         self.assertEqual(len(ware.spans), 2)
         self.assertIsInstance(ware.spans[0], EgoSpan)
         self.assertEqual(ware.spans[0].ego, "system")
@@ -251,7 +259,7 @@ class HolowareParserTest(TestCase):
 
     def test_parser_context_reset_clears_ego(self):
         code = "<|o_o|>hello<|+++|>world"
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 5)
         self.assertIsInstance(ware.spans[0], EgoSpan)
         self.assertEqual(ware.spans[0].ego, "user")
@@ -263,23 +271,23 @@ class HolowareParserTest(TestCase):
 
     def test_parser_span_before_ego_raises_error(self):
         with self.assertRaises(ValueError):
-            HolowareParser("<|MyClass|>").parse()
+            _load_and_print_holoware("<|MyClass|>")
         with self.assertRaises(ValueError):
-            HolowareParser("<|my_obj|>").parse()
+            _load_and_print_holoware("<|my_obj|>")
         with self.assertRaises(ValueError):
-            HolowareParser("<|goal=run|>").parse()
+            _load_and_print_holoware("<|goal=run|>")
 
     def test_parser_empty_tag(self):
-        spans = HolowareParser("<||>").parse().spans
+        spans = _load_and_print_holoware("<||>").spans
         self.assertEqual(len(spans), 0)
 
     def test_parser_whitespace_tag(self):
-        spans = HolowareParser("<| |>").parse().spans
+        spans = _load_and_print_holoware("<| |>").spans
         self.assertEqual(len(spans), 0)
 
     def test_parser_handles_escaped_tag_in_text(self):
         code = "This is some text with a \\<|fake_tag|> in it."
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 2)
         self.assertIsInstance(ware.spans[0], EgoSpan)
         self.assertEqual(ware.spans[0].ego, "system")
@@ -288,7 +296,7 @@ class HolowareParserTest(TestCase):
 
     def test_parser_escaped_backslash_before_tag(self):
         code = "\\\\<|o_o|>"
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 3)
         self.assertIsInstance(ware.spans[1], TextSpan)
         self.assertEqual(ware.spans[1].text, "\\")
@@ -296,26 +304,26 @@ class HolowareParserTest(TestCase):
 
     def test_parser_triple_backslash_escape(self):
         code = "\\\\\\<|o_o|>"
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 2)
         self.assertIsInstance(ware.spans[1], TextSpan)
         self.assertEqual(ware.spans[1].text, "\\<|o_o|>")
 
     def test_parser_unclosed_tag_raises_error(self):
         with self.assertRaises(ValueError) as e:
-            HolowareParser("<|o_o").parse()
+            _load_and_print_holoware("<|o_o")
         self.assertIn("Unclosed tag", str(e.exception))
 
     def test_parser_merges_consecutive_text_spans(self):
         code = "<|o_o|>one two three"
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 2)
         self.assertIsInstance(ware.spans[1], TextSpan)
         self.assertEqual(ware.spans[1].text, "one two three")
 
     def test_parser_handles_whitespace(self):
         code = "  <|o_o|>  \n  text  "
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 2)
         self.assertIsInstance(ware.spans[0], EgoSpan)
         self.assertIsInstance(ware.spans[1], TextSpan)
@@ -326,7 +334,7 @@ class HolowareParserTest(TestCase):
 <|MyClass|>
     Some indented text.
 """
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 2)
         class_span = ware.spans[1]
         self.assertIsInstance(class_span, ClassSpan)
@@ -348,7 +356,7 @@ class HolowareParserTest(TestCase):
     <|Item|>
         Nested item
 """
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         container_span = ware.spans[1]
         self.assertIsInstance(container_span, ClassSpan)
         self.assertEqual(container_span.class_name, "Container")
@@ -371,7 +379,7 @@ class HolowareParserTest(TestCase):
 
     def test_parser_indented_block_no_block(self):
         code = "<|o_o|><|MyClass|>\nNot indented."
-        ware = HolowareParser(code).parse()
+        ware = _load_and_print_holoware(code)
         self.assertEqual(len(ware.spans), 3)
         class_span = ware.spans[1]
         self.assertIsInstance(class_span, ClassSpan)
@@ -433,7 +441,7 @@ Output your assessment in this format:
 
 class CompressorHolowareTest(TestCase):
     def test_parser_compressor_holoware(self):
-        ware = HolowareParser(COMPRESSOR_HOL).parse()
+        ware = _load_and_print_holoware(COMPRESSOR_HOL)
         spans = ware.spans
 
         context_resets = [s for s in spans if isinstance(s, ContextResetSpan)]
