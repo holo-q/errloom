@@ -98,6 +98,41 @@ def setup_logging(
     # logger.propagate = False
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("filelock").setLevel(logging.WARNING)
+    
+    # Suppress noisy debug messages from various modules
+    logging.getLogger("spec").setLevel(logging.WARNING)
+    logging.getLogger("spec.read").setLevel(logging.WARNING)
+    logging.getLogger("selector_events").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    
+    # Suppress other common noisy loggers
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("concurrent.futures").setLevel(logging.WARNING)
+    
+    # Add a custom filter to suppress specific noisy messages
+    # This filter removes repetitive debug messages from third-party libraries
+    # (HuggingFace datasets, fsspec, asyncio) that clutter application logs
+    # with low-level file system operations and internal library details
+    class NoiseFilter(logging.Filter):
+        def filter(self, record):
+            # Suppress specific noisy debug messages from third-party libraries
+            if record.levelno == logging.DEBUG:
+                message = record.getMessage() if hasattr(record, 'getMessage') else str(record.msg)
+                if any(noise in message for noise in [
+                    'HfFileSystem',          # HuggingFace filesystem operations
+                    'read: ',                # File read operations
+                    'readahead:',           # Cache readahead operations
+                    'hits, ',               # Cache hit statistics
+                    'misses,',              # Cache miss statistics
+                    'total requested bytes', # Byte count summaries
+                    'Using selector:',      # Asyncio selector messages
+                ]):
+                    return False
+            return True
+    
+    # Apply the filter to the root logger
+    for handler in logger.handlers:
+        handler.addFilter(NoiseFilter())
 
 def getLogger(name: Optional[str] = None) -> EnhancedLogger:
     """
@@ -128,7 +163,7 @@ def getLogger(name: Optional[str] = None) -> EnhancedLogger:
         # Restore the original logger class
         logging.setLoggerClass(old_class)
 
-    return logger
+    return logger  # type: ignore
 
 
 
