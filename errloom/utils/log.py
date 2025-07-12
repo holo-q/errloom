@@ -3,16 +3,52 @@ import os
 from functools import wraps
 from math import ceil
 from threading import local
-from typing import Optional
+from typing import Callable, Optional
 
 import rich.traceback
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
+
+# ENHANCED LOGGER CLASS
+# ----------------------------------------
+
+class EnhancedLogger(logging.Logger):
+    """Logger with enhanced push/pop indent functionality."""
+
+    def push(self, a1=1, a2=None, log_func: Optional[Callable] = None):
+        """Push indentation with optional logging function."""
+        return push(a1, a2, log_func=log_func or self.info)
+
+    def pop(self):
+        """Pop indentation from the stack."""
+        return pop()
+
+    def indent_ctx(self, a1=1, a2=None, log_func: Optional[Callable] = None):
+        """Context manager for temporary indentation."""
+        return IndentContext(a1, a2, log_func=log_func or self.info)
+
+    def push_debug(self, a1=1, a2=None):
+        """Push with debug level logging."""
+        return push(a1, a2, log_func=self.debug)
+
+    def push_info(self, a1=1, a2=None):
+        """Push with info level logging."""
+        return push(a1, a2, log_func=self.info)
+
+    def push_warning(self, a1=1, a2=None):
+        """Push with warning level logging."""
+        return push(a1, a2, log_func=self.warning)
+
+    def push_error(self, a1=1, a2=None):
+        """Push with error level logging."""
+        return push(a1, a2, log_func=self.error)
+
+    def push_critical(self, a1=1, a2=None):
+        """Push with critical level logging."""
+        return push(a1, a2, log_func=self.critical)
 
 # MAIN SETUP
 # ----------------------------------------
@@ -62,6 +98,39 @@ def setup_logging(
     # logger.propagate = False
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("filelock").setLevel(logging.WARNING)
+
+def getLogger(name: Optional[str] = None) -> EnhancedLogger:
+    """
+    Get an enhanced logger instance with push/pop indent functionality.
+
+    Args:
+        name: Logger name. If None, uses the calling module's name.
+
+    Returns:
+        EnhancedLogger instance with push/pop methods.
+    """
+    if name is None:
+        # Get the calling module's name
+        import inspect
+        frame = inspect.currentframe()
+        if frame and frame.f_back:
+            name = frame.f_back.f_globals.get('__name__', 'unknown')
+        else:
+            name = 'unknown'
+
+    # Set the logger class before getting the logger
+    old_class = logging.getLoggerClass()
+    logging.setLoggerClass(EnhancedLogger)
+
+    try:
+        logger = logging.getLogger(name)
+    finally:
+        # Restore the original logger class
+        logging.setLoggerClass(old_class)
+
+    return logger
+
+
 
 # MAIN
 # ----------------------------------------
@@ -116,11 +185,14 @@ def _get_indent_stack() -> list[str]:
         _indent_state.stack = []
     return _indent_state.stack
 
-def indent(func=None, *, a1=1, a2=None):
+def indent_decorator(func=None, *, a1=1, a2=None, log_func=None):
+    if log_func is None:
+        log_func = logger_main.info
+
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            push(a1, a2)
+            push(a1, a2, log_func=log_func)
             try:
                 return fn(*args, **kwargs)
             finally:
@@ -138,19 +210,22 @@ def indent(func=None, *, a1=1, a2=None):
         return decorator
 
 
-def push(a1=1, a2=None):
+def push(a1=1, a2=None, log_func=None):
     """Pushes an indentation string onto the stack."""
+    if log_func is None:
+        log_func = logger_main.info
+
     stack = _get_indent_stack()
     seg = ".. "
     segw = len(seg)
     if isinstance(a1, int):
         stack.append(seg * a1)
     elif isinstance(a1, str) and a2 is not None:
-        log(f"{a1} {a2}")
+        log_func(f"{a1} {a2}")
         # Push spaces to align subsequent logs under the message
         stack.append(a1 + " ")
     elif isinstance(a1, str):
-        log(a1)
+        log_func(a1)
         i = ceil(len(a1) / segw) * segw
         stack.append(a1 + " ")
 
@@ -160,6 +235,22 @@ def pop():
     stack = _get_indent_stack()
     if stack:
         stack.pop()
+
+class IndentContext:
+    """Context manager for indentation that can be used with 'with' statements."""
+
+    def __init__(self, a1=1, a2=None, log_func=None):
+        self.a1 = a1
+        self.a2 = a2
+        self.log_func = log_func or logger_main.info
+
+    def __enter__(self):
+        push(self.a1, self.a2, log_func=self.log_func)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pop()
+        return False
 
 # --- Additional Utilities ---
 

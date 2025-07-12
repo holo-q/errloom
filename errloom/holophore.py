@@ -10,13 +10,15 @@ from rich.rule import Rule
 
 from errloom.holoware import Span
 from errloom.tapestry import Context, Rollout
-from errloom.utils.log import indent
+from errloom.utils import log
+from errloom.utils.log import indent_decorator
 from errloom.utils.openai_chat import extract_fence
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom
-    
-logger = logging.getLogger(__name__)
+    from errloom.holoware import Holoware
+
+logger = log.getLogger(__name__)
 
 class Holophore:
     """
@@ -34,6 +36,14 @@ class Holophore:
         self.errors = 0
         self._newtext = ""
         self.ego = "system"
+        self.active_holowares:list['Holoware'] = list()
+
+    def find_span(self, uid):
+        for ware in self.active_holowares:
+            for span in ware.spans:
+                if span.uuid == uid:
+                    return span
+        raise f"Span not found with uid {uid}"
 
     def new_context(self):
         self._rollout.new_context()
@@ -56,10 +66,10 @@ class Holophore:
     #     if not self.textbuf:
     #         logger.warning("textbuf is already empty.")
     #         return
-    #     
+    #
     #     # buftext <- self.textbuf
     #     text, self.textbuf = "".join(self.textbuf), []
-    # 
+    #
     #     if self.context.messages and self.context.messages[-1]['role'] == self.ego:
     #         self.add_text(text)
     #     else:
@@ -102,7 +112,7 @@ class Holophore:
         assert inst
         result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)
         return result or ""
-    
+
     def invoke(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
         """
         Walks the MRO of a class or instance to find and call a __holo__ method

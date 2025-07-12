@@ -35,15 +35,14 @@ import typing
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
+from pathlib import Path
 from typing import Optional
 
-import logging
 from rich.text import Text
 
 from errloom.utils import log
-from errloom.utils.log import indent
 
-logger = logging.getLogger(__name__)
+logger = log.getLogger(__name__)
 
 if typing.TYPE_CHECKING:
     from errloom.holophore import Holophore
@@ -183,10 +182,10 @@ class Holoware:
     Structured representation of a parsed prompt template from the DSL.
     Contains a sequence of spans that define the entire prompt and its metadata.
     """
+    name: Optional[str] = None
     code: Optional[str] = None
     filepath: Optional[str] = None
     spans: list[Span] = field(default_factory=list)
-    span_by_uuid: dict[str, Span] = field(default_factory=dict)
 
     @property
     def obj_ids(self) -> list[str]:
@@ -217,7 +216,6 @@ class Holoware:
                 return span
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
-    # @indent
     def __call__(self, phore: "Holophore"):
         from errloom.holoware_handlers import HolowareHandlers
 
@@ -228,10 +226,11 @@ class Holoware:
         # noinspection PyUnresolvedReferences
         from errloom.holophore import Holophore  # noqa: F401
 
-        logger.debug(f"Running {self}")
+        logger.push_debug(f"WARE({self.name})" if self.name else "WARE")
 
         # --- Lifecycle: Start ---
         phore.invoke(self, "__holo_start__", [phore], {})
+        phore.active_holowares.append(self)
 
         # --- Context Management ---
         # Ensure there's an initial context if the holoware starts with content
@@ -278,24 +277,16 @@ class Holoware:
         logger.debug("lifecycle.end:")
         for uid, target in phore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
-                span = self.span_by_uuid[uid]
+                span = phore.find_span(uid)
                 # TODO extract to call_class_init (formalizes the api)
                 kspan, kwspan = phore.get_holofunc_args(span)
                 phore.invoke(target, '__holo_end__', kspan, kwspan)
 
+        phore.active_holowares.remove(self)
+
+        logger.pop()
         return phore
 
-    def _append_args_to_debug(self, text: Text, span: Span):
-        """Append formatted var_args and var_kwargs to the rich text."""
-        args_text = []
-        if span.kargs:
-            args_text.append(", ".join(map(str, span.kargs)))
-        if span.kwargs:
-            args_text.append(", ".join(f"{k}={v}" for k, v in span.kwargs.items()))
-
-        if args_text:
-            text.append(" | ", style="dim white")
-            text.append(", ".join(args_text), style="magenta")
 
     @classmethod
     def parse(cls, content: str) -> "Holoware":
@@ -325,18 +316,32 @@ class Holoware:
         """
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
-        return cls.parse(content)
+        ret = cls.parse(content)
+        ret.name = Path(filepath).name
+        return ret
 
     def __repr__(self):
         return f"Holoware({self.filepath})"
 
-    def to_rich(self, indent_level=0) -> Text:
-        """Format the prompt template spans for rich debug display."""
-        text = Text()
-        if not self.spans:
-            return text
+    def _append_args_to_debug(self, out: Text, span: Span):
+        """Append formatted var_args and var_kwargs to the rich text."""
+        args_text = []
+        if span.kargs:
+            args_text.append(", ".join(map(str, span.kargs)))
+        if span.kwargs:
+            args_text.append(", ".join(f"{k}={v}" for k, v in span.kwargs.items()))
 
-        if indent_level == 0:
+        if args_text:
+            out.append(" | ", style="dim white")
+            out.append(", ".join(args_text), style="magenta")
+
+    def to_rich(self, idt=0) -> Text:
+        """Format the prompt template spans for rich debug display."""
+        out = Text()
+        if not self.spans:
+            return out
+
+        if idt == 0:
             # Create a fancy header with prompt info
             header = Text()
             header.append("╔══ ", style="bright_black")
@@ -352,103 +357,103 @@ class Holoware:
             header.append(f"{len(self.trained_contexts)}", style="cyan")
             header.append("\n")
 
-            text.append(header)
+            out.append(header)
 
-        processed_indices = set()
-        indent = "  " * indent_level
+        idt_text = "  " * idt
 
         # Calculate the width needed for span indices
-        max_index = len(self.spans) - 1
-        index_width = len(str(max_index))
-        index_format = f"[{{:{index_width}d}}] "
+        imax = len(self.spans) - 1
+        iwidth = len(str(imax))
+        ifmt = f"[{{:{iwidth}d}}] "
+        iprocessed = set()
 
         for i, span in enumerate(self.spans):
-            if i in processed_indices:
+            if i in iprocessed:
                 continue
 
-            text.append(indent)
-            text.append(index_format.format(i), style="dim white")
+            out.append(idt_text)
+            out.append(ifmt.format(i), style="dim white")
 
             if isinstance(span, ContextResetSpan):
-                color = span.get_color()
-                text.append("ContextResetSpan", style=color)
+                c = span.get_color()
+                out.append("ContextResetSpan", style=c)
                 if span.train:
-                    text.append(" (train=True)", style=color)
-                self._append_args_to_debug(text, span)
-                text.append("\n")
+                    out.append(" (train=True)", style=c)
+                self._append_args_to_debug(out, span)
+                out.append("\n")
 
             elif isinstance(span, EgoSpan):
-                color = span.get_color()
-                text.append("RoleSpan (", style=color)
+                c = span.get_color()
+                out.append("RoleSpan (", style=c)
                 role_display = span.ego.replace('\n', '\\n').replace('\r', '\\r')
-                text.append(f"role={role_display}", style=color)
-                self._append_args_to_debug(text, span)
-                text.append(")", style=color)
+                out.append(f"role={role_display}", style=c)
+                self._append_args_to_debug(out, span)
+                out.append(")", style=c)
 
                 # Look ahead - if next span is a single TextSpan, combine them for compact view
-                next_span_idx = i + 1
-                if next_span_idx < len(self.spans) and isinstance(self.spans[next_span_idx], TextSpan):
-                    next_span = self.spans[next_span_idx]
-                    span_after_text_idx = next_span_idx + 1
-                    span_after_text = self.spans[span_after_text_idx] if span_after_text_idx < len(self.spans) else None
+                inext = i + 1
+                if inext < len(self.spans) and isinstance(self.spans[inext], TextSpan):
+                    next = self.spans[inext]
+                    next_after = inext + 1
+                    next_after = self.spans[next_after] if next_after < len(self.spans) else None
 
                     # Pyright doesn't understand the type of next_span here, so we assert it
-                    assert isinstance(next_span, TextSpan)
+                    assert isinstance(next, TextSpan)
 
-                    if not span_after_text or isinstance(span_after_text, (EgoSpan, ContextResetSpan)):
-                        text.append(" → ", style="dim white")
-                        text.append(f"'{next_span.display_text}{'...' if len(next_span.text) > 30 else ''}'", style="white")
-                        self._append_args_to_debug(text, next_span)
-                        processed_indices.add(next_span_idx)
+                    if not next_after or isinstance(next_after, (EgoSpan, ContextResetSpan)):
+                        out.append(" → ", style="dim white")
+                        out.append(f"'{next.display_text}{'...' if len(next.text) > 30 else ''}'", style="white")
+                        self._append_args_to_debug(out, next)
+                        iprocessed.add(inext)
 
-                text.append("\n")
+                out.append("\n")
 
             elif isinstance(span, SampleSpan):
-                color = span.get_color()
-                text.append("SamplerSpan (", style=color)
-                parts = []
+                c = span.get_color()
+                out.append("SamplerSpan (", style=c)
+                segs = []
                 if span.uuid:
-                    parts.append(f"id={span.uuid}")
+                    segs.append(f"id={span.uuid}")
                 if span.goal:
-                    parts.append(f"goal={span.display_goal}...")
+                    segs.append(f"goal={span.display_goal}...")
                 if span.fence:
                     fence_display = span.fence.replace('\n', '\\n').replace('\r', '\\r')
-                    parts.append(f"fence={fence_display}")
-                text.append(", ".join(parts), style=color)
-                self._append_args_to_debug(text, span)
-                text.append(")\n", style=color)
+                    segs.append(f"fence={fence_display}")
+                out.append(", ".join(segs), style=c)
+                self._append_args_to_debug(out, span)
+                out.append(")\n", style=c)
 
             elif isinstance(span, TextSpan):
-                color = span.get_color()
-                text.append(f"TextSpan ('{span.display_text}{'...' if len(span.text) > 30 else ''}')", style=color)
-                self._append_args_to_debug(text, span)
-                text.append("\n")
+                c = span.get_color()
+                out.append(f"TextSpan ('{span.display_text}{'...' if len(span.text) > 30 else ''}')", style=c)
+                self._append_args_to_debug(out, span)
+                out.append("\n")
 
             elif isinstance(span, ObjSpan):
-                color = span.get_color()
-                text.append("ObjSpan (", style=color)
-                text.append(f"vars={span.var_ids}", style=color)
-                self._append_args_to_debug(text, span)
-                text.append(")\n", style=color)
+                c = span.get_color()
+                out.append("ObjSpan (", style=c)
+                out.append(f"vars={span.var_ids}", style=c)
+                self._append_args_to_debug(out, span)
+                out.append(")\n", style=c)
 
             elif isinstance(span, ClassSpan):
-                color = span.get_color()
-                text.append("ClassSpan (", style=color)
-                text.append(f"class={span.class_name}", style=color)
-                self._append_args_to_debug(text, span)
-                text.append(")", style=color)
+                c = span.get_color()
+                out.append("ClassSpan (", style=c)
+                out.append(f"class={span.class_name}", style=c)
+                self._append_args_to_debug(out, span)
+                out.append(")", style=c)
                 if span.body:
-                    text.append("\n")
-                    text.append(span.body.to_rich(indent_level + 1))
+                    out.append("\n")
+                    out.append(span.body.to_rich(idt + 1))
                 else:
-                    text.append("\n")
+                    out.append("\n")
 
-        if indent_level == 0:
-            text.append("╚", style="bright_black")
-            text.append("═" * 60, style="bright_black")
-            text.append("\n\n")
+        if idt == 0:
+            out.append("╚", style="bright_black")
+            out.append("═" * 60, style="bright_black")
+            out.append("\n\n")
 
-        return text
+        return out
 
 # def format_prompt(input: Union[Holoware, str, MessageListStr], **kwargs) -> Union[str, MessageListStr]:
 #     """Convenience function to format a prompt."""

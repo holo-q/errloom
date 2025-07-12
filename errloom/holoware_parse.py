@@ -1,11 +1,11 @@
 import logging
 import shlex
 import textwrap
-from typing import Dict, Optional, Tuple, TypeAlias
+from typing import Dict, Optional, Tuple
 
 from rich.panel import Panel
-from rich.text import Text as PrintedText
 
+from errloom.utils.log import indent_decorator
 from .holoware import (
     ClassSpan,
     ContextResetSpan,
@@ -16,8 +16,6 @@ from .holoware import (
     Span,
     TextSpan,
 )
-from errloom.utils.log import indent
-from .utils import log
 
 logger = logging.getLogger(__name__)
 
@@ -174,10 +172,6 @@ class HolowareParser:
         self._add_implicit_ego_if_needed()
         self._finalize_text_span()
 
-        for span in self.ware.spans:
-            if span.uuid:
-                self.ware.span_by_uuid[span.uuid] = span
-
         return self.ware
 
     def _add_implicit_ego_if_needed(self):
@@ -240,7 +234,7 @@ class HolowareParser:
 
         self.ware.spans.append(span)
 
-    @indent("SPAN")
+    @indent_decorator("SPAN")
     def _parse_span(self, spantext: str):
         # log.push("PARSE", f"<|{spantext}|>")
         spanbuf = []
@@ -257,7 +251,7 @@ class HolowareParser:
                 self.pos = new_pos
         # log.pop()
 
-    @indent("TEXT")
+    @indent_decorator("TEXT")
     def _parse_text(self, text: str):
         if not text:
             return
@@ -295,7 +289,7 @@ class HolowareParser:
             logger.debug(f"found span at {found_pos}")
             return found_pos
 
-    @indent("BLOCK")
+    @indent_decorator("BLOCK")
     def _parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
         # log.push("PARSE_BLOCK", "")
         block_content, end_pos = self._read_indented_block_content(code, start_pos)

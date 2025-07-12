@@ -2,10 +2,9 @@
 name = "Errloom"
 authors = [
     {name = "Nicolas Martel"},
-    {name = "William Brown", email = "williambrown97@gmail.com"},
 ]
 version = "0.1.1"
-description = "Errloom for context engineering, reinforcement learning, and loom coding with LLMs"
+description = "Errloom the a Swiss Army Knife of context engineering, reinforcement learning, and loom coding with LLMs."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11,<3.13"
@@ -23,7 +22,6 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.6.0",
-    "setuptools",
     "accelerate",
     "peft",
     "wandb",
@@ -33,7 +31,7 @@ dependencies = [
     "openai>=1.81.0",
     "datasets>=3.6.0",
     "transformers",
-    "nest-asyncio>=1.6.0",
+    "testslide"
 ]
 
 [project.optional-dependencies]
@@ -51,32 +49,20 @@ all = [
     "nltk"
 ]
 
-docs = [
-    "sphinx",
-    "myst-parser",
-    "sphinx-rtd-theme"
-]
-
 tests = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
+    "testslide",
 ]
 
 [project.scripts]
 vf-vllm = "errloom.inference.vllm_server:cli_main"
 
-[tool.setuptools]
-packages = ["errloom"]
-
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "build>=1.2.2.post1",
-    "twine>=6.1.0",
+    "twine>=6.1.0",  # For uploading to PyPI
 ]
 
 [project.urls]

@@ -17,7 +17,7 @@ from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
 from errloom.tapestry import Rollout, Tapestry
-from errloom.utils.log import LogContext
+from errloom.utils.log import LogContext, indent_decorator
 
 if typing.TYPE_CHECKING:
     import torch.nn
@@ -136,6 +136,7 @@ class Loom(ABC):
             loop.set_default_executor(executor)
 
 
+    @indent_decorator("ROLLOUT")
     @abstractmethod
     def rollout(self, roll: Rollout) -> Rollout:
         """
@@ -155,6 +156,7 @@ class Loom(ABC):
 
         return Dataset.from_list(data)
 
+    @indent_decorator("WEAVE")
     def weave(self, rows: Data | int = None) -> Tapestry:
         """
         Weave rollouts for the input dataset slice (batch of rows)
@@ -171,8 +173,10 @@ class Loom(ABC):
 
         assert isinstance(rows, Data)
 
+        print("WEAVE TAPESTRY")
+        self.logger.info("WEAVE TAPESTRY")
 
-        async def run_row(semaphore: Semaphore, state: Rollout) -> Rollout:
+        async def unroll_row(semaphore: Semaphore, state: Rollout) -> Rollout:
             """
             Run a rollout for a given prompt.
             Returns a tuple of (completion, state).
@@ -180,7 +184,7 @@ class Loom(ABC):
             async with semaphore:
                 return await asyncio.to_thread(self.rollout, state)
 
-        async def run_rows() -> List[Rollout]:
+        async def unroll_rows() -> List[Rollout]:
             """
             Run rollouts for a given list of prompts and return the completions.
             """
@@ -191,7 +195,7 @@ class Loom(ABC):
             for row in rows:
                 roll = Rollout(dict(row), sampling_args=self.client_args)
                 rolls.append(roll)
-                tasks.append(run_row(semaphore, roll))
+                tasks.append(unroll_row(semaphore, roll))
 
             self.logger.info(f'Running {len(tasks)} rollouts')
             for f in asyncio.as_completed(tasks):
@@ -201,14 +205,16 @@ class Loom(ABC):
 
         # Run the async function in a new event loop
         # This avoids issues with nested event loops
-        tapestry = asyncio.run(run_rows())
+        tapestry = asyncio.run(unroll_rows())
         tapestry = Tapestry(tapestry)
         tapestry.max_concurrent = self.max_concurrent
 
         if self.dry:
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
-            for rollout in tapestry.rollouts:
-                self.logger.info(rollout)
+            for roll in tapestry.rollouts:
+                self.logger.info(roll)
+
+        print("RETURN TAPESTRY")
 
         return tapestry
 

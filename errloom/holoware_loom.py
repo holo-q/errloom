@@ -11,6 +11,7 @@ from errloom.holophore import Holophore
 from errloom.loom import Loom
 from errloom.tapestry import Rollout
 from errloom.utils.log import PrintedText
+from errloom.utils import log
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class HolowareLoom(Loom):
             message_type='chat',
             **kwargs
         )
-        
+
         logger.info("Constructing HolowareLoom ...")
 
         self.prompt_lib = holoware_load.get_default_loader()
