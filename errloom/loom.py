@@ -157,7 +157,6 @@ class Loom(ABC):
 
         return Dataset.from_list(data)
 
-    @indent_decorator("WEAVE")
     def weave(self, rows: Data | int = None) -> Tapestry:
         """
         Weave rollouts for the input dataset slice (batch of rows)
@@ -174,7 +173,7 @@ class Loom(ABC):
 
         assert isinstance(rows, Data)
 
-        self.logger.info("WEAVE TAPESTRY")
+        self.logger.push_info("WEAVE")
 
         async def unroll_row(semaphore: Semaphore, state: Rollout) -> Rollout:
             """
@@ -212,8 +211,9 @@ class Loom(ABC):
         if self.dry:
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
             for roll in tapestry.rollouts:
-                self.logger.info(roll)
+                self.logger.info(f"1. {roll}")
 
+        self.logger.pop()
         return tapestry
 
     def get_train_data(self, n: int = -1, seed: int = 0) -> Data | None:

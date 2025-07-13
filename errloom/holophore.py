@@ -164,31 +164,6 @@ class Holophore:
     def get_holofunc_args(self, span: Span):
         return [self, span], {}
 
-    def extract_fence(self, tag, role="assistant") -> Optional[str]:
-        for c in self.contexts:
-            ret = extract_fence(c.messages, tag, role)
-            if ret:
-                return ret
-        return None
-
-    def to_rich(self) -> Panel:
-        renderables = []
-        for i, ctx in enumerate(self.contexts):
-            if i > 0:
-                renderables.append(Rule(style="yellow"))
-            renderables.append(ctx.text_rich)
-        group = Group(*renderables)
-
-        panel = Panel(
-            group,
-            title="[bold yellow]Dry Run: Full Conversation Flow[/]",
-            border_style="yellow",
-            box=box.ROUNDED,
-            title_align="left"
-        )
-
-        return panel
-
     def __str__(self) -> str:
         return str(self.to_rich())
 

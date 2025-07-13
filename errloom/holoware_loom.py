@@ -13,7 +13,7 @@ from errloom.tapestry import Rollout
 from errloom.utils.log import PrintedText
 from errloom.utils import log
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 # TODO allow multiple evaluation contexts
 
@@ -48,7 +48,7 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-        logger.info("Constructing HolowareLoom ...")
+        self.logger.info(f"Constructing {HolowareLoom.__name__} ...")
 
         self.prompt_lib = holoware_load.get_default_loader()
         self.holoware = holoware_load.load_holoware(path)
@@ -63,14 +63,17 @@ class HolowareLoom(Loom):
         tb.add_row("Max concurrent", f"{max_concurrent}")
         tb.add_row("Test model", test_model)
 
-        logger.info(tb)
-        logger.info(self.holoware.to_rich())
+        self.logger.info(tb)
+        self.logger.info(self.holoware.to_rich())
 
     def rollout(self, roll: Rollout):
-        logger.info(f"Constructing HolowareLoom ...")
+        self.logger.push_debug("ROLL")
+        self.logger.info(f"Rollout ...")
         env = deepcopy(roll.row)
-        phore = self.holoware(Holophore(self, roll, env))
-        logger.info(PrintedText(phore.to_rich()))
+        phore = Holophore(self, roll, env)
+        phore = self.holoware(phore)
+        self.logger.info(PrintedText(phore.to_rich()))
+        self.logger.pop()
         return roll
 
 # def generate(self,

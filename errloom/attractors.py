@@ -20,7 +20,7 @@ class BingoAttractor(Attractor):
         self.heuristics: list[str] = []
         self.seed: Optional[str] = None
         self.goal = ""
-        
+
     def __holo_init__(self, holophore: Holophore, span:ClassSpan):
         """
         Called at the beginning of the holoware execution.
@@ -33,14 +33,6 @@ class BingoAttractor(Attractor):
         self.heuristics = ["use_abbreviations", "mix_languages", "utilize_unicode"]
         self.seed = "compress"
         self.goal = bodytext.text
-
-        if holophore.dry:
-            if self.seed:
-                logger.debug(f"BingoAttractor([{ellipse(self.seed)}] -> [{ellipse(self.goal)})]")
-            else:
-                logger.debug(f"BingoAttractor({ellipse(self.goal)})")
-            # logger.debug(PrintedText(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False)))
-            return self
 
         # TODO call an LLM to decompose the goal.
         logger.debug("TODO actually call the LLM to decompose the prompt and implement bingo") # TODO call the llm and decompose
@@ -67,3 +59,9 @@ class BingoAttractor(Attractor):
         Called at the end of the holoware execution.
         """
         logger.debug(f"BingoAttractor finished for span {span.uuid}")
+
+    def __repr__(self):
+        if self.seed:
+            return f"BingoAttractor([{ellipse(self.seed)}] -> [{ellipse(self.goal)})]"
+        else:
+            return f"BingoAttractor({ellipse(self.goal)})"

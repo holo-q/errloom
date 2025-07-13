@@ -41,6 +41,7 @@ from typing import Optional
 from rich.text import Text
 
 from errloom.utils import log
+from errloom.utils.log import ellipse
 
 logger = log.getLogger(__name__)
 
@@ -232,7 +233,7 @@ class Holoware:
         phore.invoke(self, "__holo_start__", [phore], {})
         phore.active_holowares.append(self)
 
-        logger.push_debug("(start)")
+        logger.push_debug("(1)")
         for span in self.spans:
             if isinstance(span, ClassSpan):
                 classname = span.class_name
@@ -253,6 +254,9 @@ class Holoware:
                     if inst:
                         phore.span_bindings[span.uuid] = inst
 
+                    logger.debug(f"init: {inst}")
+                    # logger.debug(PrintedText(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False)))
+
         logger.pop()
 
         # --- Context Management ---
@@ -261,7 +265,7 @@ class Holoware:
             phore.new_context()
 
         # --- Lifecycle: Main ---
-        logger.push_debug("(main)")
+        logger.push_debug("(2)") # main
         for span in self.spans:
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
@@ -286,8 +290,10 @@ class Holoware:
                 logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
             if phore._newtext:
-                logger.info(Text("" + phore._newtext, style="dim italic")) # TODO if we could find a 'oduble dim' color that would be better
+                logger.debug(Text(phore._newtext, style="dim italic")) # TODO if we could find a 'oduble dim' color that would be better
                 phore._newtext = ""
+            else:
+                logger.debug(Text("<no text>", style="dim italic"))
             logger.pop()
 
         if phore.errors > 0:
@@ -296,7 +302,7 @@ class Holoware:
 
 
         # --- Lifecycle: End ---
-        logger.push_debug("(end)")
+        logger.push_debug("(3)")
         logger.debug("Span Bindings:")
         logger.debug(phore.span_bindings)
         for uid, target in phore.span_bindings.items():

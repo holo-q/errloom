@@ -5,7 +5,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 import re
 
-from errloom.utils.openai_chat import MessageList, MessageTuple
+from rich import box
+from rich.console import Group
+from rich.panel import Panel
+from rich.rule import Rule
+
+from errloom.utils.openai_chat import extract_fence, MessageList, MessageTuple
 
 @dataclass
 class Context:
@@ -131,6 +136,8 @@ class Rollout:
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
 
+
+
     def __post_init__(self):
         pass
 
@@ -157,6 +164,31 @@ class Rollout:
     @property
     def context(self) -> Context:
         return self.contexts[-1]
+
+    def extract_fence(self, tag, role="assistant") -> Optional[str]:
+        for c in self.contexts:
+            ret = extract_fence(c.messages, tag, role)
+            if ret:
+                return ret
+        return None
+
+    def to_rich(self) -> Panel:
+        renderables = []
+        for i, ctx in enumerate(self.contexts):
+            if i > 0:
+                renderables.append(Rule(style="yellow"))
+            renderables.append(ctx.text_rich)
+        group = Group(*renderables)
+
+        panel = Panel(
+            group,
+            title="[bold yellow]Dry Run: Full Conversation Flow[/]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            title_align="left"
+        )
+
+        return panel
 
 @dataclass
 class Tapestry:

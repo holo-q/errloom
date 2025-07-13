@@ -149,7 +149,7 @@ class HolowareParser:
         self.ego: Optional[str] = None
 
     def parse(self) -> "Holoware":
-        logger.push_info("PARSE")
+        logger.push_debug("PARSE")
         self.code = filter_comments(self.code)
 
         if self.code.strip() and not self.code.lstrip().startswith('<|'):
@@ -236,7 +236,7 @@ class HolowareParser:
 
         self.ware.spans.append(span)
 
-    @indent_decorator("SPAN")
+    @indent_decorator("SPAN", log_func=logger.debug)
     def _parse_span(self, spantext: str):
         # log.push("PARSE", f"<|{spantext}|>")
         spanbuf = []
@@ -253,7 +253,7 @@ class HolowareParser:
                 self.pos = new_pos
         # log.pop()
 
-    @indent_decorator("TEXT")
+    @indent_decorator("TEXT", log_func=logger.debug)
     def _parse_text(self, text: str):
         if not text:
             return
@@ -291,7 +291,7 @@ class HolowareParser:
             logger.debug(f"found span at {found_pos}")
             return found_pos
 
-    @indent_decorator("BLOCK")
+    @indent_decorator("BLOCK", log_func=logger.debug)
     def _parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
         # log.push("PARSE_BLOCK", "")
         block_content, end_pos = self._read_indented_block_content(code, start_pos)
