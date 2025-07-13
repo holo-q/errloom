@@ -6,6 +6,7 @@ from typing import Dict, Optional, Tuple
 from rich.panel import Panel
 
 from errloom.utils.log import indent_decorator
+from errloom.utils import log
 from .holoware import (
     ClassSpan,
     ContextResetSpan,
@@ -17,21 +18,21 @@ from .holoware import (
     TextSpan,
 )
 
-logger = logging.getLogger(__name__)
+logger = log.getLogger(__name__)
 
 # --- Grammar Definition ---
-EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
-
 def is_ego_or_sampler(base, kargs, kwargs) -> bool:
     return base in ("o_o", "@_@", "x_x") or "goal" in kwargs or "<>" in kwargs
 
 def is_context_reset(base, kargs, kwargs) -> bool:
-    return base in ("+++", "===")
+    return base in ("+++", "===", "---", "^^^", "###", "@@@", "\"\"\"", "***", "%%%")
 
 HOLOWARE_GRAMMAR: list[Dict] = [
     {"match": is_ego_or_sampler, "handler": lambda *args: _build_ego_or_sampler_span(*args)},
     {"match": is_context_reset, "handler": lambda *args: _build_context_reset_span(train=args[1] == "+++")(*args)},
 ]
+
+EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
 
 # --- Span Builders ---
 
@@ -148,7 +149,7 @@ class HolowareParser:
         self.ego: Optional[str] = None
 
     def parse(self) -> "Holoware":
-        logger.info("START")
+        logger.push_info("PARSE")
         self.code = filter_comments(self.code)
 
         if self.code.strip() and not self.code.lstrip().startswith('<|'):
@@ -172,6 +173,7 @@ class HolowareParser:
         self._add_implicit_ego_if_needed()
         self._finalize_text_span()
 
+        logger.pop()
         return self.ware
 
     def _add_implicit_ego_if_needed(self):

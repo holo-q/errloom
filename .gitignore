@@ -9,6 +9,7 @@ CLAUDE.md
 .claude/
 .cursorrules
 .cursor/
+logs/
 
 # artifacts
 dist/

@@ -67,7 +67,7 @@ class HolowareLoom(Loom):
         logger.info(self.holoware.to_rich())
 
     def rollout(self, roll: Rollout):
-        logger.info("Constructing HolowareLoom ...")
+        logger.info(f"Constructing HolowareLoom ...")
         env = deepcopy(roll.row)
         phore = self.holoware(Holophore(self, roll, env))
         logger.info(PrintedText(phore.to_rich()))

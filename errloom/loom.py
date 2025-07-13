@@ -18,6 +18,7 @@ from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
 from errloom.tapestry import Rollout, Tapestry
 from errloom.utils.log import LogContext, indent_decorator
+from errloom.utils import log
 
 if typing.TYPE_CHECKING:
     import torch.nn
@@ -66,7 +67,7 @@ class Loom(ABC):
         self.max_concurrent = max_concurrent
         self.data = load_data(data)
         self.dry = dry
-        self.logger = logging.getLogger(f'errloom.looms.{self.__class__.__name__}')
+        self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
 
         # Split the base dataset so train & bench don't see the same thing (50:50 by default)
         if data_split is not None and data == data_train and data == data_bench:
@@ -173,7 +174,6 @@ class Loom(ABC):
 
         assert isinstance(rows, Data)
 
-        print("WEAVE TAPESTRY")
         self.logger.info("WEAVE TAPESTRY")
 
         async def unroll_row(semaphore: Semaphore, state: Rollout) -> Rollout:
@@ -213,8 +213,6 @@ class Loom(ABC):
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
             for roll in tapestry.rollouts:
                 self.logger.info(roll)
-
-        print("RETURN TAPESTRY")
 
         return tapestry
 

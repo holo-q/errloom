@@ -232,13 +232,36 @@ class Holoware:
         phore.invoke(self, "__holo_start__", [phore], {})
         phore.active_holowares.append(self)
 
+        logger.push_debug("(start)")
+        for span in self.spans:
+            if isinstance(span, ClassSpan):
+                classname = span.class_name
+                Cls = phore.get_class(classname)
+
+                if not Cls:
+                    raise Exception(f"Class '{classname}' not found in environment or registry.")
+                if getattr(Cls, '_is_holostatic', False):
+                    phore.span_bindings[span.uuid] = Cls
+                else:
+                    # TODO extract to call_class_init (formalizes the api)
+                    kspan, kwspan = phore.get_holofunc_args(span)
+                    inst = phore.invoke(Cls, '__init__', span.kargs, span.kwargs, optional=False)
+                    phore.span_bindings[span.uuid] = inst
+
+                    # TODO extract to call_class_init (formalizes the api)
+                    inst = phore.invoke(inst, '__holo_init__', kspan, kwspan)
+                    if inst:
+                        phore.span_bindings[span.uuid] = inst
+
+        logger.pop()
+
         # --- Context Management ---
         # Ensure there's an initial context if the holoware starts with content
         if self.spans and not isinstance(self.spans[0], ContextResetSpan):
             phore.new_context()
 
         # --- Lifecycle: Main ---
-        logger.debug("lifecycle.main:")
+        logger.push_debug("(main)")
         for span in self.spans:
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
@@ -255,32 +278,35 @@ class Holoware:
 
             SpanClassName = type(span).__name__
             # Create a rich-formatted log message with color
-            logger.debug(f"[{span.get_color()}]--> {span}[/]")
+            logger.debug(f"[{span.get_color()}]<|{span}|>[/]")
+            logger.push()
             if SpanClassName in HolowareHandlers.__dict__:
                 getattr(HolowareHandlers, SpanClassName)(phore, span)
             else:
                 logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
             if phore._newtext:
-                log.push()
-                logger.info(Text("> " + phore._newtext, style="dim italic"))
+                logger.info(Text("" + phore._newtext, style="dim italic")) # TODO if we could find a 'oduble dim' color that would be better
                 phore._newtext = ""
-                log.pop()
+            logger.pop()
 
         if phore.errors > 0:
             raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
+        logger.pop()
 
-        logger.debug("Span Bindings:")
-        logger.debug(phore.span_bindings)
 
         # --- Lifecycle: End ---
-        logger.debug("lifecycle.end:")
+        logger.push_debug("(end)")
+        logger.debug("Span Bindings:")
+        logger.debug(phore.span_bindings)
         for uid, target in phore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
                 span = phore.find_span(uid)
                 # TODO extract to call_class_init (formalizes the api)
                 kspan, kwspan = phore.get_holofunc_args(span)
                 phore.invoke(target, '__holo_end__', kspan, kwspan)
+        logger.pop()
+
 
         phore.active_holowares.remove(self)
 

@@ -1,7 +1,10 @@
 import logging
 import os
+import sys
+from datetime import datetime
 from functools import wraps
 from math import ceil
+from pathlib import Path
 from threading import local
 from typing import Callable, Optional
 
@@ -68,18 +71,53 @@ rich.traceback.install(
 )
 
 
+def generate_log_filename(script_name: Optional[str] = None) -> str:
+    """
+    Generate a log filename based on current time and main script name.
+
+    Args:
+        script_name: Optional script name. If None, auto-detects from sys.argv[0]
+
+    Returns:
+        Path to log file in logs/ directory
+    """
+    if script_name is None:
+        # Get the main script name from sys.argv[0]
+        script_path = sys.argv[0] if sys.argv else "unknown"
+        script_name = Path(script_path).stem
+
+    # Generate timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    # Create filename
+    filename = f"{timestamp}_{script_name}.log"
+
+    # Ensure logs directory exists
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+
+    return str(logs_dir / filename)
+
+
 def setup_logging(
     level: str = "DEBUG",
     print_path: bool = True,
-    highlight: bool = True
-) -> None:
+    highlight: bool = True,
+    enable_file_logging: bool = True,
+    log_filename: Optional[str] = None
+) -> str:
     """
     Setup basic logging configuration for the errloom package.
 
     Args:
-        :param highlight:
-        :param print_path:
-        :param level: The logging level to use. Defaults to "DEBUG".
+        level: The logging level to use. Defaults to "DEBUG".
+        print_path: Whether to print file paths in console output.
+        highlight: Whether to enable syntax highlighting in console output.
+        enable_file_logging: Whether to enable logging to file.
+        log_filename: Optional custom log filename. If None, auto-generates one.
+
+    Returns:
+        Path to the log file if file logging is enabled, empty string otherwise.
     """
 
     # Get the root logger for the package
@@ -89,26 +127,49 @@ def setup_logging(
     # if logger.hasHandlers():
     #     logger.handlers.clear()
 
-    # Create a RichHandler
+    # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
         handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True, print_path=print_path, highlight=highlight)
         logger.addHandler(handler)
+
+    # Add file handler if enabled
+    log_file_path = ""
+    if enable_file_logging:
+        if log_filename is None:
+            log_file_path = generate_log_filename()
+        else:
+            log_file_path = log_filename
+            # Ensure parent directory exists
+            Path(log_file_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Create file handler with a simple formatter (no rich formatting for file)
+        if not any(isinstance(handler, logging.FileHandler) for handler in logger.handlers):
+            file_handler = logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
+            file_handler.setLevel(level.upper())
+
+            # Create a simple formatter for file output (no colors/markup)
+            file_formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
 
     # Prevent the logger from propagating messages to the root logger
     # logger.propagate = False
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("filelock").setLevel(logging.WARNING)
-    
+
     # Suppress noisy debug messages from various modules
     logging.getLogger("spec").setLevel(logging.WARNING)
     logging.getLogger("spec.read").setLevel(logging.WARNING)
     logging.getLogger("selector_events").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
-    
+
     # Suppress other common noisy loggers
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("concurrent.futures").setLevel(logging.WARNING)
-    
+
     # Add a custom filter to suppress specific noisy messages
     # This filter removes repetitive debug messages from third-party libraries
     # (HuggingFace datasets, fsspec, asyncio) that clutter application logs
@@ -129,10 +190,12 @@ def setup_logging(
                 ]):
                     return False
             return True
-    
-    # Apply the filter to the root logger
+
+    # Apply the filter to all handlers
     for handler in logger.handlers:
         handler.addFilter(NoiseFilter())
+
+    return log_file_path
 
 def getLogger(name: Optional[str] = None) -> EnhancedLogger:
     """
@@ -212,13 +275,9 @@ class LogContext:
 # GLOBAL INDENT TRACKER - thread-local to handle concurrent logging
 # ----------------------------------------
 
-_indent_state = local()
+# TODO support a 'spacer' argument to push which is the space by default. It's saved and deferred for the next push, and prepended instead of appended. The final space is instead part of our RichHandler. This allows doing sub-indents for sections of a function, like WARE.init, WARE.main, WARE.cleanup
 
-def _get_indent_stack() -> list[str]:
-    """Get current indent stack, defaulting to an empty list."""
-    if not hasattr(_indent_state, 'stack'):
-        _indent_state.stack = []
-    return _indent_state.stack
+_indent_stack = []
 
 def indent_decorator(func=None, *, a1=1, a2=None, log_func=None):
     if log_func is None:
@@ -250,7 +309,7 @@ def push(a1=1, a2=None, log_func=None):
     if log_func is None:
         log_func = logger_main.info
 
-    stack = _get_indent_stack()
+    stack = _indent_stack
     seg = ".. "
     segw = len(seg)
     if isinstance(a1, int):
@@ -260,14 +319,14 @@ def push(a1=1, a2=None, log_func=None):
         # Push spaces to align subsequent logs under the message
         stack.append(a1 + " ")
     elif isinstance(a1, str):
-        log_func(a1)
+        # log_func(a1)
         i = ceil(len(a1) / segw) * segw
         stack.append(a1 + " ")
 
 
 def pop():
     """Pops an indentation string from the stack."""
-    stack = _get_indent_stack()
+    stack = _indent_stack
     if stack:
         stack.pop()
 
@@ -378,7 +437,7 @@ class CustomRichHandler(RichHandler):
         path_w = len(path)
         path = path.rjust(self.path_width + 2)  # + colon space
 
-        idt = "".join(_get_indent_stack())
+        idt = "".join(_indent_stack)
 
         left = f"{path}{idt}"
         text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline

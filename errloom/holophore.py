@@ -38,6 +38,13 @@ class Holophore:
         self.ego = "system"
         self.active_holowares:list['Holoware'] = list()
 
+    def get_class(self, classname:str):
+        Class = self.env.get(classname)
+        if not Class:
+            from errloom.discovery import get_class
+            Class = get_class(classname)
+        return Class
+
     def find_span(self, uid):
         for ware in self.active_holowares:
             for span in ware.spans:
