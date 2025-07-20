@@ -5,11 +5,14 @@ env/
 .env
 .env.local
 uv.lock
+logs/
+
+# ai agents
 CLAUDE.md
 .claude/
 .cursorrules
 .cursor/
-logs/
+.opencode 
 
 # artifacts
 dist/
@@ -40,3 +43,10 @@ old/
 scripts/
 tests/
 notebooks/
+
+# Imported
+src/.party/
+userconf.py
+
+# weird
+configs/

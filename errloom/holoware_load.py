@@ -1,3 +1,5 @@
+# TODO rename to holoware_loader
+
 import logging
 import os
 from typing import List, Optional
@@ -80,7 +82,8 @@ class HolowareLoader:
             try:
                 all_prompts.extend([f for f in os.listdir(search_dir) if f.endswith('.hol')])
             except OSError:
-                logger.warning(f"Could not list prompts directory: {search_dir}")
+                # Directory doesn't exist or can't be accessed - this is expected for optional directories
+                pass
         return list(set(all_prompts))
 
 def get_default_loader(search_paths: List[str] = ["prompts", "hol"]) -> HolowareLoader:

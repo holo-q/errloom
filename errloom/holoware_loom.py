@@ -48,13 +48,10 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-        self.logger.info(f"Constructing {HolowareLoom.__name__} ...")
-
-        self.prompt_lib = holoware_load.get_default_loader()
-        self.holoware = holoware_load.load_holoware(path)
+        self.holoware = holoware_load.get_default_loader().load_holoware(path)
         self.message_type = 'completion'
 
-        tb = Table(show_header=False, box=box.SIMPLE)
+        tb = Table(box=box.SIMPLE)
         tb.add_column("Parameter", style="cyan", width=25)
         tb.add_column("Value", style="white")
 

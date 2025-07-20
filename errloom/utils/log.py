@@ -6,7 +6,10 @@ from functools import wraps
 from math import ceil
 from pathlib import Path
 from threading import local
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
+from contextlib import contextmanager
+from time import perf_counter
+import colorsys
 
 import rich.traceback
 from rich.console import Console
@@ -14,6 +17,180 @@ from rich.logging import RichHandler
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
+
+# TRACER FUNCTIONALITY
+# ----------------------------------------
+
+# Global tracer state
+trace_indent = 0
+print_trace = False
+
+def set_trace_enabled(enabled: bool):
+    """Enable or disable tracing globally."""
+    global print_trace
+    print_trace = enabled
+
+def is_trace_enabled() -> bool:
+    """Check if tracing is currently enabled."""
+    global print_trace
+    return print_trace
+
+def get_color_for_time(seconds: float) -> str:
+    """Get a Rich color style based on elapsed time for visual feedback."""
+    from rich.style import Style
+    
+    # Define our gradient keypoints (time in seconds, hue)
+    keypoints = [
+        (0, 120),  # Green (very fast)
+        (0.5, 80),  # Yellow-Green
+        (1, 60),  # Yellow
+        (1.5, 30),  # Orange
+        (2, 0),  # Red (very slow)
+    ]
+
+    # Find the appropriate segment of the gradient
+    for i, (time, hue) in enumerate(keypoints):
+        if seconds <= time:
+            if i == 0:
+                r, g, b = colorsys.hsv_to_rgb(hue / 360, 1, 1)
+                return f"rgb({int(r * 255)},{int(g * 255)},{int(b * 255)})"
+
+            # Interpolate between this keypoint and the previous one
+            prev_time, prev_hue = keypoints[i - 1]
+            t = (seconds - prev_time) / (time - prev_time)
+            interpolated_hue = prev_hue + t * (hue - prev_hue)
+
+            # Convert HSV to RGB
+            r, g, b = colorsys.hsv_to_rgb(interpolated_hue / 360, 1, 1)
+            return f"rgb({int(r * 255)},{int(g * 255)},{int(b * 255)})"
+
+    # If we're past the last keypoint, return the color for the last keypoint
+    r, g, b = colorsys.hsv_to_rgb(keypoints[-1][1] / 360, 1, 1)
+    return f"rgb({int(r * 255)},{int(g * 255)},{int(b * 255)})"
+
+@contextmanager
+def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: bool = False, args: Optional[tuple] = None, kwargs: Optional[dict] = None):
+    """
+    Context manager for timing code execution with optional threshold filtering.
+    
+    Args:
+        name: Name of the operation being traced
+        threshold: Minimum time threshold to print (in seconds)
+        force: Force printing regardless of global trace setting
+        show_args: Whether to show function arguments in the trace
+        args: Function arguments to display
+        kwargs: Function keyword arguments to display
+    """
+    global trace_indent
+    
+    if not print_trace and not force and threshold < 0.002:
+        yield
+        return
+
+    start_time = perf_counter()
+    trace_indent += 1
+    
+    # Build the display name with arguments if requested
+    display_name = name
+    if show_args and (args or kwargs):
+        arg_strs = []
+        if args:
+            arg_strs.extend([value_to_print_str(arg) for arg in args])
+        if kwargs:
+            arg_strs.extend([f"{k}={value_to_print_str(v)}" for k, v in kwargs.items()])
+        if arg_strs:
+            display_name = f"{name}({', '.join(arg_strs)})"
+    
+    try:
+        yield lambda: perf_counter() - start_time
+    finally:
+        trace_indent -= 1
+        elapsed_time = perf_counter() - start_time
+        
+        if threshold is not None and elapsed_time < threshold:
+            return
+
+        if elapsed_time >= 0.002:  # Only print if time is 2ms or more
+            color_style = get_color_for_time(elapsed_time)
+            # Use the existing logging system - RichHandler will handle indentation
+            logger_main.info(f"[{color_style}]({elapsed_time:.3f}s) {display_name}[/{color_style}]")
+
+def _trace_wrapper(func: Callable, print_args: bool, *args: Any, **kwargs: Any) -> Any:
+    """Internal wrapper for function tracing."""
+    with tracer(func.__name__, show_args=print_args, args=args if print_args else None, kwargs=kwargs if print_args else None) as timer:
+        return func(*args, **kwargs)
+
+def trace_decorator(func: Callable) -> Callable:
+    """Decorator to trace function execution with arguments."""
+    def trace_wrapper(*args: Any, **kwargs: Any) -> Any:
+        return _trace_wrapper(func, True, *args, **kwargs)
+    return trace_wrapper
+
+def trace_decorator_noargs(func: Callable) -> Callable:
+    """Decorator to trace function execution without arguments."""
+    def trace_wrapper(*args: Any, **kwargs: Any) -> Any:
+        return _trace_wrapper(func, False, *args, **kwargs)
+    return trace_wrapper
+
+def trace_function(name: Optional[str] = None, threshold: float = 0.0, *, force=False):
+    """
+    Decorator factory for tracing functions with custom name and threshold.
+    
+    Args:
+        name: Custom name for the trace (defaults to function name)
+        threshold: Minimum time threshold to print
+        force: Force printing regardless of global trace setting
+    """
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            trace_name = name or func.__name__
+            with tracer(trace_name, threshold=threshold, force=force, show_args=True, args=args, kwargs=kwargs) as timer:
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+def value_to_print_str(v):
+    """Convert a value to a printable string representation."""
+    try:
+        import numpy as np
+        if isinstance(v, np.ndarray):
+            return f"ndarray({v.shape})"
+    except ImportError:
+        pass
+
+    try:
+        from PIL import Image
+        if isinstance(v, Image.Image):
+            return f"PIL({v.width}x{v.height}, {v.mode})"
+    except ImportError:
+        pass
+
+    # Handle numeric types
+    if isinstance(v, (float, complex)) and not isinstance(v, bool):
+        return f"{v:.2f}"
+
+    if isinstance(v, int) and not isinstance(v, bool):
+        return f"{v}"
+
+    # Handle tuples/lists of floats
+    if isinstance(v, (tuple, list)) and len(v) > 0 and isinstance(v[0], float):
+        v = list(f"{x:.2f}" for x in v)
+        ret = "(" + "  ".join(v) + ")"
+        return ret
+
+    # Limit floats to 2 decimals
+    if isinstance(v, float):
+        return f"{v:.2f}"
+
+    # Handle PyTorch tensors
+    try:
+        import torch
+        if isinstance(v, torch.Tensor):
+            return f"Tensor({v.shape})"
+    except ImportError:
+        pass
+
+    return f"{v}"
 
 # ENHANCED LOGGER CLASS
 # ----------------------------------------
@@ -104,7 +281,8 @@ def setup_logging(
     print_path: bool = True,
     highlight: bool = True,
     enable_file_logging: bool = True,
-    log_filename: Optional[str] = None
+    log_filename: Optional[str] = None,
+    persistence_file: Optional[str] = None
 ) -> str:
     """
     Setup basic logging configuration for the errloom package.
@@ -115,6 +293,7 @@ def setup_logging(
         highlight: Whether to enable syntax highlighting in console output.
         enable_file_logging: Whether to enable logging to file.
         log_filename: Optional custom log filename. If None, auto-generates one.
+        persistence_file: Optional path for logging persistence file. If None, uses default.
 
     Returns:
         Path to the log file if file logging is enabled, empty string otherwise.
@@ -129,7 +308,15 @@ def setup_logging(
 
     # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        handler = CustomRichHandler(rich_tracebacks=True, show_path=False, console=cl, markup=True, print_path=print_path, highlight=highlight)
+        handler = CustomRichHandler(
+            rich_tracebacks=True, 
+            show_path=False, 
+            console=cl, 
+            markup=True, 
+            print_path=print_path, 
+            highlight=highlight,
+            persistence_file=persistence_file
+        )
         logger.addHandler(handler)
 
     # Add file handler if enabled
@@ -169,6 +356,12 @@ def setup_logging(
     # Suppress other common noisy loggers
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("concurrent.futures").setLevel(logging.WARNING)
+
+    # suppress annoying insignificant bullshit spam-and-harrass-by-default behavior
+    logging.getLogger("datasets").setLevel(logging.ERROR)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("torch").setLevel(logging.ERROR)
+    logging.getLogger("accelerate").setLevel(logging.ERROR)
 
     # Add a custom filter to suppress specific noisy messages
     # This filter removes repetitive debug messages from third-party libraries
@@ -385,13 +578,13 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_path, path_width=10, highlight, **kwargs):
+    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, **kwargs):
         super().__init__(*kargs, **kwargs)
         self.print_path = print_path
         self.highlight = highlight
 
         import json
-        self.persistence_file = ".persistence/logging.json"
+        self.persistence_file = persistence_file or ".persistence/logging.json"
 
         saved_path_width = path_width
         if os.path.exists(self.persistence_file):

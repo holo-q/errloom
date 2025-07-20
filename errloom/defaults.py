@@ -13,7 +13,7 @@ DATASET_MAX_CONCURRENT = 32
 # DEFAULTS
 # ----------------------------------------
 
-DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-4B"  # "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_MAX_CONCURRENT = 512
 
 def grpo_defaults(name: str) -> 'GRPOConfig':

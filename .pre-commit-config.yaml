@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: testslide
+        name: TestSlide Tests
+        entry: uv run testslide errloom/test_holoware_parse_testslide.py
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true 

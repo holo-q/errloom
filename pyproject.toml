@@ -31,7 +31,14 @@ dependencies = [
     "openai>=1.81.0",
     "datasets>=3.6.0",
     "transformers",
-    "testslide"
+    "testslide",
+    "opensimplex",
+    "opencv-python-headless",
+    "msgspec",
+    "asyncssh",
+    "desktop_notifier",
+    "prompt_toolkit",
+    "aiofiles"
 ]
 
 [project.optional-dependencies]
@@ -54,6 +61,8 @@ tests = [
 ]
 
 [project.scripts]
+main = "errloom.main:run"
+errl = "errloom.main:run"
 vf-vllm = "errloom.inference.vllm_server:cli_main"
 
 [build-system]

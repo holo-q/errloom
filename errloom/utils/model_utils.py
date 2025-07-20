@@ -1,5 +1,5 @@
 from importlib.util import find_spec
-from typing import Any, Callable, Dict, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -92,7 +92,7 @@ def get_model_and_tokenizer(name: str, use_liger: bool = True, model_kwargs: Uni
     return model, tokenizer
 
 
-def load_data(data):
+def load_data(data)->Optional[Data]:
     if isinstance(data, str):
         if data in data_cache:
             return data_cache[data]
@@ -100,7 +100,7 @@ def load_data(data):
         if not isinstance(data, IterableDataset):
             raise f"[red]❌ Expected an IterableDataset for streaming, but got {type(data)}.[/red]"
         return data
-    return data
+    return None
 
 def clear_cache():
     data_cache.clear()

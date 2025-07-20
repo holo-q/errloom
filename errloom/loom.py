@@ -12,7 +12,6 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from errloom.aliases import Data
-from errloom.argp import errlargs
 from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
@@ -65,31 +64,9 @@ class Loom(ABC):
         }
         self.message_type: Literal['chat', 'completion'] = message_type
         self.max_concurrent = max_concurrent
-        self.data = load_data(data)
         self.dry = dry
         self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
-
-        # Split the base dataset so train & bench don't see the same thing (50:50 by default)
-        if data_split is not None and data == data_train and data == data_bench:
-            base = self.data
-            if isinstance(base, Dataset):
-                sz = len(base)
-                sz1 = int(sz * data_split)
-                data1 = base.select(range(sz1))
-                data2 = base.select(range(sz1, sz))
-                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
-            elif isinstance(base, IterableDataset):
-                self.logger.error("[yellow]⚠ Dataset is iterable, taking first 1500 items.[/]")
-                items = list(base.take(1500))
-                split_idx = int(len(items) * data_split)
-                data1 = Dataset.from_list(items[:split_idx])
-                data2 = Dataset.from_list(items[split_idx:])
-                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
-            else:
-                raise TypeError(f"Cannot process dataset of type {type(base)}")
-        else:
-            self.data_train = load_data(data_train or data)
-            self.data_bench = load_data(data_bench or data)
+        self.init_data(data, data_bench, data_train, data_split)
 
         if isinstance(model, Tuple):
             self.model_name = model[0]
@@ -136,6 +113,30 @@ class Loom(ABC):
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent)
             loop.set_default_executor(executor)
 
+    def init_data(self, data, data_bench, data_train, data_split=0.5):
+        self.data = load_data(data)
+        self.data_train = self.data if data == data_train else load_data(data_train or data)
+        self.data_bench = self.data if data == data_bench else load_data(data_bench or data)
+
+        # Split the base dataset so train & bench don't see the same thing (50:50 by default)
+        if data_split is not None and data == data_train and data == data_bench:
+            base = self.data
+            if isinstance(base, Dataset):
+                sz = len(base)
+                sz1 = int(sz * data_split)
+                data1 = base.select(range(sz1))
+                data2 = base.select(range(sz1, sz))
+                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
+            elif isinstance(base, IterableDataset):
+                self.logger.error("[yellow]⚠ Dataset is iterable, taking first 1500 items.[/]")
+                items = list(base.take(1500))
+                split_idx = int(len(items) * data_split)
+                data1 = Dataset.from_list(items[:split_idx])
+                data2 = Dataset.from_list(items[split_idx:])
+                self.logger.error(f"[green]✓[/] Split {data_split:.1%}: {len(data1)} train, {len(data2)} eval")
+            else:
+                raise TypeError(f"Cannot process dataset of type {type(base)}")
+
 
     @indent_decorator("ROLLOUT")
     @abstractmethod
@@ -146,9 +147,6 @@ class Loom(ABC):
         pass
 
     def take_data(self, n=None) -> Data:
-        if n is None:
-            n = errlargs.n
-
         data = list(self.data.take(n))
         if not data:
             raise "[red]Not enough data in the training set to perform a dry run.[/red]"
@@ -157,7 +155,7 @@ class Loom(ABC):
 
         return Dataset.from_list(data)
 
-    def weave(self, rows: Data | int = None) -> Tapestry:
+    def weave(self, rows: Data | int) -> Tapestry:
         """
         Weave rollouts for the input dataset slice (batch of rows)
         Each row is unrolled through the run function.
@@ -173,6 +171,7 @@ class Loom(ABC):
 
         assert isinstance(rows, Data)
 
+        # self.logger.header_info("")
         self.logger.push_info("WEAVE")
 
         async def unroll_row(semaphore: Semaphore, state: Rollout) -> Rollout:

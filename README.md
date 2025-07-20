@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-![](media/logo.png)
+![](docs/logo.png)
 
 
 > **Errloom /ˈɜːrluːm/**—
