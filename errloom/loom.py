@@ -7,7 +7,7 @@ from asyncio import Semaphore
 from copy import deepcopy
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from datasets import Dataset, IterableDataset
+from datasets import Dataset, IterableDataset  # type: ignore
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
@@ -15,7 +15,7 @@ from errloom.aliases import Data
 from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
-from errloom.tapestry import Rollout, Tapestry
+from errloom.tapestry import Rollout, Tapestry, Context
 from errloom.utils.log import LogContext, indent_decorator
 from errloom.utils import log
 
@@ -41,8 +41,8 @@ class Loom(ABC):
     """
 
     def __init__(self,
-                 model: str | Tuple[str, 'torch.nn.Module'] = None,
-                 tokenizer: str | Tuple[str, 'transformers.PreTrainedTokenizer'] = None,
+                 model: str | Tuple[str, 'torch.nn.Module'] | None = None,
+                 tokenizer: str | Tuple[str, 'transformers.PreTrainedTokenizer'] | None = None,
                  client: OpenAI | None = None,
                  client_args: Dict[str, Any] = {},
                  message_type: Literal['chat', 'completion'] = 'chat',
@@ -74,7 +74,7 @@ class Loom(ABC):
         elif isinstance(model, str):
             from errloom.utils.model_utils import get_model
             self.model_name = model
-            self.model, _ = get_model(model) if not dry else None
+            self.model = get_model(model) if not dry else None
 
         if isinstance(tokenizer, Tuple):
             self.tokenizer = tokenizer[0]
@@ -82,15 +82,19 @@ class Loom(ABC):
         elif isinstance(tokenizer, str):
             from errloom.utils.model_utils import get_tokenizer
             self.tokenizer_name = model
-            _, self.tokenizer = get_tokenizer(model) if not dry else None
+            self.tokenizer = get_tokenizer(tokenizer) if not dry else None
 
         if not dry:
             with LogContext("👟 Initializing trainer...", "✓ Trainer ready", logger=self.logger):
                 from errloom.training.grpo_trainer import GRPOTrainer
                 from errloom.defaults import grpo_defaults
-                assert self.model
-                assert self.tokenizer
-                self.trainer = GRPOTrainer(model=self.model, tokenizer=self.tokenizer, args=grpo_defaults(name=model[0]))
+                assert self.model is not None
+                assert self.tokenizer is not None
+                assert self.model_name is not None
+                self.trainer = GRPOTrainer(
+                        model=self.model,  # type: ignore
+                        tokenizer=self.tokenizer,  # type: ignore
+                        args=grpo_defaults(name=self.model_name))
 
 
         valid_data = self.data or self.data_train and self.data_bench
@@ -113,7 +117,7 @@ class Loom(ABC):
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent)
             loop.set_default_executor(executor)
 
-    def init_data(self, data, data_bench, data_train, data_split=0.5):
+    def init_data(self, data, data_bench, data_train, data_split: Optional[float] = 0.5):
         self.data = load_data(data)
         self.data_train = self.data if data == data_train else load_data(data_train or data)
         self.data_bench = self.data if data == data_bench else load_data(data_bench or data)
@@ -121,6 +125,8 @@ class Loom(ABC):
         # Split the base dataset so train & bench don't see the same thing (50:50 by default)
         if data_split is not None and data == data_train and data == data_bench:
             base = self.data
+            if base is None:
+                raise ValueError("Cannot split None dataset")
             if isinstance(base, Dataset):
                 sz = len(base)
                 sz1 = int(sz * data_split)
@@ -147,11 +153,13 @@ class Loom(ABC):
         pass
 
     def take_data(self, n=None) -> Data:
+        if self.data is None:
+            raise ValueError("[red]Not enough data in the training set to perform a dry run.[/red]")
         data = list(self.data.take(n))
         if not data:
-            raise "[red]Not enough data in the training set to perform a dry run.[/red]"
-        if len(data) < n:
-            raise f"[yellow]Warning: Could only fetch {len(data)} samples for the dry run.[/yellow]"
+            raise ValueError("[red]Not enough data in the training set to perform a dry run.[/red]")
+        if n is not None and len(data) < n:
+            self.logger.warning(f"[yellow]Warning: Could only fetch {len(data)} samples for the dry run.[/yellow]")
 
         return Dataset.from_list(data)
 
@@ -168,6 +176,9 @@ class Loom(ABC):
 
         if rows is None or isinstance(rows, int):
             rows = self.take_data(rows)
+        
+        if isinstance(rows, int):
+            raise ValueError("rows must be a Data object or an integer")
 
         assert isinstance(rows, Data)
 
@@ -279,25 +290,36 @@ class Loom(ABC):
         else:
             sanitized_args = rollout.sampling_args
 
-        def _sample():
+        def _sample() -> str:
             try:
                 res: ChatCompletion
                 if self.message_type == 'chat':
                     assert isinstance(rollout.context.messages, list)
-                    res = client.chat.completions.create(model=model, messages=rollout.context.messages, **sanitized_args)
+                    # Convert messages to the format expected by OpenAI API
+                    messages = []
+                    for msg in rollout.context.messages:
+                        if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                            messages.append({
+                                'role': msg['role'],
+                                'content': msg['content']
+                            })
+                    res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
                     if res.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
-                    return res.choices[0].message.content  # type: ignore
+                    content = res.choices[0].message.content
+                    return content if content is not None else "[ERROR] empty_response"
                 elif self.message_type == 'completion':
                     assert isinstance(rollout.context.text, str)
-                    res = client.chat.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
+                    from openai.types.completion import Completion
+                    completion_res: Completion = client.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
                     # Check if generation was truncated due to max_tokens
-                    if res.choices[0].finish_reason == 'length':
+                    if completion_res.choices[0].finish_reason == 'length':
                         return "[ERROR] max_tokens_reached"
-                    return res.choices[0].message.content  # type: ignore
+                    content = completion_res.choices[0].text
+                    return content if content is not None else "[ERROR] empty_response"
 
-                raise ValueError
+                raise ValueError(f"Unsupported message_type: {self.message_type}")
             except Exception as e:
                 # Check for prompt too long errors
                 error_msg = str(e)
@@ -311,7 +333,7 @@ class Loom(ABC):
         return ret
 
     def make_dataset(self,
-                     tapestry: Dict[str, Any] | None = None,
+                     tapestry: Tapestry | None = None,
                      push_to_hub: bool = False,
                      hub_name: str | None = None,
                      num_samples: int = -1,
@@ -330,28 +352,19 @@ class Loom(ABC):
             assert self.model_name is not None
             tapestry = self.test(num_samples)
 
-        cols = ['prompt', 'completion', 'answer', 'gravity']
-        if tapestry['task'][0] is not None:
-            cols.append('task')
-        if 'state' in tapestry:
-            for col in state_columns:
-                if col in tapestry['state'][0]:
-                    tapestry[col] = [state[col] for state in tapestry['state']]
-                    cols.append(col)
-                else:
-                    self.logger.warning(f'Column {col} not found in state, skipping from dataset.')
-        for col in extra_columns:
-            if col in tapestry:
-                cols.append(col)
-            else:
-                self.logger.warning(f'Column {col} not found in tapestry, skipping from dataset.')
-        dataset = Data.from_dict({col: tapestry[col] for col in cols})
+        # Use the Tapestry method to extract data from rollouts
+        data_dict = tapestry.to_dataset(
+            state_columns=state_columns, 
+            extra_columns=extra_columns
+        )
+
+        dataset = Dataset.from_dict(data_dict)
         if push_to_hub:
             assert hub_name is not None
             dataset.push_to_hub(hub_name)
         return dataset
 
-    def format_dataset_qa(self, system: str, few_shot: str = None):
+    def format_dataset_qa(self, system: str, few_shot: Optional[str] = None):
         """
         Transforms the dataset to [prompt, answer] where the prompt is the entire
         pre-baked context prefix up to the model's point where it should run inference.

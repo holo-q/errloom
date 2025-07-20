@@ -198,35 +198,35 @@ def value_to_print_str(v):
 class EnhancedLogger(logging.Logger):
     """Logger with enhanced push/pop indent functionality."""
 
-    def push(self, a1=1, a2=None, log_func: Optional[Callable] = None):
+    def push(self, a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callable] = None) -> None:
         """Push indentation with optional logging function."""
         return push(a1, a2, log_func=log_func or self.info)
 
-    def pop(self):
+    def pop(self) -> None:
         """Pop indentation from the stack."""
         return pop()
 
-    def indent_ctx(self, a1=1, a2=None, log_func: Optional[Callable] = None):
+    def indent_ctx(self, a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callable] = None) -> 'IndentContext':
         """Context manager for temporary indentation."""
         return IndentContext(a1, a2, log_func=log_func or self.info)
 
-    def push_debug(self, a1=1, a2=None):
+    def push_debug(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with debug level logging."""
         return push(a1, a2, log_func=self.debug)
 
-    def push_info(self, a1=1, a2=None):
+    def push_info(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with info level logging."""
         return push(a1, a2, log_func=self.info)
 
-    def push_warning(self, a1=1, a2=None):
+    def push_warning(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with warning level logging."""
         return push(a1, a2, log_func=self.warning)
 
-    def push_error(self, a1=1, a2=None):
+    def push_error(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with error level logging."""
         return push(a1, a2, log_func=self.error)
 
-    def push_critical(self, a1=1, a2=None):
+    def push_critical(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with critical level logging."""
         return push(a1, a2, log_func=self.critical)
 
@@ -497,7 +497,7 @@ def indent_decorator(func=None, *, a1=1, a2=None, log_func=None):
         return decorator
 
 
-def push(a1=1, a2=None, log_func=None):
+def push(a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callable] = None) -> None:
     """Pushes an indentation string onto the stack."""
     if log_func is None:
         log_func = logger_main.info
@@ -526,7 +526,7 @@ def pop():
 class IndentContext:
     """Context manager for indentation that can be used with 'with' statements."""
 
-    def __init__(self, a1=1, a2=None, log_func=None):
+    def __init__(self, a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callable] = None):
         self.a1 = a1
         self.a2 = a2
         self.log_func = log_func or logger_main.info

@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 Message: TypeAlias = Dict[str, Any]
 MessageList: TypeAlias = List[Message]
-MessageTuple: TypeAlias = Tuple[Message]
+MessageTuple: TypeAlias = Tuple[Message, ...]
 ContextType: TypeAlias = Union[str, List[Message]]
 
 # TODO take a ContextType

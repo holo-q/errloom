@@ -31,6 +31,78 @@ class Context:
     def messages(self) -> MessageTuple:
         return tuple(self._messages)
 
+    @staticmethod
+    def extract_rollout_data(rollout: 'Rollout') -> Dict[str, Any]:
+        """
+        Extract standardized data from a rollout for dataset creation.
+        
+        Args:
+            rollout: The rollout to extract data from
+            
+        Returns:
+            Dictionary containing the extracted data fields
+        """
+        return {
+            'prompt': rollout.row.get('prompt', ''),
+            'completion': rollout.samples[-1] if rollout.samples else '',
+            'answer': rollout.row.get('answer', ''),
+            'gravity': rollout.gravity,
+            'task': rollout.task
+        }
+
+    @staticmethod
+    def extract_rollouts_to_dataset(rollouts: List['Rollout'], 
+                                   state_columns: List[str] = [],
+                                   extra_columns: List[str] = []) -> Dict[str, List[Any]]:
+        """
+        Extract data from a list of rollouts to create a dataset dictionary.
+        
+        Args:
+            rollouts: List of rollouts to extract data from
+            state_columns: Additional columns to extract from rollout.extra
+            extra_columns: Additional columns to extract from rollout.extra
+            
+        Returns:
+            Dictionary with lists of values for each column
+        """
+        # Initialize base data structure
+        data_dict = {
+            'prompt': [],
+            'completion': [],
+            'answer': [],
+            'gravity': []
+        }
+        
+        # Add task column if any rollout has non-default task
+        has_custom_task = any(rollout.task != "default" for rollout in rollouts)
+        if has_custom_task:
+            data_dict['task'] = []
+            
+        # Initialize additional columns
+        all_extra_cols = set(state_columns + extra_columns)
+        for col in all_extra_cols:
+            data_dict[col] = []
+            
+        # Extract data from each rollout
+        for rollout in rollouts:
+            rollout_data = Context.extract_rollout_data(rollout)
+            
+            # Add base fields
+            data_dict['prompt'].append(rollout_data['prompt'])
+            data_dict['completion'].append(rollout_data['completion'])
+            data_dict['answer'].append(rollout_data['answer'])
+            data_dict['gravity'].append(rollout_data['gravity'])
+            
+            # Add task if needed
+            if has_custom_task:
+                data_dict['task'].append(rollout_data['task'])
+                
+            # Add extra columns
+            for col in all_extra_cols:
+                data_dict[col].append(rollout.extra.get(col, None))
+                
+        return data_dict
+
     @property
     def text_rich(self):
         """Rich text representation of the context, with colored roles."""
@@ -167,7 +239,7 @@ class Rollout:
 
     def extract_fence(self, tag, role="assistant") -> Optional[str]:
         for c in self.contexts:
-            ret = extract_fence(c.messages, tag, role)
+            ret = extract_fence(list(c.messages), tag, role)
             if ret:
                 return ret
         return None
@@ -213,3 +285,20 @@ class Tapestry:
 
     def __iter__(self):
         return self.rollouts.__iter__()
+
+    def to_dataset(self, state_columns: List[str] = [], extra_columns: List[str] = []) -> Dict[str, List[Any]]:
+        """
+        Convert the tapestry to a dataset dictionary.
+        
+        Args:
+            state_columns: Additional columns to extract from rollout.extra
+            extra_columns: Additional columns to extract from rollout.extra
+            
+        Returns:
+            Dictionary with lists of values for each column
+        """
+        return Context.extract_rollouts_to_dataset(
+            self.rollouts, 
+            state_columns=state_columns, 
+            extra_columns=extra_columns
+        )
