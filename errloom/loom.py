@@ -253,7 +253,6 @@ class Loom(ABC):
             return sanitized_args
         return sampling_args
 
-
     def test(self, num_samples: int = -1) -> Tapestry:
         """
         Evaluate model on the Environment evaluation dataset.
@@ -273,6 +272,29 @@ class Loom(ABC):
             inputs = inputs.select(range(num_samples))
 
         return self.weave(inputs)
+
+    def _convert_messages_for_api(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert internal message format to OpenAI API format."""
+        api_messages = []
+        for msg in messages:
+            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                api_messages.append({
+                    'role': msg['role'],
+                    'content': msg['content']
+                })
+        return api_messages
+
+    def _handle_api_response(self, response, message_type: str) -> str:
+        """Handle API response and extract content with error checking."""
+        if response.choices[0].finish_reason == 'length':
+            return "[ERROR] max_tokens_reached"
+        
+        if message_type == 'chat':
+            content = response.choices[0].message.content
+        else:  # completion
+            content = response.choices[0].text
+            
+        return content if content is not None else "[ERROR] empty_response"
 
     def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True) -> str:
         """
@@ -296,28 +318,14 @@ class Loom(ABC):
                 if self.message_type == 'chat':
                     assert isinstance(rollout.context.messages, list)
                     # Convert messages to the format expected by OpenAI API
-                    messages = []
-                    for msg in rollout.context.messages:
-                        if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                            messages.append({
-                                'role': msg['role'],
-                                'content': msg['content']
-                            })
-                    res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)
-                    # Check if generation was truncated due to max_tokens
-                    if res.choices[0].finish_reason == 'length':
-                        return "[ERROR] max_tokens_reached"
-                    content = res.choices[0].message.content
-                    return content if content is not None else "[ERROR] empty_response"
+                    messages = self._convert_messages_for_api(rollout.context.messages)
+                    res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)  # type: ignore
+                    return self._handle_api_response(res, self.message_type)
                 elif self.message_type == 'completion':
                     assert isinstance(rollout.context.text, str)
                     from openai.types.completion import Completion
                     completion_res: Completion = client.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
-                    # Check if generation was truncated due to max_tokens
-                    if completion_res.choices[0].finish_reason == 'length':
-                        return "[ERROR] max_tokens_reached"
-                    content = completion_res.choices[0].text
-                    return content if content is not None else "[ERROR] empty_response"
+                    return self._handle_api_response(completion_res, self.message_type)
 
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
             except Exception as e:
@@ -364,6 +372,20 @@ class Loom(ABC):
             dataset.push_to_hub(hub_name)
         return dataset
 
+    def _format_prompt_for_chat(self, prompt: str, system_prompt: str | None = None, few_shot: str | List[Dict[str, Any]] | None = None) -> List[Dict[str, Any]]:
+        """Format a prompt for chat API with system prompt and few-shot examples."""
+        messages = []
+        if system_prompt:
+            messages.append({'role': 'system', 'content': system_prompt})
+        if few_shot:
+            if isinstance(few_shot, str):
+                # Parse few_shot string if needed, for now just skip
+                pass
+            else:
+                messages.extend(few_shot)
+        messages.append({'role': 'user', 'content': prompt})
+        return messages
+
     def format_dataset_qa(self, system: str, few_shot: Optional[str] = None):
         """
         Transforms the dataset to [prompt, answer] where the prompt is the entire
@@ -398,13 +420,7 @@ class Loom(ABC):
 
             # extract format_prompt as a standalone function to avoid capturing self
             def format_prompt_fn(prompt: str) -> List[Dict[str, Any]]:
-                messages = []
-                if system_prompt:
-                    messages.append({'role': 'system', 'content': system_prompt})
-                if few_shot:
-                    messages.extend(few_shot)
-                messages.append({'role': 'user', 'content': prompt})
-                return messages
+                return self._format_prompt_for_chat(prompt, system_prompt, few_shot)
 
             if answer_key == "answer":
                 return dataset.map(lambda x: {
