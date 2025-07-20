@@ -51,7 +51,8 @@ class Loom(ABC):
                  data_bench: Optional[Data | str] = None,
                  data_split: Optional[float] = None,
                  max_concurrent: int = DEFAULT_MAX_CONCURRENT,
-                 dry: bool = False):
+                 dry: bool = False,
+                 unsafe: bool = False):
         self.trainer: Optional['GRPOTrainer'] = None
         self.client = client or MockClient()
         self.client_args = {
@@ -65,6 +66,7 @@ class Loom(ABC):
         self.message_type: Literal['chat', 'completion'] = message_type
         self.max_concurrent = max_concurrent
         self.dry = dry
+        self.unsafe = unsafe
         self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
         self.init_data(data, data_bench, data_train, data_split)
 
@@ -191,7 +193,28 @@ class Loom(ABC):
             Returns a tuple of (completion, state).
             """
             async with semaphore:
-                return await asyncio.to_thread(self.rollout, state)
+                if self.unsafe:
+                    return await asyncio.to_thread(self.rollout, state)
+                else:
+                    try:
+                        return await asyncio.to_thread(self.rollout, state)
+                    except Exception as e:
+                        # Log full stacktrace to file only
+                        from errloom.utils.log import log_stacktrace_to_file
+                        log_stacktrace_to_file(self.logger, e, f"rollout {id(state)}")
+                        
+                        # Add error information to the rollout
+                        state.samples.append(f"[ERROR] {type(e).__name__}: {str(e)}")
+                        state.extra['error'] = {
+                            'type': type(e).__name__,
+                            'message': str(e),
+                            'rollout_id': id(state)
+                        }
+                        
+                        # Log a brief error message to console
+                        self.logger.warning(f"[red]Rollout failed: {type(e).__name__}: {str(e)}[/red]")
+                        
+                        return state
 
         async def unroll_rows() -> List[Rollout]:
             """

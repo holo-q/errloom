@@ -444,6 +444,42 @@ def logi(text, logger=logger_main, stacklevel=1):
     logger.info(f"[cyan]{text}[/]", stacklevel=stacklevel + 1)
     logger.info("")
 
+def log_stacktrace_to_file(logger, exception: Exception, context: str = ""):
+    """
+    Log a full stacktrace to file only, not to console.
+    This is useful for debugging while keeping console output clean.
+    
+    Args:
+        logger: Logger instance to use
+        exception: The exception that occurred
+        context: Optional context string to include in the log
+    """
+    import traceback
+    
+    # Get the full stacktrace
+    stacktrace = traceback.format_exc()
+    
+    # Create a detailed error message
+    error_msg = f"ROLLOUT ERROR{': ' + context if context else ''}\n"
+    error_msg += f"Exception: {type(exception).__name__}: {str(exception)}\n"
+    error_msg += f"Stacktrace:\n{stacktrace}"
+    
+    # Log to file only by temporarily disabling console output
+    # We need to find file handlers and temporarily disable console handlers
+    original_handlers = logger.handlers.copy()
+    
+    # Filter out console handlers (RichHandler instances)
+    file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
+    
+    # Temporarily replace handlers with only file handlers
+    logger.handlers = file_handlers
+    
+    try:
+        logger.error(error_msg)
+    finally:
+        # Restore original handlers
+        logger.handlers = original_handlers
+
 class LogContext:
     """Context manager for wrapping code blocks with intro/outro logging."""
 

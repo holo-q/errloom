@@ -29,7 +29,7 @@ discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
 
 def execute_dry_run(n: int):
-    HolowareLoom("compressor.hol", "agentlans/wikipedia-paragraphs", dry=True).weave(errlargs.n)
+    HolowareLoom("compressor.hol", data="agentlans/wikipedia-paragraphs", dry=True, unsafe=errlargs.unsafe).weave(errlargs.n)
     log(Rule("[yellow]DRY RUN COMPLETE[/]"))
 
 def setup_async():
@@ -124,15 +124,14 @@ def main(default_title: Optional[str] = None,
                     log(f"Initializing {LoomClass.__name__} with holoware: {holoware_to_use} ...")
                     loom = LoomClass(
                         holoware_to_use,  # path argument comes first
-                        model=model_name, tokenizer=tokenizer,
                         data=default_data, data_split=0.5,
-                        dry=errlargs.dry)
+                        dry=errlargs.dry, unsafe=errlargs.unsafe)
                 else:
                     log(f"Initializing {LoomClass.__name__} ...")
                     loom = LoomClass(
                         model=model_name, tokenizer=tokenizer,
                         data=default_data, data_split=0.5,
-                        dry=errlargs.dry)
+                        dry=errlargs.dry, unsafe=errlargs.unsafe)
             else:
                 log(f"Using pre-supplied loom: {loom} ...")
 

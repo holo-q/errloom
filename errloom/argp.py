@@ -32,6 +32,7 @@ def get_base_parser() -> argparse.ArgumentParser:
 
     runtime_group = parser.add_argument_group('Runtime Configuration')
     runtime_group.add_argument('--seed', type=int, default=None, help='RNG seed for reproducibility, affects dataset order and some other things.')
+    runtime_group.add_argument('--unsafe', action='store_true', help='Disable safe invocation mode for rollouts (exceptions will crash the process)')
 
     train_group = parser.add_argument_group('Training Configuration')
     train_group.add_argument("--n", type=int, default=10, help="How many dataset rows to process with the loom.")
