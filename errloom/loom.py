@@ -162,7 +162,7 @@ class Loom(ABC):
                 from errloom.utils.log import log_stacktrace_to_file_only
                 import logging
                 log_stacktrace_to_file_only(logging.getLogger(), e, f"rollout {id(state)}")
-                
+
                 # Add error information to the rollout
                 state.samples.append(f"[ERROR] {type(e).__name__}: {str(e)}")
                 state.extra['error'] = {
@@ -170,7 +170,7 @@ class Loom(ABC):
                     'message': str(e),
                     'rollout_id': id(state)
                 }
-                
+
                 # Log a brief error message to console (truncated for readability)
                 # Only show in console if explicitly requested
                 if self.show_rollout_errors:
@@ -178,7 +178,7 @@ class Loom(ABC):
                     if len(error_msg) > 100:
                         error_msg = error_msg[:97] + "..."
                     self.logger.warning(f"[red]Rollout failed: {type(e).__name__}: {error_msg}[/red]")
-                
+
                 return state
 
     def take_data(self, n=None) -> Data:
@@ -205,7 +205,7 @@ class Loom(ABC):
 
         if rows is None or isinstance(rows, int):
             rows = self.take_data(rows)
-        
+
         if isinstance(rows, int):
             raise ValueError("rows must be a Data object or an integer")
 
@@ -228,7 +228,7 @@ class Loom(ABC):
                     if not current_thread.name.startswith('ThreadPool'):
                         current_thread.name = f"Worker-{id(state)}"
                     return self.invoke(state)
-                
+
                 loop = asyncio.get_running_loop()
                 return await loop.run_in_executor(executor, invoke_with_context)
 
@@ -239,7 +239,7 @@ class Loom(ABC):
             semaphore = Semaphore(self.max_concurrent)
             tasks = []
             rolls = []
-            
+
             for row in rows:
                 roll = Rollout(dict(row), sampling_args=self.client_args)
                 rolls.append(roll)
@@ -260,8 +260,8 @@ class Loom(ABC):
 
         if self.dry:
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
-            for roll in tapestry.rollouts:
-                self.logger.info(f"1. {roll}")
+            for i,roll in enumerate(tapestry.rollouts):
+                self.logger.info(f"{i+1}. {roll}")
 
         self.logger.pop()
         return tapestry
@@ -328,12 +328,12 @@ class Loom(ABC):
         """Handle API response and extract content with error checking."""
         if response.choices[0].finish_reason == 'length':
             return "[ERROR] max_tokens_reached"
-        
+
         if message_type == 'chat':
             content = response.choices[0].message.content
         else:  # completion
             content = response.choices[0].text
-            
+
         return content if content is not None else "[ERROR] empty_response"
 
     def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True) -> str:
@@ -402,7 +402,7 @@ class Loom(ABC):
 
         # Use the Tapestry method to extract data from rollouts
         data_dict = tapestry.to_dataset(
-            state_columns=state_columns, 
+            state_columns=state_columns,
             extra_columns=extra_columns
         )
 
