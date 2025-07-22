@@ -58,16 +58,16 @@ def main(default_title: Optional[str] = None,
          default_loom: type | Loom = discovery.get_class(errlargs.loom) or HolowareLoom, # TODO can we specify to the type checker that it's a Loom type in particular, not just any type?
          default_holoware: Optional[str] = errlargs.ware,
          default_session: Optional[Session] = None):
-    
+
     # Early detection and routing based on arguments
     positional_arg = getattr(errlargs, 'positional', None)
     holoware_specified = default_holoware or errlargs.ware or positional_arg
-    
+
     # Check for deployment/remote actions first
     if _is_deployment_mode():
         _handle_deployment()
         return
-    
+
     # Handle positional argument context detection
     if positional_arg:
         # Detect if it's a holoware file (.hol extension) or loom class
@@ -84,19 +84,19 @@ def main(default_title: Optional[str] = None,
                 log(f"[bold red]❌ Unknown loom class: {positional_arg}")
                 _show_help()
                 return
-    
+
     # If no holoware specified and no other clear action, show help
     if not holoware_specified and not errlargs.dry and not errlargs.save:
         _show_help()
         return
-    
+
     setup_async()
     is_class_loom = isinstance(default_loom, type)
     model_name = default_model
     LoomClass = default_loom if is_class_loom else type(default_loom)
 
     name = default_holoware or LoomClass.__name__
-    name_ext = f"{name}-{model_name.split('/')[-1].lower()}"
+    name_ext = f"{name.split('/')[-1].lower()}-{model_name.split('/')[-1].lower()}"
     title = default_title or name_ext
     session = default_session or Session.Create(title)
 
@@ -120,13 +120,13 @@ def main(default_title: Optional[str] = None,
                     if not holoware_to_use:
                         _show_help()
                         return
-                    
+
                     log(f"Initializing {LoomClass.__name__} with holoware: {holoware_to_use} ...")
                     loom = LoomClass(
                         holoware_to_use,  # path argument comes first
-                        data=default_data, 
+                        data=default_data,
                         data_split=0.5,
-                        dry=errlargs.dry, 
+                        dry=errlargs.dry,
                         unsafe=errlargs.unsafe,
                         show_rollout_errors=errlargs.show_rollout_errors)
                 else:
@@ -167,11 +167,11 @@ def main(default_title: Optional[str] = None,
 
 def _is_deployment_mode() -> bool:
     """Check if any deployment/remote arguments are specified."""
-    return (errlargs.vastai or errlargs.vastai_gui or errlargs.vastai_quick or 
-            errlargs.vastai_cli or errlargs.vastai_stop or errlargs.vastai_reboot or 
-            errlargs.vastai_destroy or errlargs.vastai_list or errlargs.vastai_trace or 
-            errlargs.vastai_shell or errlargs.vastai_vllm or errlargs.vastai_mount or 
-            errlargs.vastai_upgrade or errlargs.vastai_install or errlargs.vastai_copy or 
+    return (errlargs.vastai or errlargs.vastai_gui or errlargs.vastai_quick or
+            errlargs.vastai_cli or errlargs.vastai_stop or errlargs.vastai_reboot or
+            errlargs.vastai_destroy or errlargs.vastai_list or errlargs.vastai_trace or
+            errlargs.vastai_shell or errlargs.vastai_vllm or errlargs.vastai_mount or
+            errlargs.vastai_upgrade or errlargs.vastai_install or errlargs.vastai_copy or
             errlargs.vastai_search or errlargs.vastai_redeploy or errlargs.remote)
 
 
@@ -180,32 +180,32 @@ def _handle_deployment():
     logc()
     log(Rule("[bold cyan]Errloom - Remote Deployment", style="cyan"))
     log("")
-    
+
     try:
         import asyncio
         from errloom.main_deploy import main as deploy_main
-        
+
         log("[dim]Starting deployment process...[/]")
         asyncio.run(deploy_main())
-        
+
     except ImportError as e:
         log(f"[red]❌ Deployment failed: Missing dependency - {e}[/]")
         log("[dim]Make sure all deployment dependencies are installed.[/]")
     except Exception as e:
         log(f"[red]❌ Deployment failed: {e}[/]")
         log("[dim]Check the logs for more details.[/]")
-    
+
     log(Rule(style="dim"))
 
 
 def _show_help():
     """Show helpful guidance when no holoware is specified."""
     from errloom.holoware_load import get_default_loader
-    
+
     logc()
     log(Rule("[bold cyan]Errloom - Holoware Training", style="cyan"))
     log("")
-    
+
     # Try to find available holoware
     try:
         available_holoware = get_default_loader().list_prompts()
@@ -220,7 +220,7 @@ def _show_help():
     except Exception as e:
         log(f"[yellow]Could not list available holoware files: {e}[/]")
         log("")
-    
+
     log("[bold]Usage examples:[/]")
     log("  [cyan]uv run main prompt.hol[/cyan]               # Run prompt.hol holoware")
     log("  [cyan]uv run main qa.hol --dry --n 1[/cyan]       # Dry run with 1 sample")
