@@ -22,6 +22,7 @@ from errloom.utils import log
 if typing.TYPE_CHECKING:
     import torch.nn
     import transformers
+    from errloom.session import Session
 
 # noinspection PyDefaultArgument
 
@@ -53,7 +54,9 @@ class Loom(ABC):
                  max_concurrent: int = DEFAULT_MAX_CONCURRENT,
                  dry: bool = False,
                  unsafe: bool = False,
-                 show_rollout_errors: bool = False):
+                 show_rollout_errors: bool = False,
+                 session: Optional['Session'] = None,
+                 dump_rollouts: Optional[str | bool] = False):
         self.trainer: Optional['GRPOTrainer'] = None
         self.client = client or MockClient()
         self.client_args = {
@@ -69,6 +72,8 @@ class Loom(ABC):
         self.dry = dry
         self.unsafe = unsafe
         self.show_rollout_errors = show_rollout_errors
+        self.session = session
+        self.dump_rollouts = dump_rollouts
         self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
         self.init_data(data, data_bench, data_train, data_split)
 
@@ -79,6 +84,9 @@ class Loom(ABC):
             from errloom.utils.model_utils import get_model
             self.model_name = model
             self.model = get_model(model) if not dry else None
+        else:
+            self.model_name = None
+            self.model = None
 
         if isinstance(tokenizer, Tuple):
             self.tokenizer = tokenizer[0]
@@ -87,19 +95,21 @@ class Loom(ABC):
             from errloom.utils.model_utils import get_tokenizer
             self.tokenizer_name = model
             self.tokenizer = get_tokenizer(tokenizer) if not dry else None
+        else:
+            self.tokenizer_name = None
+            self.tokenizer = None
 
         if not dry:
+            assert self.model is not None
+            assert self.tokenizer is not None
+            assert self.model_name is not None
             with LogContext("👟 Initializing trainer...", "✓ Trainer ready", logger=self.logger):
                 from errloom.training.grpo_trainer import GRPOTrainer
                 from errloom.defaults import grpo_defaults
-                assert self.model is not None
-                assert self.tokenizer is not None
-                assert self.model_name is not None
                 self.trainer = GRPOTrainer(
                         model=self.model,  # type: ignore
                         tokenizer=self.tokenizer,  # type: ignore
                         args=grpo_defaults(name=self.model_name))
-
 
         valid_data = self.data or self.data_train and self.data_bench
         if not valid_data:
@@ -263,8 +273,112 @@ class Loom(ABC):
             for i,roll in enumerate(tapestry.rollouts):
                 self.logger.info(f"{i+1}. {roll}")
 
+        # Dump rollouts to session if requested
+        if self.dump_rollouts and self.session:
+            self._dump_rollouts_to_session(tapestry)
+
         self.logger.pop()
         return tapestry
+
+    def _dump_rollouts_to_session(self, tapestry: Tapestry) -> None:
+        """
+        Save rollouts to the session directory as flat text files suitable for training.
+        If a rollout has multiple contexts, split it into multiple files with proper indexing.
+        
+        Args:
+            tapestry: The tapestry containing rollouts to dump
+        """
+        if not self.session or not self.dump_rollouts:
+            return
+            
+        from datetime import datetime
+        
+        # Determine subdirectory name
+        if isinstance(self.dump_rollouts, str):
+            subdir_name = self.dump_rollouts
+        else:
+            # Use timestamp as default subdirectory name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            subdir_name = f"rollouts_{timestamp}"
+        
+        # Create rollouts directory in session
+        rollouts_dir = self.session.dirpath / subdir_name
+        rollouts_dir.mkdir(exist_ok=True, parents=True)
+        
+        total_files = 0
+        
+        # Process each rollout
+        for rollout_idx, rollout in enumerate(tapestry.rollouts):
+            if not rollout.contexts:
+                # No contexts, create a simple text file with samples
+                content = "\n".join(rollout.samples) if rollout.samples else ""
+                if content.strip():
+                    file_path = rollouts_dir / f"rollout_{rollout_idx:04d}.txt"
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    total_files += 1
+                continue
+            
+            # Handle multiple contexts by splitting into separate files
+            for context_idx, context in enumerate(rollout.contexts):
+                content_parts = []
+                
+                # Extract text content from context
+                if context.text:
+                    content_parts.append(context.text)
+                
+                # Extract messages as conversation format
+                if context.messages:
+                    for msg in context.messages:
+                        role = msg.get('role', 'unknown')
+                        content = msg.get('content', '')
+                        if content.strip():
+                            content_parts.append(f"{role}: {content}")
+                
+                # Add samples for this rollout (only once, on the last context)
+                if context_idx == len(rollout.contexts) - 1 and rollout.samples:
+                    for sample in rollout.samples:
+                        if sample.strip():
+                            content_parts.append(f"assistant: {sample}")
+                
+                # Write content if we have any
+                if content_parts:
+                    content = "\n\n".join(content_parts)
+                    
+                    if len(rollout.contexts) == 1:
+                        # Single context - use simple naming
+                        file_path = rollouts_dir / f"rollout_{rollout_idx:04d}.txt"
+                    else:
+                        # Multiple contexts - include context index
+                        file_path = rollouts_dir / f"rollout_{rollout_idx:04d}_ctx_{context_idx:02d}.txt"
+                    
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    total_files += 1
+        
+        # Create a metadata file with training information
+        metadata_file = rollouts_dir / "metadata.txt"
+        metadata_content = f"""# Training Data Metadata
+Generated: {datetime.now().isoformat()}
+Loom: {self.__class__.__name__}
+Total rollouts: {len(tapestry.rollouts)}
+Total files: {total_files}
+Max concurrent: {tapestry.max_concurrent}
+
+# File naming convention:
+# rollout_NNNN.txt - Single context rollout
+# rollout_NNNN_ctx_MM.txt - Multiple context rollout (context MM of rollout NNNN)
+
+# Content format:
+# - Conversation turns separated by double newlines
+# - Format: "role: content"
+# - Roles: system, user, assistant, etc.
+"""
+        
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            f.write(metadata_content)
+        
+        self.logger.info(f"[green]✓[/] Dumped {len(tapestry.rollouts)} rollouts as {total_files} text files to {rollouts_dir}")
 
     def get_train_data(self, n: int = -1, seed: int = 0) -> Data | None:
         if n > 0 and self.data_train is not None:

@@ -29,6 +29,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     loom_config.add_argument('--max-ctx', type=int, default=None, help='Maximum number of tokens for model responses')
     loom_config.add_argument('--dry', action='store_true', help='Run without making actual model calls')
     loom_config.add_argument('--save', action='store_true', help='Generate rollouts into an output directory of the session.')
+    loom_config.add_argument('--dump', nargs='?', const=True, default=False, help='Save rollouts to disk in session directory. Optionally specify subdirectory name.')
 
     runtime_group = parser.add_argument_group('Runtime Configuration')
     runtime_group.add_argument('--seed', type=int, default=None, help='RNG seed for reproducibility, affects dataset order and some other things.')
@@ -96,6 +97,10 @@ argv = sys.argv[1:]
 args = parse_known_args()
 argv_remaining = args[1]
 errlargs = args[0]
+
+# Default --n to 1 if --dry is enabled
+if errlargs.dry and errlargs.n == 10:  # Only override if n is still the default value
+    errlargs.n = 1
 
 # Validate that ware and loom are not both set
 if errlargs.ware is not None and errlargs.loom is not None:

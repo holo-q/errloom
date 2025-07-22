@@ -100,7 +100,7 @@ def main(default_title: Optional[str] = None,
     title = default_title or name_ext
     session = default_session or Session.Create(title)
 
-    logc()
+    # logc()
     log(Rule(f"[bold cyan]{title}", style="cyan"))
 
     # ----------------------------------------
@@ -128,14 +128,18 @@ def main(default_title: Optional[str] = None,
                         data_split=0.5,
                         dry=errlargs.dry,
                         unsafe=errlargs.unsafe,
-                        show_rollout_errors=errlargs.show_rollout_errors)
+                        show_rollout_errors=errlargs.show_rollout_errors,
+                        session=session if errlargs.dump else None,
+                        dump_rollouts=errlargs.dump)
                 else:
                     log(f"Initializing {LoomClass.__name__} ...")
                     loom = LoomClass(
                         model=model_name, tokenizer=tokenizer,
                         data=default_data, data_split=0.5,
                         dry=errlargs.dry, unsafe=errlargs.unsafe,
-                        show_rollout_errors=errlargs.show_rollout_errors)
+                        show_rollout_errors=errlargs.show_rollout_errors,
+                        session=session if errlargs.dump else None,
+                        dump_rollouts=errlargs.dump)
             else:
                 log(f"Using pre-supplied loom: {loom} ...")
 
