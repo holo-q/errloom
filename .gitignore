@@ -43,6 +43,7 @@ old/
 scripts/
 tests/
 notebooks/
+hol/schizo.hol
 
 # Imported
 src/.party/

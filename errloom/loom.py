@@ -16,7 +16,7 @@ from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.interop.mock_client import MockClient
 from errloom.tapestry import Rollout, Tapestry, Context
-from errloom.utils.log import LogContext, indent_decorator
+from errloom.utils.log import ContextAwareThreadPoolExecutor, LogContext, indent_decorator
 from errloom.utils import log
 
 if typing.TYPE_CHECKING:
@@ -52,7 +52,8 @@ class Loom(ABC):
                  data_split: Optional[float] = None,
                  max_concurrent: int = DEFAULT_MAX_CONCURRENT,
                  dry: bool = False,
-                 unsafe: bool = False):
+                 unsafe: bool = False,
+                 show_rollout_errors: bool = False):
         self.trainer: Optional['GRPOTrainer'] = None
         self.client = client or MockClient()
         self.client_args = {
@@ -67,6 +68,7 @@ class Loom(ABC):
         self.max_concurrent = max_concurrent
         self.dry = dry
         self.unsafe = unsafe
+        self.show_rollout_errors = show_rollout_errors
         self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
         self.init_data(data, data_bench, data_train, data_split)
 
@@ -110,15 +112,6 @@ class Loom(ABC):
             if k != 'extra_body':
                 self.client_args[k] = v
 
-        # Ensure asyncio.to_thread doesn't hit default 32 thread limit
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-        else:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent)
-            loop.set_default_executor(executor)
-
     def init_data(self, data, data_bench, data_train, data_split: Optional[float] = 0.5):
         self.data = load_data(data)
         self.data_train = self.data if data == data_train else load_data(data_train or data)
@@ -154,6 +147,40 @@ class Loom(ABC):
         """
         pass
 
+    def invoke(self, state: Rollout) -> Rollout:
+        """
+        Invoke the rollout with appropriate error handling based on unsafe setting.
+        """
+        # Simply call the rollout method - the context inheritance is handled in unroll_row
+        if self.unsafe:
+            return self.rollout(state)
+        else:
+            try:
+                return self.rollout(state)
+            except Exception as e:
+                # Log full stacktrace to file only
+                from errloom.utils.log import log_stacktrace_to_file_only
+                import logging
+                log_stacktrace_to_file_only(logging.getLogger(), e, f"rollout {id(state)}")
+                
+                # Add error information to the rollout
+                state.samples.append(f"[ERROR] {type(e).__name__}: {str(e)}")
+                state.extra['error'] = {
+                    'type': type(e).__name__,
+                    'message': str(e),
+                    'rollout_id': id(state)
+                }
+                
+                # Log a brief error message to console (truncated for readability)
+                # Only show in console if explicitly requested
+                if self.show_rollout_errors:
+                    error_msg = str(e)
+                    if len(error_msg) > 100:
+                        error_msg = error_msg[:97] + "..."
+                    self.logger.warning(f"[red]Rollout failed: {type(e).__name__}: {error_msg}[/red]")
+                
+                return state
+
     def take_data(self, n=None) -> Data:
         if self.data is None:
             raise ValueError("[red]Not enough data in the training set to perform a dry run.[/red]")
@@ -187,47 +214,36 @@ class Loom(ABC):
         # self.logger.header_info("")
         self.logger.push_info("WEAVE")
 
-        async def unroll_row(semaphore: Semaphore, state: Rollout) -> Rollout:
+        async def unroll_row(semaphore: Semaphore, state: Rollout, executor: concurrent.futures.Executor) -> Rollout:
             """
             Run a rollout for a given prompt.
-            Returns a tuple of (completion, state).
+            The logging context is automatically propagated by ContextAwareThreadPoolExecutor.
             """
             async with semaphore:
-                if self.unsafe:
-                    return await asyncio.to_thread(self.rollout, state)
-                else:
-                    try:
-                        return await asyncio.to_thread(self.rollout, state)
-                    except Exception as e:
-                        # Log full stacktrace to file only
-                        from errloom.utils.log import log_stacktrace_to_file
-                        log_stacktrace_to_file(self.logger, e, f"rollout {id(state)}")
-                        
-                        # Add error information to the rollout
-                        state.samples.append(f"[ERROR] {type(e).__name__}: {str(e)}")
-                        state.extra['error'] = {
-                            'type': type(e).__name__,
-                            'message': str(e),
-                            'rollout_id': id(state)
-                        }
-                        
-                        # Log a brief error message to console
-                        self.logger.warning(f"[red]Rollout failed: {type(e).__name__}: {str(e)}[/red]")
-                        
-                        return state
+                # Create a thread with a meaningful name for better logging
+                def invoke_with_context():
+                    import threading
+                    # Set thread name for better logging
+                    current_thread = threading.current_thread()
+                    if not current_thread.name.startswith('ThreadPool'):
+                        current_thread.name = f"Worker-{id(state)}"
+                    return self.invoke(state)
+                
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(executor, invoke_with_context)
 
-        async def unroll_rows() -> List[Rollout]:
+        async def unroll_rows(executor: concurrent.futures.Executor) -> List[Rollout]:
             """
             Run rollouts for a given list of prompts and return the completions.
             """
             semaphore = Semaphore(self.max_concurrent)
             tasks = []
             rolls = []
-
+            
             for row in rows:
                 roll = Rollout(dict(row), sampling_args=self.client_args)
                 rolls.append(roll)
-                tasks.append(unroll_row(semaphore, roll))
+                tasks.append(unroll_row(semaphore, roll, executor))
 
             self.logger.info(f'Running {len(tasks)} rollouts')
             for f in asyncio.as_completed(tasks):
@@ -237,7 +253,8 @@ class Loom(ABC):
 
         # Run the async function in a new event loop
         # This avoids issues with nested event loops
-        tapestry = asyncio.run(unroll_rows())
+        executor = ContextAwareThreadPoolExecutor(max_workers=self.max_concurrent)
+        tapestry = asyncio.run(unroll_rows(executor))
         tapestry = Tapestry(tapestry)
         tapestry.max_concurrent = self.max_concurrent
 

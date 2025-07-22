@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 from functools import wraps
 from math import ceil
@@ -15,6 +16,7 @@ import rich.traceback
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,6 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------
 
 # Global tracer state
-trace_indent = 0
 print_trace = False
 
 def set_trace_enabled(enabled: bool):
@@ -34,6 +35,16 @@ def is_trace_enabled() -> bool:
     """Check if tracing is currently enabled."""
     global print_trace
     return print_trace
+
+def _get_trace_indent():
+    """Get the thread-local trace indent, creating it if it doesn't exist."""
+    if not hasattr(_thread_local, 'trace_indent'):
+        _thread_local.trace_indent = 0
+    return _thread_local.trace_indent
+
+def _set_trace_indent(value):
+    """Set the thread-local trace indent."""
+    _thread_local.trace_indent = value
 
 def get_color_for_time(seconds: float) -> str:
     """Get a Rich color style based on elapsed time for visual feedback."""
@@ -81,14 +92,13 @@ def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: b
         args: Function arguments to display
         kwargs: Function keyword arguments to display
     """
-    global trace_indent
-    
     if not print_trace and not force and threshold < 0.002:
         yield
         return
 
     start_time = perf_counter()
-    trace_indent += 1
+    current_indent = _get_trace_indent()
+    _set_trace_indent(current_indent + 1)
     
     # Build the display name with arguments if requested
     display_name = name
@@ -104,7 +114,7 @@ def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: b
     try:
         yield lambda: perf_counter() - start_time
     finally:
-        trace_indent -= 1
+        _set_trace_indent(current_indent)
         elapsed_time = perf_counter() - start_time
         
         if threshold is not None and elapsed_time < threshold:
@@ -229,6 +239,14 @@ class EnhancedLogger(logging.Logger):
     def push_critical(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with critical level logging."""
         return push(a1, a2, log_func=self.critical)
+    
+    def get_current_context(self) -> list:
+        """Get a copy of the current thread's indent stack for passing to child threads."""
+        return get_current_context()
+    
+    def set_context(self, context: list) -> None:
+        """Set the thread-local indent stack to a specific context."""
+        set_indent_stack(context)
 
 # MAIN SETUP
 # ----------------------------------------
@@ -282,7 +300,8 @@ def setup_logging(
     highlight: bool = True,
     enable_file_logging: bool = True,
     log_filename: Optional[str] = None,
-    persistence_file: Optional[str] = None
+    persistence_file: Optional[str] = None,
+    print_thread_name: bool = False
 ) -> str:
     """
     Setup basic logging configuration for the errloom package.
@@ -294,6 +313,7 @@ def setup_logging(
         enable_file_logging: Whether to enable logging to file.
         log_filename: Optional custom log filename. If None, auto-generates one.
         persistence_file: Optional path for logging persistence file. If None, uses default.
+        print_thread_name: Whether to print thread names in console output.
 
     Returns:
         Path to the log file if file logging is enabled, empty string otherwise.
@@ -315,7 +335,8 @@ def setup_logging(
             markup=True, 
             print_path=print_path, 
             highlight=highlight,
-            persistence_file=persistence_file
+            persistence_file=persistence_file,
+            print_thread_name=print_thread_name
         )
         logger.addHandler(handler)
 
@@ -444,7 +465,7 @@ def logi(text, logger=logger_main, stacklevel=1):
     logger.info(f"[cyan]{text}[/]", stacklevel=stacklevel + 1)
     logger.info("")
 
-def log_stacktrace_to_file(logger, exception: Exception, context: str = ""):
+def log_stacktrace_to_file_only(logger, exception: Exception, context: str = ""):
     """
     Log a full stacktrace to file only, not to console.
     This is useful for debugging while keeping console output clean.
@@ -455,30 +476,29 @@ def log_stacktrace_to_file(logger, exception: Exception, context: str = ""):
         context: Optional context string to include in the log
     """
     import traceback
+    from datetime import datetime
     
     # Get the full stacktrace
     stacktrace = traceback.format_exc()
     
     # Create a detailed error message
-    error_msg = f"ROLLOUT ERROR{': ' + context if context else ''}\n"
+    error_msg = f"EXCEPTION{': ' + context if context else ''}\n"
     error_msg += f"Exception: {type(exception).__name__}: {str(exception)}\n"
     error_msg += f"Stacktrace:\n{stacktrace}"
     
-    # Log to file only by temporarily disabling console output
-    # We need to find file handlers and temporarily disable console handlers
-    original_handlers = logger.handlers.copy()
-    
-    # Filter out console handlers (RichHandler instances)
-    file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
-    
-    # Temporarily replace handlers with only file handlers
-    logger.handlers = file_handlers
-    
-    try:
-        logger.error(error_msg)
-    finally:
-        # Restore original handlers
-        logger.handlers = original_handlers
+    # Find file handlers from the original logger and write directly to them
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            try:
+                # Write directly to the file with timestamp
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                log_entry = f"{timestamp} - {logger.name} - ERROR - {error_msg}\n"
+                handler.stream.write(log_entry)
+                handler.stream.flush()
+            except Exception as e:
+                # If direct write fails, fall back to logging (but this might go to console)
+                logger.error(f"Failed to write stacktrace to file: {e}")
+                break
 
 class LogContext:
     """Context manager for wrapping code blocks with intro/outro logging."""
@@ -506,7 +526,48 @@ class LogContext:
 
 # TODO support a 'spacer' argument to push which is the space by default. It's saved and deferred for the next push, and prepended instead of appended. The final space is instead part of our RichHandler. This allows doing sub-indents for sections of a function, like WARE.init, WARE.main, WARE.cleanup
 
-_indent_stack = []
+# Thread-local storage for indent stacks to prevent conflicts in multi-threaded environments
+_thread_local = threading.local()
+
+def _get_indent_stack():
+    """Get the thread-local indent stack, creating it if it doesn't exist."""
+    if not hasattr(_thread_local, 'indent_stack'):
+        # Start fresh - context should be passed explicitly
+        _thread_local.indent_stack = []
+    
+    return _thread_local.indent_stack
+
+def set_indent_stack(context):
+    """Set the thread-local indent stack to a specific context."""
+    _thread_local.indent_stack = context.copy()
+
+def get_current_context():
+    """Get a copy of the current thread's indent stack for passing to child threads."""
+    return _get_indent_stack().copy()
+
+class ContextAwareThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
+    """
+    A ThreadPoolExecutor that automatically propagates the errloom logging indent context
+    from the submitting thread to the worker thread.
+    """
+    def submit(self, fn, /, *args, **kwargs):
+        """
+        Submits a callable to be executed, wrapping it to carry over the logging context.
+        """
+        # This is called in the parent thread, so we capture its context.
+        parent_context = get_current_context()
+
+        def fn_with_context(*args, **kwargs):
+            # This runs in the worker thread. We set the captured context.
+            set_indent_stack(parent_context)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                # Context will be overwritten by the next task, so no cleanup is needed.
+                pass
+        
+        # Submit the wrapped function to the actual executor.
+        return super().submit(fn_with_context, *args, **kwargs)
 
 def indent_decorator(func=None, *, a1=1, a2=None, log_func=None):
     if log_func is None:
@@ -534,11 +595,11 @@ def indent_decorator(func=None, *, a1=1, a2=None, log_func=None):
 
 
 def push(a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callable] = None) -> None:
-    """Pushes an indentation string onto the stack."""
+    """Pushes an indentation string onto the thread-local stack."""
     if log_func is None:
         log_func = logger_main.info
 
-    stack = _indent_stack
+    stack = _get_indent_stack()
     seg = ".. "
     segw = len(seg)
     if isinstance(a1, int):
@@ -554,8 +615,8 @@ def push(a1: int | str = 1, a2: Optional[str] = None, log_func: Optional[Callabl
 
 
 def pop():
-    """Pops an indentation string from the stack."""
-    stack = _indent_stack
+    """Pops an indentation string from the thread-local stack."""
+    stack = _get_indent_stack()
     if stack:
         stack.pop()
 
@@ -614,10 +675,11 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, **kwargs):
+    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, print_thread_name=False, **kwargs):
         super().__init__(*kargs, **kwargs)
         self.print_path = print_path
         self.highlight = highlight
+        self.print_thread_name = print_thread_name
 
         import json
         self.persistence_file = persistence_file or ".persistence/logging.json"
@@ -662,11 +724,19 @@ class CustomRichHandler(RichHandler):
             filename = os.path.basename(record.pathname).replace(".py", "")
             path = f"({filename}.{record.funcName})"
 
+        # Add thread name if enabled
+        if self.print_thread_name:
+            import threading
+            current_thread = threading.current_thread()
+            thread_name = current_thread.name
+            # Show thread name for all threads when enabled, not just non-MainThread
+            path = f"[{thread_name}] {path}"
+
         path = f"{path}: "
         path_w = len(path)
         path = path.rjust(self.path_width + 2)  # + colon space
 
-        idt = "".join(_indent_stack)
+        idt = "".join(_get_indent_stack())
 
         left = f"{path}{idt}"
         text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline

@@ -25,7 +25,7 @@ from errloom.holoware_loom import HolowareLoom
 from errloom.session import Session
 from errloom.utils.log import log, logc, LogContext, logger_main
 
-discovery.crawl_package("thauten", [CommModel])
+# discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
 
 def execute_dry_run(n: int):
@@ -124,14 +124,18 @@ def main(default_title: Optional[str] = None,
                     log(f"Initializing {LoomClass.__name__} with holoware: {holoware_to_use} ...")
                     loom = LoomClass(
                         holoware_to_use,  # path argument comes first
-                        data=default_data, data_split=0.5,
-                        dry=errlargs.dry, unsafe=errlargs.unsafe)
+                        data=default_data, 
+                        data_split=0.5,
+                        dry=errlargs.dry, 
+                        unsafe=errlargs.unsafe,
+                        show_rollout_errors=errlargs.show_rollout_errors)
                 else:
                     log(f"Initializing {LoomClass.__name__} ...")
                     loom = LoomClass(
                         model=model_name, tokenizer=tokenizer,
                         data=default_data, data_split=0.5,
-                        dry=errlargs.dry, unsafe=errlargs.unsafe)
+                        dry=errlargs.dry, unsafe=errlargs.unsafe,
+                        show_rollout_errors=errlargs.show_rollout_errors)
             else:
                 log(f"Using pre-supplied loom: {loom} ...")
 

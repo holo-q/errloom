@@ -49,6 +49,8 @@ def get_base_parser() -> argparse.ArgumentParser:
     log_group.add_argument('--log-level', type=str, choices=['debug', 'info', 'warning', 'error', 'critical'], default='info', help='Set the logging level')
     log_group.add_argument('--log-more', action='store_true', help='Enable more verbose logging output')
     log_group.add_argument('--trace', action='store_true', help='Enable function execution tracing with timing information')
+    log_group.add_argument('--print-thread-names', action='store_true', help='Print thread names in log output')
+    log_group.add_argument('--show-rollout-errors', action='store_true', help='Show rollout errors in console output (default: errors logged to file only)')
 
     remote_group = parser.add_argument_group('Remote Configuration')
     remote_group.add_argument("--remote", action='store_true', help="Specifies whether we are running on a remote.")
