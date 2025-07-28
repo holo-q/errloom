@@ -92,6 +92,14 @@ class ProcessedTokens:
         }
 
 @dataclass
+class TokenizedRollout:
+    """Single rollout tokenization result"""
+    prompt_ids: List[int]
+    prompt_mask: List[int]
+    completion_ids: List[int]
+    completion_mask: List[int]
+
+@dataclass
 class BatchRequest:
     """Request for batch generation"""
     batch_id: int
@@ -491,7 +499,7 @@ def process_chat_format(
     rollout: Rollout,
     processing_class: PreTrainedTokenizerBase,
     mask_env_responses: bool = False
-) -> Tuple[List[int], List[int], List[int], List[int]]:
+) -> TokenizedRollout:
     """
     Process chat format conversations using incremental prefixes.
 
@@ -501,7 +509,7 @@ def process_chat_format(
     3. Apply masking for intermediate responses if needed
 
     Returns:
-        prompt_ids, prompt_mask, completion_ids, completion_mask
+        TokenizedRollout containing prompt_ids, prompt_mask, completion_ids, completion_mask
     """
 
     # Extract prompt messages from rollout context
@@ -566,15 +574,14 @@ from previous turns, such as Qwen3 or DeepSeek-R1-Distill models. \
 For Qwen3 models, you may want to replace the chat template with the Qwen2.5 chat template. \
 Model copies with swapped templates are available here: https://huggingface.co/collections/willcb/qwen3-68434f4883925bfdb4570ee5"
 
-    return prompt_ids, prompt_mask, completion_ids, completion_mask
+    return TokenizedRollout(
+        prompt_ids=prompt_ids,
+        prompt_mask=prompt_mask,
+        completion_ids=completion_ids,
+        completion_mask=completion_mask
+    )
 
-@dataclass
-class TokenizedRollout:
-    """Single rollout tokenization result"""
-    prompt_ids: List[int]
-    prompt_mask: List[int]
-    completion_ids: List[int]
-    completion_mask: List[int]
+# TokenizedRollout class moved to earlier in file
 
 class TokenizationStrategy(ABC):
     """Abstract base class for tokenization strategies"""

@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Sized, Tuple, Union
+from dataclasses import dataclass
 
 import datasets
 import numpy as np
@@ -47,6 +48,14 @@ from rich.panel import Panel
 
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
+
+@dataclass
+class BatchData:
+    """Container for gathered batch data from all processes"""
+    prompts: List[Any]
+    answers: List[Any] 
+    tasks: List[Any]
+    infos: List[Any]
 
 class RepeatSampler(Sampler):
     """
@@ -693,7 +702,7 @@ class GRPOTrainer(Trainer):
             'mask': mask
         }
 
-    def _gather_batch_data(self, batch_offset: int = 0) -> Tuple[List[Any], List[Any], List[Any], List[Any]]:
+    def _gather_batch_data(self, batch_offset: int = 0) -> BatchData:
         """
         Gather batch data from all processes.
 
@@ -726,7 +735,12 @@ class GRPOTrainer(Trainer):
         all_answers = gather_object(answers)
         all_tasks = gather_object(tasks)
         all_infos = gather_object(infos)
-        return all_prompts, all_answers, all_tasks, all_infos
+        return BatchData(
+            prompts=all_prompts,
+            answers=all_answers, 
+            tasks=all_tasks,
+            infos=all_infos
+        )
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]
@@ -778,9 +792,9 @@ class GRPOTrainer(Trainer):
             self.logger.push_debug("Submit")
             for batch_id in range(self._next_batch_id, target_batch_id + 1):
                 batch_offset = batch_id - batch_id_to_retrieve
-                all_prompts, all_answers, all_tasks, all_infos = self._gather_batch_data(batch_offset)
+                batch_data = self._gather_batch_data(batch_offset)
 
-                local_batch_size = len(all_prompts) // self.accelerator.num_processes
+                local_batch_size = len(batch_data.prompts) // self.accelerator.num_processes
 
                 # Submit batch (main process only)
                 if self.accelerator.is_main_process:
@@ -789,18 +803,18 @@ class GRPOTrainer(Trainer):
                     with LogContext(f"📦 Preparing Batch {batch_id}...", f"batch_{batch_id}", logger=self.logger):
                         self.logger.info(f"[cyan]Batch Configuration:[/]")
                         self.logger.info(f"  • Global step: [green]{self.state.global_step}[/]")
-                        self.logger.info(f"  • Total prompts: [green]{len(all_prompts)}[/]")
+                        self.logger.info(f"  • Total prompts: [green]{len(batch_data.prompts)}[/]")
                         self.logger.info(f"  • Processes: [green]{self.accelerator.num_processes}[/]")
                         self.logger.info(f"  • Local batch size: [green]{local_batch_size}[/]")
 
                         # Create configuration objects
                         from datasets import Dataset
                         rows_dataset = Dataset.from_dict({
-                            'prompt': all_prompts, 
-                            'text': all_prompts, 
-                            'answer': all_answers, 
-                            'task': all_tasks, 
-                            'info': all_infos
+                            'prompt': batch_data.prompts, 
+                            'text': batch_data.prompts, 
+                            'answer': batch_data.answers, 
+                            'task': batch_data.tasks, 
+                            'info': batch_data.infos
                         })
                         
                         generation_config = GenerationConfig(
