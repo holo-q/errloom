@@ -13,8 +13,9 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from errloom.loom import Loom
 from errloom.tapestry import Rollout, Tapestry
+from errloom.utils import log
 
-logger = logging.getLogger(__name__)
+logger = log.getLogger(__name__)
 
 @dataclass
 class BatchRequest:
@@ -88,6 +89,7 @@ class AsyncBatchGenerator:
         if self.started:
             return
 
+        logger.push_info("Starting")
         self.worker_thread = threading.Thread(
             target=self._generation_worker,
             daemon=True,
@@ -95,12 +97,14 @@ class AsyncBatchGenerator:
         )
         self.worker_thread.start()
         self.started = True
+        logger.pop()
 
     def stop(self):
         """Stop the async generation worker thread"""
         if not self.started:
             return
 
+        logger.push_info("Stopping")
         self.stop_event.set()
         # Send poison pill
         self.request_queue.put(None)
@@ -109,6 +113,7 @@ class AsyncBatchGenerator:
             self.worker_thread.join(timeout=10.0)
 
         self.started = False
+        logger.pop()
 
     def submit_batch(self, request: BatchRequest) -> bool:
         """
@@ -120,16 +125,20 @@ class AsyncBatchGenerator:
         if not self.started:
             raise RuntimeError("AsyncBatchGenerator not started")
 
+        logger.push_debug("Submit")
         with self._lock:
             if request.batch_id in self.pending_batches:
+                logger.pop()
                 return True  # Already submitted
 
             if len(self.pending_batches) >= self.num_batches_ahead:
+                logger.pop()
                 return False  # Queue full
 
             self.pending_batches.add(request.batch_id)
 
         self.request_queue.put(request)
+        logger.pop()
         return True
 
     def get_batch(self, batch_id: int, timeout: Optional[float] = None) -> BatchResult:
@@ -150,11 +159,14 @@ class AsyncBatchGenerator:
         timeout = timeout or self.generation_timeout
         start_time = time.time()
 
+        logger.push_debug("Wait")
         while True:
             # Check if already completed
             with self._lock:
                 if batch_id in self.completed_batches:
-                    return self.completed_batches.pop(batch_id)
+                    result = self.completed_batches.pop(batch_id)
+                    logger.pop()
+                    return result
 
             # Check for new results
             try:
@@ -166,13 +178,16 @@ class AsyncBatchGenerator:
                 # If this is our batch, return it
                 if result.batch_id == batch_id:
                     with self._lock:
-                        return self.completed_batches.pop(batch_id)
+                        result = self.completed_batches.pop(batch_id)
+                        logger.pop()
+                        return result
 
             except queue.Empty:
                 pass
 
             # Check timeout
             if time.time() - start_time > timeout:
+                logger.pop()
                 raise TimeoutError(f"Batch {batch_id} generation timed out after {timeout}s")
 
     def get_pending_count(self) -> int:
@@ -225,6 +240,8 @@ class AsyncBatchGenerator:
         """
         import time
         start_time = time.time()
+        
+        logger.push_info("Generate")
         
         # Convert rows dict to Dataset if needed
         rows = request.rows
@@ -286,13 +303,16 @@ class AsyncBatchGenerator:
             mask_truncated_completions=request.mask_truncated_completions
         )
 
-        return BatchResult(
+        result = BatchResult(
             batch_id=request.batch_id,
             processed_results=processed_results,
             all_reward_dict=all_reward_dict,
             completions=completions,
             prompts=prompts
         )
+        
+        logger.pop()
+        return result
 
 # TODO there may be a better location for these, it's not exactly the batch generator's job either
 # These functions used to be in Environment but that's definitely the wrong place, since

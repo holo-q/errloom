@@ -33,6 +33,7 @@ from errloom.training.async_batch_generator import AsyncBatchGenerator, BatchReq
 from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.training.grpo_config import GRPOConfig
 from errloom.utils.log import LogContext
+from errloom.utils import log
 
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
@@ -241,7 +242,7 @@ class GRPOTrainer(Trainer):
         peft_config: Optional[PeftConfig] = None
     ):
         # Initialize the logger with proper hierarchy
-        self.logger = logging.getLogger(f'errloom.training.{self.__class__.__name__}')
+        self.logger = log.getLogger(f'errloom.training.{self.__class__.__name__}')
         
         with LogContext("🔧 Configuring GRPO Trainer...", "trainer_config", logger=self.logger):
             self.logger.info(f"[cyan]Training Configuration:[/]")
@@ -728,6 +729,8 @@ class GRPOTrainer(Trainer):
         2. On first calls, prime by submitting num_batches_ahead batches before retrieving any
         3. On subsequent calls, submit new batches to maintain the pipeline
         """
+        self.logger.push_debug("Prepare")
+        
         # Ensure all processes are synchronized at the start
         self.accelerator.wait_for_everyone()
 
@@ -736,6 +739,8 @@ class GRPOTrainer(Trainer):
 
         # Check if we need to generate new completions
         if self._step % generate_every == 0 or self._buffered_inputs is None:
+            self.logger.push_info("Generate")
+            
             # Update weights to vLLM if needed
             if self.state.global_step > self._last_loaded_step:
                 self.logger.info(f"Syncing weights to vLLM at step {self.state.global_step}")
@@ -760,6 +765,7 @@ class GRPOTrainer(Trainer):
             # On subsequent calls, this submits new batches to stay ahead
             batches_submitted = 0
 
+            self.logger.push_debug("Submit")
             for batch_id in range(self._next_batch_id, target_batch_id + 1):
                 batch_offset = batch_id - batch_id_to_retrieve
                 all_prompts, all_answers, all_tasks, all_infos = self._gather_batch_data(batch_offset)
@@ -794,6 +800,7 @@ class GRPOTrainer(Trainer):
                         self.async_generator.submit_batch(request)
                         self.logger.info(f"[green]✓[/] Batch {batch_id} submitted to async generator")
                 self.accelerator.wait_for_everyone()
+            self.logger.pop()
 
             # Update next batch id
             if self.accelerator.is_main_process:
@@ -830,11 +837,13 @@ class GRPOTrainer(Trainer):
                 broadcast_data = None
             self.accelerator.wait_for_everyone()
 
+            self.logger.push_debug("Broadcast")
             # Broadcast processed data
             broadcast_list = [broadcast_data]
             broadcast_object_list(broadcast_list, from_process=0)
             broadcast_data = broadcast_list[0]
             self.accelerator.wait_for_everyone()
+            self.logger.pop()
 
             # Each process takes its slice
             process_slice = slice(
@@ -842,6 +851,7 @@ class GRPOTrainer(Trainer):
                 (self.accelerator.process_index + 1) * len(inputs),
             )
 
+            self.logger.push_debug("Process")
             # Create rewards tensor and compute advantages using full batch
             assert broadcast_data is not None  # After broadcast, all processes have data
             all_rewards = torch.tensor(broadcast_data['rewards'], device=self.accelerator.device)
@@ -914,10 +924,15 @@ class GRPOTrainer(Trainer):
             full_batch = shuffle_tensor_dict(full_batch)
             self._buffered_inputs = split_tensor_dict(full_batch, self.gradient_accumulation_steps)
             self.accelerator.wait_for_everyone()
+            self.logger.pop()
+            self.logger.pop()
+            
         # Return appropriate slice from buffer
         result = self._buffered_inputs[self._step % self.gradient_accumulation_steps]
         self._step += 1
         self.accelerator.wait_for_everyone()
+        
+        self.logger.pop()
         return result
 
     def _compute_advantages(
@@ -945,6 +960,8 @@ class GRPOTrainer(Trainer):
                      inputs: Dict[str, torch.Tensor],
                      return_outputs: bool = False,
                      num_items_in_batch: int | None = None) -> torch.Tensor:
+        self.logger.push_debug("Loss")
+        
         mode = "train"
         # Compute the per-token log probabilities for the model
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
@@ -952,7 +969,10 @@ class GRPOTrainer(Trainer):
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+        
+        self.logger.push_debug("Logprobs")
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
+        self.logger.pop()
 
         # Compute the loss
         advantages = inputs["advantages"]
@@ -961,6 +981,8 @@ class GRPOTrainer(Trainer):
         old_per_token_logps = (
             per_token_logps.detach() if inputs["old_per_token_logps"] is None else inputs["old_per_token_logps"]
         )
+        
+        self.logger.push_debug("Policy")
         coef_1 = torch.exp(per_token_logps - old_per_token_logps)
         coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
 
@@ -973,9 +995,11 @@ class GRPOTrainer(Trainer):
 
         per_token_loss2 = coef_2 * advantages.unsqueeze(1)
         per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+        self.logger.pop()
 
         # Compute the KL divergence between the model and the reference model
         if self.beta != 0.0:
+            self.logger.push_debug("KL")
             with torch.no_grad():
                 if self.ref_model is not None:
                     ref_per_token_logps = self._get_per_token_logps(
@@ -992,6 +1016,7 @@ class GRPOTrainer(Trainer):
             per_token_loss = per_token_loss + self.beta * per_token_kl
             mean_kl = (per_token_kl * completion_mask).sum() / completion_mask.sum()
             self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).nanmean().item())  # type: ignore
+            self.logger.pop()
 
         if self.loss_type == "grpo":
             loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
@@ -1019,6 +1044,8 @@ class GRPOTrainer(Trainer):
         self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())  # type: ignore
         gathered_clip_ratio = self.accelerator.gather_for_metrics(clip_ratio)
         self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())  # type: ignore
+        
+        self.logger.pop()
         return loss
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval", **kwargs):
@@ -1027,6 +1054,7 @@ class GRPOTrainer(Trainer):
         This bypasses the standard batch-by-batch evaluation and uses the environment's
         built-in evaluation logic instead.
         """
+        self.logger.push_info("Eval")
         self.logger.info("Running evaluation using environment's evaluate method")
 
         # Call env.evaluate with appropriate parameters
@@ -1115,6 +1143,7 @@ class GRPOTrainer(Trainer):
         self.log(metrics)
 
         # Return metrics dict to match base class signature
+        self.logger.pop()
         return metrics
 
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
