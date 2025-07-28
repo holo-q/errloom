@@ -7,7 +7,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Sized, Tuple, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 import datasets
@@ -496,6 +496,12 @@ class GRPOTrainer(Trainer):
             algorithm = GRPOAlgorithm(config=args, logger=self.logger)
         self.algorithm = algorithm
         
+        # Initialize modular training pipeline
+        self.training_pipeline = TrainingPipeline.create_default(
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            num_iterations=args.num_accum
+        )
+        
         algorithm_name = self.algorithm.get_algorithm_name()
         with LogContext(f"🔧 Configuring {algorithm_name} Trainer...", "trainer_config", logger=self.logger):
             self.logger.info(f"[cyan]Training Configuration:[/]")
@@ -937,6 +943,10 @@ class GRPOTrainer(Trainer):
         }
 
     def _gather_batch_data(self, batch_offset: int = 0) -> BatchData:
+        """Public interface for batch data gathering"""
+        return self.training_pipeline.batch_data_strategy.gather_batch_data(self, batch_offset)
+    
+    def _gather_batch_data_impl(self, batch_offset: int = 0) -> BatchData:
         """
         Gather batch data from all processes.
 
@@ -980,29 +990,30 @@ class GRPOTrainer(Trainer):
         self, inputs: list[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         """
-        inputs: raw inputs from the dataloader (per process)
-
-        This method implements async batch generation with priming:
-        1. Always maintain num_batches_ahead batches in the pipeline
-        2. On first calls, prime by submitting num_batches_ahead batches before retrieving any
-        3. On subsequent calls, submit new batches to maintain the pipeline
+        Modular training loop using configurable pipeline strategies.
+        
+        This method orchestrates the training process through pluggable components:
+        1. Training orchestration (when to generate, sync weights, etc.)
+        2. Weight synchronization strategy  
+        3. Batch data gathering strategy
+        4. Batch processing strategy
+        5. Input buffering strategy
         """
         self.logger.push_debug("Prepare")
         
         # Ensure all processes are synchronized at the start
         self.accelerator.wait_for_everyone()
 
-        # inputs = list of dicts for all gradient accumulation steps
-        generate_every = self.gradient_accumulation_steps * self.num_iterations
-
-        # Check if we need to generate new completions
-        if self._step % generate_every == 0 or self._buffered_inputs is None:
+        # Check if we need to generate new completions using orchestrator
+        if self.training_pipeline.orchestrator.should_generate_new_batch(self._step, self._buffered_inputs):
             self.logger.push_info("Generate")
             
-            # Update weights to vLLM if needed
-            if self.state.global_step > self._last_loaded_step:
+            # Sync weights using strategy
+            if self.training_pipeline.weight_sync_strategy.should_sync_weights(
+                self.state.global_step, self._last_loaded_step
+            ):
                 self.logger.info(f"Syncing weights to vLLM at step {self.state.global_step}")
-                self._move_model_to_vllm()
+                self.training_pipeline.weight_sync_strategy.sync_weights(self)
                 self._last_loaded_step = self.state.global_step
 
             # Start async generator if not started
@@ -1011,21 +1022,17 @@ class GRPOTrainer(Trainer):
             self._async_started = True
             self.accelerator.wait_for_everyone()
 
-            # Calculate which batch we need for this step
-            batch_id_to_retrieve = self._step // generate_every
+            # Plan generation phase using orchestrator
+            generation_phase = self.training_pipeline.orchestrator.plan_generation_phase(
+                self._step, self.async_generator
+            )
 
-            # Calculate the target: we want to always be num_batches_ahead batches ahead
-            # This means we should have submitted up to batch_id_to_retrieve + num_batches_ahead
-            target_batch_id = batch_id_to_retrieve + self.async_generator.num_batches_ahead
-
-            # Submit any missing batches to maintain the pipeline
-            # On first call, this submits batches 0 through num_batches_ahead
-            # On subsequent calls, this submits new batches to stay ahead
+            # Submit batches planned by orchestrator
             batches_submitted = 0
 
             self.logger.push_debug("Submit")
-            for batch_id in range(self._next_batch_id, target_batch_id + 1):
-                batch_offset = batch_id - batch_id_to_retrieve
+            for batch_id in range(self._next_batch_id, generation_phase.target_batch_id + 1):
+                batch_offset = batch_id - generation_phase.batch_id_to_retrieve
                 batch_data = self._gather_batch_data(batch_offset)
 
                 local_batch_size = len(batch_data.prompts) // self.accelerator.num_processes
@@ -1099,10 +1106,10 @@ class GRPOTrainer(Trainer):
 
             # Now retrieve the batch we need for this step
             if self.accelerator.is_main_process:
-                self.logger.info(f"Retrieving batch {batch_id_to_retrieve} for processing")
+                self.logger.info(f"Retrieving batch {generation_phase.batch_id_to_retrieve} for processing")
 
                 # Get batch result
-                batch_result = self.async_generator.get_batch(batch_id_to_retrieve)
+                batch_result = self.async_generator.get_batch(generation_phase.batch_id_to_retrieve)
                 processed_results = batch_result.processed_results
 
                 # Package raw data for broadcast (not tensors yet)
@@ -1210,13 +1217,73 @@ class GRPOTrainer(Trainer):
             self.logger.pop()
             self.logger.pop()
             
-        # Return appropriate slice from buffer
-        result = self._buffered_inputs[self._step % self.gradient_accumulation_steps]
+        # Return appropriate slice from buffer using strategy
+        result = self.training_pipeline.input_buffer_strategy.get_step_inputs(self, self._step)
         self._step += 1
         self.accelerator.wait_for_everyone()
         
         self.logger.pop()
         return result
+    
+    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> Dict[str, torch.Tensor]:
+        """Implementation method for processing batch results"""
+        # Extract processed results  
+        processed_results = batch_result.processed_results
+
+        # Package raw data for broadcast (not tensors yet)
+        broadcast_data = {
+            'prompt_ids':      processed_results['prompt_ids'],
+            'prompt_mask':     processed_results['prompt_mask'],
+            'completion_ids':  processed_results['completion_ids'],
+            'completion_mask': processed_results['completion_mask'],
+            'rewards':         processed_results.get('rewards', []),
+            'all_reward_dict': batch_result.all_reward_dict if hasattr(batch_result, 'all_reward_dict') else {'reward': processed_results.get('rewards', [])},
+            'completions':     batch_result.completions if hasattr(batch_result, 'completions') else [],
+            'prompts':         batch_result.prompts if hasattr(batch_result, 'prompts') else [],
+        }
+        
+        # Create rewards tensor and compute advantages using full batch
+        all_rewards = torch.tensor(broadcast_data['rewards'], device=self.accelerator.device)
+        all_advantages = self._compute_advantages(all_rewards)
+
+        # Now create tensors only for this process's slice
+        prompt_ids_list = []
+        prompt_mask_list = []
+        completion_ids_list = []
+        completion_mask_list = []
+
+        for i in range(process_slice.start, process_slice.stop):
+            prompt_ids_list.append(torch.tensor(broadcast_data['prompt_ids'][i], device=self.accelerator.device))
+            prompt_mask_list.append(torch.tensor(broadcast_data['prompt_mask'][i], device=self.accelerator.device))
+            completion_ids_list.append(torch.tensor(broadcast_data['completion_ids'][i], device=self.accelerator.device))
+            completion_mask_list.append(torch.tensor(broadcast_data['completion_mask'][i], device=self.accelerator.device))
+
+        # Pad sequences
+        prompt_ids = pad(prompt_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='left')  # type: ignore
+        prompt_mask = pad(prompt_mask_list, padding_side='left')  # type: ignore
+        completion_ids = pad(completion_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='right')  # type: ignore
+        completion_mask = pad(completion_mask_list)
+
+        # Truncate if needed
+        if self.max_prompt_length is not None and prompt_ids.size(1) > self.max_prompt_length:
+            prompt_ids = prompt_ids[:, -self.max_prompt_length:]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length:]
+
+        if self.max_completion_length is not None and completion_ids.size(1) > self.max_completion_length:
+            completion_ids = completion_ids[:, :self.max_completion_length]
+            completion_mask = completion_mask[:, :self.max_completion_length]
+
+        # Take this process's slice of advantages
+        advantages = all_advantages[process_slice]
+        
+        return {
+            "prompt_ids":          prompt_ids,
+            "prompt_mask":         prompt_mask,
+            "completion_ids":      completion_ids,
+            "completion_mask":     completion_mask,
+            "old_per_token_logps": None,
+            "advantages":          advantages,
+        }
 
     def _compute_advantages(
         self,
@@ -1702,4 +1769,168 @@ class GSPOTrainer(GRPOTrainer):
             optimizers=optimizers,
             peft_config=peft_config,
             algorithm=algorithm
+        )
+
+@dataclass
+class TrainingStep:
+    """Container for a single training step data"""
+    step_id: int
+    batch_data: BatchData
+    processed_inputs: Dict[str, torch.Tensor]
+    metrics: Dict[str, float] = field(default_factory=dict)
+
+@dataclass  
+class GenerationPhase:
+    """Container for generation phase data"""
+    should_generate: bool
+    batch_id_to_retrieve: int
+    target_batch_id: int
+    batches_to_submit: List[int]
+
+class TrainingOrchestrator(ABC):
+    """Abstract orchestrator for training phases"""
+    
+    @abstractmethod
+    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
+        """Determine if we need to generate new completions"""
+        pass
+    
+    @abstractmethod
+    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+        """Plan which batches to submit and retrieve"""
+        pass
+
+class DefaultTrainingOrchestrator(TrainingOrchestrator):
+    """Default training orchestration matching current GRPO behavior"""
+    
+    def __init__(self, gradient_accumulation_steps: int, num_iterations: int):
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.num_iterations = num_iterations
+    
+    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
+        generate_every = self.gradient_accumulation_steps * self.num_iterations
+        return step % generate_every == 0 or buffered_inputs is None
+    
+    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+        generate_every = self.gradient_accumulation_steps * self.num_iterations
+        batch_id_to_retrieve = step // generate_every
+        target_batch_id = batch_id_to_retrieve + async_generator.num_batches_ahead
+        
+        return GenerationPhase(
+            should_generate=True,
+            batch_id_to_retrieve=batch_id_to_retrieve,
+            target_batch_id=target_batch_id,
+            batches_to_submit=list(range(batch_id_to_retrieve, target_batch_id + 1))
+        )
+
+class WeightSyncStrategy(ABC):
+    """Abstract strategy for syncing model weights to inference engine"""
+    
+    @abstractmethod
+    def should_sync_weights(self, current_step: int, last_synced_step: int) -> bool:
+        """Determine if weights should be synced"""
+        pass
+    
+    @abstractmethod
+    def sync_weights(self, trainer: 'GRPOTrainer') -> None:
+        """Perform weight synchronization"""
+        pass
+
+class VLLMWeightSyncStrategy(WeightSyncStrategy):
+    """Strategy for syncing weights to vLLM server"""
+    
+    def should_sync_weights(self, current_step: int, last_synced_step: int) -> bool:
+        return current_step > last_synced_step
+    
+    def sync_weights(self, trainer: 'GRPOTrainer') -> None:
+        trainer._move_model_to_vllm()
+
+class BatchDataStrategy(ABC):
+    """Abstract strategy for gathering batch data"""
+    
+    @abstractmethod
+    def gather_batch_data(self, trainer: 'GRPOTrainer', batch_offset: int) -> BatchData:
+        """Gather batch data from distributed processes"""
+        pass
+
+class DefaultBatchDataStrategy(BatchDataStrategy):
+    """Default batch data gathering strategy"""
+    
+    def gather_batch_data(self, trainer: 'GRPOTrainer', batch_offset: int) -> BatchData:
+        return trainer._gather_batch_data_impl(batch_offset)
+
+class BatchProcessingStrategy(ABC):
+    """Abstract strategy for processing generated batches"""
+    
+    @abstractmethod  
+    def process_batch_result(self, 
+                           trainer: 'GRPOTrainer',
+                           batch_result: Any,
+                           process_slice: slice) -> Dict[str, torch.Tensor]:
+        """Process batch results into training inputs"""
+        pass
+
+class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
+    """Default batch processing matching current behavior"""
+    
+    def process_batch_result(self, 
+                           trainer: 'GRPOTrainer',
+                           batch_result: Any,
+                           process_slice: slice) -> Dict[str, torch.Tensor]:
+        return trainer._process_batch_result_impl(batch_result, process_slice)
+
+class InputBufferStrategy(ABC):
+    """Abstract strategy for managing input buffering across training steps"""
+    
+    @abstractmethod
+    def buffer_inputs(self, 
+                     trainer: 'GRPOTrainer',
+                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+        """Buffer and split inputs for gradient accumulation"""
+        pass
+    
+    @abstractmethod
+    def get_step_inputs(self, 
+                       trainer: 'GRPOTrainer',
+                       step: int) -> Dict[str, torch.Tensor]:
+        """Get inputs for current step from buffer"""
+        pass
+
+class DefaultInputBufferStrategy(InputBufferStrategy):
+    """Default input buffering with shuffling and splitting"""
+    
+    def buffer_inputs(self, 
+                     trainer: 'GRPOTrainer',
+                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+        from errloom.training.grpo_trainer import shuffle_tensor_dict, split_tensor_dict
+        
+        # Shuffle and split for gradient accumulation
+        shuffled_inputs = shuffle_tensor_dict(processed_inputs)
+        return split_tensor_dict(shuffled_inputs, trainer.gradient_accumulation_steps)
+    
+    def get_step_inputs(self, 
+                       trainer: 'GRPOTrainer',
+                       step: int) -> Dict[str, torch.Tensor]:
+        if trainer._buffered_inputs is None:
+            raise RuntimeError("No buffered inputs available")
+        return trainer._buffered_inputs[step % trainer.gradient_accumulation_steps]
+
+@dataclass
+class TrainingPipeline:
+    """Configurable training pipeline with pluggable strategies"""
+    orchestrator: TrainingOrchestrator
+    weight_sync_strategy: WeightSyncStrategy  
+    batch_data_strategy: BatchDataStrategy
+    batch_processing_strategy: BatchProcessingStrategy
+    input_buffer_strategy: InputBufferStrategy
+    
+    @classmethod
+    def create_default(cls, gradient_accumulation_steps: int, num_iterations: int) -> 'TrainingPipeline':
+        """Create default pipeline matching current GRPO behavior"""
+        return cls(
+            orchestrator=DefaultTrainingOrchestrator(gradient_accumulation_steps, num_iterations),
+            weight_sync_strategy=VLLMWeightSyncStrategy(),
+            batch_data_strategy=DefaultBatchDataStrategy(),
+            batch_processing_strategy=DefaultBatchProcessingStrategy(),
+            input_buffer_strategy=DefaultInputBufferStrategy()
         )
