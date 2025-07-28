@@ -231,6 +231,7 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
 class GRPOTrainer(Trainer):
     def __init__(
         self,
+        loom: Loom,
         model: PreTrainedModel,
         args: GRPOConfig,
         tokenizer: PreTrainedTokenizerBase,
@@ -239,6 +240,7 @@ class GRPOTrainer(Trainer):
         peft_config: Optional[PeftConfig] = None
     ):
         self.logger = logging.getLogger(__name__)
+        self.loom: Loom | None = loom
 
         # Models
         if peft_config is not None:
@@ -298,28 +300,7 @@ class GRPOTrainer(Trainer):
 
         eval_dataset = loom.get_bench_data()
 
-        # Filter out prompts that are too long if max_prompt_length is set
-        if self.max_prompt_length is not None:
-            self.logger.info(f"Filtering dataset for prompts with length <= {self.max_prompt_length}")
-            max_length = self.max_prompt_length  # Capture for closure
-
-            def filter_by_prompt_length(example):
-                prompt = example['prompt']
-                # Tokenize prompt to check length
-                if isinstance(prompt, list):
-                    # Chat format
-                    prompt_text = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
-                else:
-                    # Completion format
-                    prompt_text = prompt
-                prompt_ids = tokenizer.encode(prompt_text)  # type: ignore
-                return len(prompt_ids) <= max_length
-
-            original_size = len(train_dataset)
-            train_dataset = train_dataset.filter(filter_by_prompt_length, num_proc=self.max_num_processes)
-            filtered_size = len(train_dataset)
-            if filtered_size < original_size:
-                self.logger.info(f"Filtered dataset from {original_size} to {filtered_size} examples ({original_size - filtered_size} prompts were too long)")
+        # Dataset filtering removed - context length management handled by loom pipeline
 
         # dummy data collator
         def data_collator(features):
@@ -393,7 +374,7 @@ class GRPOTrainer(Trainer):
         )
 
         # vLLM client for weight syncing only; only import if used
-        from errloom.inference.vllm_client import VLLMClient
+        from errloom.interop.vllm_client import VLLMClient
         self.vllm_client = VLLMClient(
             host=host,
             port=port,
@@ -401,7 +382,7 @@ class GRPOTrainer(Trainer):
         )
         # Only initialize communicator on the main process
         # Other processes will only use the client for non-NCCL operations
-        if self.accelerator.is_main_process:
+        if self.accelerator.is_main_process and not getattr(args, 'disable_nccl_init', False):
             self.vllm_client.init_communicator()
 
         self._last_loaded_step = 0  # Initialize to 0 since vLLM already has initial weights
@@ -422,8 +403,6 @@ class GRPOTrainer(Trainer):
         if self.sync_ref_model:
             self.add_callback(SyncRefModelCallback(ref_model=self.ref_model, accelerator=self.accelerator))  # type: ignore
 
-        # Environment
-        self.loom: Loom | None = None
 
         # # Async generation setup
         # self.batch_generator = AsyncBatchGenerator(
@@ -444,8 +423,8 @@ class GRPOTrainer(Trainer):
         # num_batches_ahead=0 will behave synchronously (submit and wait immediately)
         self.async_generator = AsyncBatchGenerator(
             loom=self.loom,
-            client=self.oai_client,
-            model_name=self._get_model_name(),
+            # client=self.oai_client,
+            # model_name=self._get_model_name(),
             generation_timeout=args.async_generation_timeout,
         )
 
@@ -665,7 +644,7 @@ class GRPOTrainer(Trainer):
                         completion_mask: List[List[int]],
                         device: torch.device) -> Dict[str, torch.Tensor]:
         ids = [prompt_ids[i] + completion_ids[i] for i in range(len(prompt_ids))]
-        mask = [prompt_mask[i] + completion_mask[i] for i in range(len(prompt_mask))]
+        mask = [prompt_mask[i] + completion_mask[i] for i in range(len(mask))]
         max_len = max(len(ids[i]) for i in range(len(ids)))
         ids = [torch.cat([
             torch.tensor(ids[i], dtype=torch.long, device=device),

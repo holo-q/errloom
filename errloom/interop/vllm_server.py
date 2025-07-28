@@ -545,7 +545,7 @@ def llm_worker(
         enable_prefix_caching=script_args.enable_prefix_caching,
         max_model_len=script_args.max_model_len,
         max_num_seqs=script_args.max_batch_size,
-        worker_extension_cls="verifiers.inference.vllm_server.WeightSyncWorkerExtension",
+        worker_extension_cls="errloom.interop.vllm_server.WeightSyncWorkerExtension",
     )
 
     # Send ready signal to parent process

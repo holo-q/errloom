@@ -95,6 +95,17 @@ def show_help():
     log(f"  {colorize_command('uv run main qa.hol train --vllm')}            [dim]# Phase 4: Distributed training[/]")
     log("")
 
+    log("[bold]Local testing on RTX 3090 / smaller GPUs:[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train --local-test --test-steps 3')}   [dim]# Local test mode (reduced memory)[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train --micro-test --test-steps 2')}   [dim]# Micro test mode (minimal memory)[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train --local-test --n 5')}           [dim]# Local test with more data samples[/]")
+    log("")
+
+    log("[bold]CPU debugging mode (no GPU required):[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train --cpu-mode --test-steps 2')}     [dim]# Debug training logic on CPU (very slow)[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train --cpu-mode --n 3')}              [dim]# CPU mode with more samples[/]")
+    log("")
+
     log("[bold]Client options:[/]")
     log(f"  {colorize_command('--lmstudio')}        [dim]# Connect to LM Studio (localhost:1234)[/]")
     log(f"  {colorize_command('--client ip:port')}  [dim]# Connect to custom OpenAI-compatible server[/]")
@@ -160,6 +171,13 @@ def get_base_parser() -> argparse.ArgumentParser:
     train_group.add_argument("--batch-sz", type=int, default=0, help="")
     train_group.add_argument("--batch-accum", type=int, default=0, help="")
     train_group.add_argument("--train-stop", type=str, default=0.1, help="Specify a Stopper class which defines rules for stopping training, such as reward plateaus. Can call holoware to RL on this.")
+
+    # Local testing options
+    test_group = parser.add_argument_group('Local Testing Configuration')
+    test_group.add_argument('--local-test', action='store_true', help='Enable local testing mode (smaller batches, shorter sequences)')
+    test_group.add_argument('--micro-test', action='store_true', help='Enable micro testing mode (minimal memory usage)')
+    test_group.add_argument('--test-steps', type=int, default=5, help='Number of training steps for testing')
+    test_group.add_argument('--cpu-mode', action='store_true', help='Run training on CPU (very slow but no GPU memory limits, good for debugging training locally)')
 
     log_group = parser.add_argument_group('Logging Configuration')
     log_group.add_argument('--debug', action='store_true', help='Enable debug logging (equivalent to --log-level debug)')
@@ -372,9 +390,9 @@ def create_client_from_args(args, dry_run=None):
         from errloom.interop.mock_client import MockClient
         return MockClient()
     
-    # No client specified and not dry_run - default to MockClient
-    from errloom.interop.mock_client import MockClient
-    return MockClient()
+    # No client specified and not dry_run - default to VLLMClient for training
+    from errloom.interop.vllm_client import VLLMClient
+    return VLLMClient()
 
 # Initialize tracing if enabled
 if errlargs.trace:

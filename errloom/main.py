@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
+import traceback
 from typing import Optional
 
 import numpy as np
@@ -28,7 +29,7 @@ from errloom.utils.log import (log, logc, LogContext, logger_main, colorize_sess
                               colorize_success, colorize_warning, colorize_field_label, 
                               colorize_title, colorize_mode_dry, colorize_mode_production, 
                               colorize_mode_dump, colorize_completion, colorize_rule_title,
-                              colorize_deployment)
+                              colorize_deployment, logl)
 
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
@@ -115,82 +116,78 @@ def main(default_title: Optional[str] = None,
     session = default_session or Session.Create(title)
 
     # ----------------------------------------
+    logc()
+    log("")
+    log("╔══════════════════════════════════════════════════════════════════════════════════╗")
+    log("║                                                                                  ║")
+    log(f"║                        {colorize_title('🚀 ERRLOOM TRAINING SESSION 🚀')}                            ║")
+    log("║                                                                                  ║")
+    log("╚══════════════════════════════════════════════════════════════════════════════════╝")
+    log("")
 
-    model, tokenizer = None, None
     loom = None
     try:
-        with LogContext("🏗️ Setting up environment...", "Environment ready"):
-            client = create_client_from_args(errlargs)
-            client_type = type(client).__name__
-            
-            logc()
-            log("")
-            log("╔══════════════════════════════════════════════════════════════════════════════════╗")
-            log("║                                                                                  ║")
-            log(f"║                        {colorize_title('🚀 ERRLOOM TRAINING SESSION 🚀')}                            ║")
-            log("║                                                                                  ║")
-            log("╚══════════════════════════════════════════════════════════════════════════════════╝")
-            log("")
-            
-            # Session info header
-            name = default_holoware or LoomClass.__name__
-            log(f"{colorize_field_label('📋 Session:')} {colorize_session(title)}")
-            log(f"{colorize_field_label('🎯 Target:')} {colorize_target(name)}")
-            log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}") 
-            log(f"{colorize_field_label('🔌 Client:')} {colorize_client(client_type)}")
-            log("")
-            
-            # Mode-specific messaging
-            if errlargs.dry and client_type != "MockClient":
-                log(colorize_mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
-            elif errlargs.dry:
-                log(colorize_mode_dry(f"🧪 DRY MODE: Using {client_type} for mock completions"))
-            elif errlargs.dry is False:
-                log(colorize_mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
-            else:
-                log(f"[dim]🔄 ACTIVE MODE: Using {client_type} for completions[/]")
-            
-            log("")
-            log(Rule(colorize_rule_title(f"Initializing {loom_name}"), style="cyan"))
-            # ----------------------------------------
-            
-            if loom is None:
-                if isinstance(LoomClass, type) and issubclass(LoomClass, HolowareLoom):
-                    # Check if we have a holoware from positional or --ware
-                    holoware_to_use = default_holoware or errlargs.ware
-                    if not holoware_to_use:
-                        show_help()
-                        return
+        client = create_client_from_args(errlargs)
+        client_type = type(client).__name__
+        
+        
+        # Session info header
+        name = default_holoware or LoomClass.__name__
+        log(f"{colorize_field_label('📋 Session:')} {colorize_session(title)}")
+        log(f"{colorize_field_label('🎯 Target:')} {colorize_target(name)}")
+        log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}") 
+        log(f"{colorize_field_label('🔌 Client:')} {colorize_client(client_type)}")
+        log("")
+        
+        # Mode-specific messaging
+        if errlargs.dry and client_type != "MockClient":
+            log(colorize_mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
+        elif errlargs.dry:
+            log(colorize_mode_dry(f"🧪 DRY MODE: Using {client_type} for mock completions"))
+        elif errlargs.dry is False:
+            log(colorize_mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
+        else:
+            log(f"[dim]🔄 ACTIVE MODE: Using {client_type} for completions[/]")
+        
+        log("")
+        log(Rule(colorize_rule_title(f"Initializing {loom_name}"), style="cyan"))
+        # ----------------------------------------
+        
+        if loom is None:
+            if isinstance(LoomClass, type) and issubclass(LoomClass, HolowareLoom):
+                # Check if we have a holoware from positional or --ware
+                holoware_to_use = default_holoware or errlargs.ware
+                if not holoware_to_use:
+                    show_help()
+                    return
 
-                    loom = LoomClass(
-                        holoware_to_use,  # path argument comes first
-                        model=model_name,
-                        client=client,
-                        data=default_data,
-                        data_split=0.5,
-                        dry=errlargs.dry,
-                        unsafe=errlargs.unsafe,
-                        show_rollout_errors=errlargs.show_rollout_errors,
-                        session=session if errlargs.dump else None,
-                        dump_rollouts=errlargs.dump)
-                elif issubclass(LoomClass, Loom):
-                    loom = LoomClass(
-                        model=model_name, tokenizer=tokenizer,
-                        client=client,
-                        data=default_data, data_split=0.5,
-                        dry=errlargs.dry, unsafe=errlargs.unsafe,
-                        show_rollout_errors=errlargs.show_rollout_errors,
-                        session=session if errlargs.dump else None,
-                        dump_rollouts=errlargs.dump)
-                else:
-                    raise ValueError(f"Unknown loom class: {LoomClass}")
+                loom = LoomClass(
+                    holoware_to_use,  # path argument comes first
+                    model=model_name, tokenizer=model_name,
+                    client=client,
+                    data=default_data,
+                    data_split=0.5,
+                    dry=errlargs.dry,
+                    unsafe=errlargs.unsafe,
+                    show_rollout_errors=errlargs.show_rollout_errors,
+                    session=session if errlargs.dump else None,
+                    dump_rollouts=errlargs.dump)
+            elif issubclass(LoomClass, Loom):
+                loom = LoomClass(
+                    model=model_name, tokenizer=model_name,
+                    client=client,
+                    data=default_data, data_split=0.5,
+                    dry=errlargs.dry, unsafe=errlargs.unsafe,
+                    show_rollout_errors=errlargs.show_rollout_errors,
+                    session=session if errlargs.dump else None,
+                    dump_rollouts=errlargs.dump)
             else:
-                log(f"Using pre-supplied loom: {loom} ...")
+                raise ValueError(f"Unknown loom class: {LoomClass}")
+        else:
+            log(f"Using pre-supplied loom: {loom} ...")
 
     except Exception as e:
-        log(Rule(colorize_error("❌ Training Failed"), style="red"))
-        log(colorize_error(f"❌ An error occurred during initialization: {e}"))
-        log(Rule(style="red"))
+        log(Rule(colorize_error("❌ Initialization Crashed"), style="red"))
         raise
 
     # ----------------------------------------
@@ -198,20 +195,26 @@ def main(default_title: Optional[str] = None,
 
     try:
         assert loom is not None
-        loom.weave(errlargs.n)
-
-        if errlargs.command == "dry":
-            log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
-        elif errlargs.command == "dump":
-            log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
-        elif errlargs.command == "train":
+        
+        if errlargs.command == "train":
+            # For training, use the GRPO trainer
+            if loom.trainer is None:
+                log(Rule(colorize_error("❌ No trainer available - training requires non-dry mode")))
+                return
+            log("Starting training...")
+            loom.trainer.train()
             log(Rule(colorize_completion("🏆 TRAINING COMPLETED")))
         else:
-            log(Rule(colorize_completion(" ALL WOVEN")))
+            # For dry/dump, just generate rollouts
+            loom.weave(errlargs.n)
+            if errlargs.command == "dry":
+                log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
+            elif errlargs.command == "dump":
+                log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
+            else:
+                log(Rule(colorize_completion("✅ ALL WOVEN")))
     except Exception as e:
-        log(Rule(colorize_error("❌ Training Failed")))
-        log(colorize_error(f"❌ An error occurred during training: {e}"))
-        log(Rule(style="red"))
+        log(Rule(colorize_error("❌ Training Crashed")))
         raise
 
 
@@ -223,6 +226,46 @@ def _is_deployment_mode() -> bool:
             errlargs.vastai_shell or errlargs.vastai_vllm or errlargs.vastai_mount or
             errlargs.vastai_upgrade or errlargs.vastai_install or errlargs.vastai_copy or
             errlargs.vastai_search or errlargs.vastai_redeploy or errlargs.remote)
+
+
+def _print_version_info():
+    """Print version information for key packages."""
+    import importlib.metadata
+    import platform
+    import sys
+    
+    # Key packages to check
+    packages = [
+        "torch", "transformers", "accelerate", "trl", "datasets",
+        "flash-attn", "vllm", "liger-kernel", "openai", "rich"
+    ]
+    
+    log(f"{colorize_field_label('🐍 Python:')} {platform.python_version()}")
+    log(f"{colorize_field_label('💻 Platform:')} {platform.system()} {platform.release()}")
+    
+    versions = []
+    for pkg in packages:
+        try:
+            # Handle package name variations
+            pkg_name = pkg
+            if pkg == "flash-attn":
+                pkg_name = "flash_attn"
+            elif pkg == "liger-kernel":
+                pkg_name = "liger_kernel"
+            
+            version = importlib.metadata.version(pkg_name)
+            versions.append(f"{pkg}=={version}")
+        except importlib.metadata.PackageNotFoundError:
+            versions.append(f"{pkg}==not installed")
+        except Exception:
+            versions.append(f"{pkg}==unknown")
+    
+    # Print in columns for better readability
+    log(f"{colorize_field_label('📦 Packages:')} {' | '.join(versions[:4])}")
+    if len(versions) > 4:
+        log(f"{colorize_field_label('          ')} {' | '.join(versions[4:8])}")
+    if len(versions) > 8:
+        log(f"{colorize_field_label('          ')} {' | '.join(versions[8:])}")
 
 
 def _handle_deployment():
@@ -257,3 +300,11 @@ def run():
         main()
     except KeyboardInterrupt:
         logger_main.info("\nInterrupted by user")
+    except Exception as e:
+        logger_main.error(f"Error: {e}")
+        logger_main.error(traceback.format_exc())
+            
+        log("")
+        log(Rule(colorize_error("Environment"), style="red"))
+        _print_version_info()
+        log("")

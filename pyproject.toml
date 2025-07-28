@@ -21,29 +21,23 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "torch>=2.6.0",
-    "accelerate",
-    "peft",
-    "wandb",
     "rich",
-    "trl>=0.17.0",
+    "prompt_toolkit",
+    "torch==2.7.1",
     "requests>=2.32.3",
     "openai>=1.81.0",
     "datasets>=3.6.0",
-    "transformers",
     "testslide",
     "opensimplex",
     "opencv-python-headless",
     "msgspec",
     "asyncssh",
     "desktop_notifier",
-    "prompt_toolkit",
     "aiofiles"
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 all = [
-    "vllm>=0.8.5.post1",
     "liger-kernel>=0.5.10",
     "deepspeed",
     "ipykernel",
@@ -56,26 +50,36 @@ all = [
     "nltk"
 ]
 
-tests = [
+train = [ 
+    "transformers",
+    "vllm==0.10.0",
+    "flash-attn==2.8.2",
+    "accelerate",
+    "peft",
+    "wandb",
+    "trl>=0.17.0",
+]
+
+dev = [
     "testslide",
+    "twine>=6.1.0",  # For uploading to PyPI
 ]
 
 [project.scripts]
 main = "errloom.main:run"
 errl = "errloom.main:run"
-vf-vllm = "errloom.inference.vllm_server:cli_main"
+vf-vllm = "errloom.interop.vllm_server:cli_main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-dev = [
-    "twine>=6.1.0",  # For uploading to PyPI
-]
 
 [project.urls]
 Homepage = "https://github.com/holo-q/errloom"
 Documentation = "https://github.com/holo-q/errloom"
 Repository = "https://github.com/holo-q/errloom.git"
 Issues = "https://github.com/holo-q/errloom/issues"
+
+
+[tool.uv]
+no-build-isolation-package = ['flash-attn']

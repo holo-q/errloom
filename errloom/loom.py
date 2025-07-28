@@ -109,13 +109,26 @@ class Loom(ABC):
             assert self.model is not None
             assert self.tokenizer is not None
             assert self.model_name is not None
-            with LogContext("👟 Initializing trainer...", "✓ Trainer ready", logger=self.logger):
+            with LogContext("👟 Initializing GRPO...", "GRPO init", logger=self.logger):
                 from errloom.training.grpo_trainer import GRPOTrainer
-                from errloom.defaults import grpo_defaults
+                from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
+                from errloom import errlargs
+                
+                # Choose config based on testing flags
+                if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+                    config = grpo_cpu_test_defaults(name=self.model_name)
+                elif hasattr(errlargs, 'micro_test') and errlargs.micro_test:
+                    config = grpo_micro_test_defaults(name=self.model_name)
+                elif hasattr(errlargs, 'local_test') and errlargs.local_test:
+                    config = grpo_local_test_defaults(name=self.model_name)
+                else:
+                    config = grpo_defaults(name=self.model_name)
+                
                 self.trainer = GRPOTrainer(
+                        loom=self,  # Pass self as the loom argument
                         model=self.model,  # type: ignore
                         tokenizer=self.tokenizer,  # type: ignore
-                        args=grpo_defaults(name=self.model_name))
+                        args=config)
 
         valid_data = self.data or self.data_train and self.data_bench
         if not valid_data:

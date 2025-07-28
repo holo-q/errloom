@@ -192,12 +192,16 @@ class GRPOConfig(TrainingArguments):
         metadata={"help": "Port of the vLLM server to connect to."},
     )
     vllm_server_timeout: float = field(
-        default=300.0,
-        metadata={
-            "help": "Total timeout duration in seconds to wait for the vLLM server to be up. If the server is not up "
-            "after the timeout, a `ConnectionError` is raised."
-        },
+        default=20.0,
+        metadata={"help": "Timeout for connecting to the vLLM server."},
     )
+
+    # Local testing parameters
+    disable_nccl_init: bool = field(
+        default=False,
+        metadata={"help": "Disable NCCL communicator initialization for local testing."},
+    )
+
     # Parameters that control the training
     learning_rate: float = field(
         default=1e-6,
