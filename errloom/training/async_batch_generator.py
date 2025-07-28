@@ -5,6 +5,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
+from abc import ABC, abstractmethod
 
 import torch
 from datasets import Dataset
@@ -16,6 +17,32 @@ from errloom.tapestry import Rollout, Tapestry
 from errloom.utils import log
 
 logger = log.getLogger(__name__)
+
+@dataclass
+class GenerationConfig:
+    """Configuration for batch generation behavior"""
+    max_completion_length: int
+    mask_truncated_completions: bool
+    mask_env_responses: bool
+    max_concurrent: int
+    generation_timeout: float
+    num_batches_ahead: int = 1
+
+@dataclass  
+class ProcessingConfig:
+    """Configuration for tokenization and processing"""
+    processing_class: PreTrainedTokenizerBase
+    max_context_size: Optional[int] = None
+    mask_env_responses: bool = False
+    
+@dataclass
+class DistributedConfig:
+    """Configuration for distributed training"""
+    device: torch.device
+    accelerator: Any
+    process_index: int
+    num_processes: int
+    local_batch_size: int
 
 @dataclass
 class RewardScores:
@@ -69,16 +96,65 @@ class BatchRequest:
     """Request for batch generation"""
     batch_id: int
     rows: Dataset
-    processing_class: PreTrainedTokenizerBase
-    mask_env_responses: bool
-    max_completion_length: int
-    mask_truncated_completions: bool
-    max_concurrent: int
-    device: torch.device
-    accelerator: Any
-    process_index: int
-    num_processes: int
-    local_batch_size: int
+    generation_config: GenerationConfig
+    processing_config: ProcessingConfig
+    distributed_config: DistributedConfig
+
+class BatchRequestBuilder:
+    """Builder for creating BatchRequest instances with configuration objects"""
+    
+    def __init__(self):
+        self._batch_id: Optional[int] = None
+        self._rows: Optional[Dataset] = None
+        self._generation_config: Optional[GenerationConfig] = None
+        self._processing_config: Optional[ProcessingConfig] = None
+        self._distributed_config: Optional[DistributedConfig] = None
+    
+    def with_batch_id(self, batch_id: int) -> 'BatchRequestBuilder':
+        """Set the batch ID"""
+        self._batch_id = batch_id
+        return self
+    
+    def with_data(self, rows: Dataset) -> 'BatchRequestBuilder':
+        """Set the dataset rows"""
+        self._rows = rows
+        return self
+    
+    def with_generation_config(self, config: GenerationConfig) -> 'BatchRequestBuilder':
+        """Set the generation configuration"""
+        self._generation_config = config
+        return self
+    
+    def with_processing_config(self, config: ProcessingConfig) -> 'BatchRequestBuilder':
+        """Set the processing configuration"""
+        self._processing_config = config
+        return self
+    
+    def with_distributed_config(self, config: DistributedConfig) -> 'BatchRequestBuilder':
+        """Set the distributed training configuration"""
+        self._distributed_config = config
+        return self
+    
+    def build(self) -> BatchRequest:
+        """Build the BatchRequest with all configurations"""
+        if self._batch_id is None:
+            raise ValueError("batch_id is required")
+        if self._rows is None:
+            raise ValueError("rows is required")
+        if self._generation_config is None:
+            raise ValueError("generation_config is required")
+        if self._processing_config is None:
+            raise ValueError("processing_config is required")
+        if self._distributed_config is None:
+            raise ValueError("distributed_config is required")
+            
+        return BatchRequest(
+            batch_id=self._batch_id,
+            rows=self._rows,
+            generation_config=self._generation_config,
+            processing_config=self._processing_config,
+            distributed_config=self._distributed_config
+        )
 
 @dataclass
 class BatchResult:
@@ -116,11 +192,17 @@ class AsyncBatchGenerator:
         num_batches_ahead: int = 1,
         max_queue_size: Optional[int] = None,
         generation_timeout: float = 5 * 60,
+        processing_strategy: Optional['TokenizationStrategy'] = None,
     ):
         self.loom = loom
         self.num_batches_ahead = num_batches_ahead
         self.max_queue_size = max_queue_size or max(num_batches_ahead * 2, 4)
         self.generation_timeout = generation_timeout
+        
+        # Default to chat format strategy
+        self.processing_pipeline = ProcessingPipeline(
+            strategy=processing_strategy or ChatFormatStrategy()
+        )
 
         # Queues for communication
         self.request_queue = queue.Queue()
@@ -336,13 +418,11 @@ class AsyncBatchGenerator:
                 # Fallback to row data
                 prompts.append(rollout.row.get('prompt', ''))
 
-        # Process results
-        processed_tokens = process_rollouts(
+        # Process results using the new pipeline
+        processed_tokens = self.processing_pipeline.process_rollouts(
             loom_results,
-            processing_class=request.processing_class,
-            max_completion_length=request.max_completion_length,
-            mask_truncated_completions=request.mask_truncated_completions,
-            mask_env_responses=request.mask_env_responses
+            processing_config=request.processing_config,
+            generation_config=request.generation_config
         )
 
         result = BatchResult(
@@ -371,49 +451,27 @@ def process_rollouts(
     mask_env_responses: bool = False,
 ) -> ProcessedTokens:
     """
-    Main tokenization pipeline that handles both chat and completion formats.
-
+    DEPRECATED: Legacy function for backward compatibility.
+    Use ProcessingPipeline with ChatFormatStrategy instead.
+    
     Returns:
         ProcessedTokens containing prompt_ids, prompt_mask, completion_ids, completion_mask
     """
-    # TODO: states + rewards for intermediate-reward objectives
-
-    # Determine format from first rollout context
-    # In Errloom, rollout.context is a Context object with messages for chat format
-    first_rollout = rollouts[0]
-    is_chat_format = (hasattr(first_rollout, 'context') and 
-                     hasattr(first_rollout.context, 'messages') and 
-                     first_rollout.context.messages)
-
-    all_prompt_ids = []
-    all_prompt_masks = []
-    all_completion_ids = []
-    all_completion_masks = []
-
-    for rollout in rollouts:
-        # Format-specific processing
-        if is_chat_format:
-            prompt_ids, prompt_mask, completion_ids, completion_mask = process_chat_format(
-                rollout, processing_class, mask_env_responses
-            )
-        else:
-            prompt_ids, prompt_mask, completion_ids, completion_mask = process_completion(
-                rollout, processing_class
-            )
-        if mask_truncated_completions and max_completion_length > 0 and len(completion_ids) > max_completion_length:
-            completion_ids = completion_ids[:max_completion_length]
-            completion_mask = [0] * len(completion_ids)
-        all_prompt_ids.append(prompt_ids)
-        all_prompt_masks.append(prompt_mask)
-        all_completion_ids.append(completion_ids)
-        all_completion_masks.append(completion_mask)
-
-    return ProcessedTokens(
-        prompt_ids=all_prompt_ids,
-        prompt_mask=all_prompt_masks,
-        completion_ids=all_completion_ids,
-        completion_mask=all_completion_masks,
+    # Use the new pipeline internally for consistency
+    processing_config = ProcessingConfig(
+        processing_class=processing_class,
+        mask_env_responses=mask_env_responses
     )
+    generation_config = GenerationConfig(
+        max_completion_length=max_completion_length,
+        mask_truncated_completions=mask_truncated_completions,
+        mask_env_responses=mask_env_responses,
+        max_concurrent=1,  # Dummy value for legacy compatibility
+        generation_timeout=300.0,  # Dummy value for legacy compatibility
+    )
+    
+    pipeline = ProcessingPipeline(ChatFormatStrategy())
+    return pipeline.process_rollouts(rollouts, processing_config, generation_config)
 
 def process_completion(
     rollout: Rollout,
@@ -509,3 +567,128 @@ For Qwen3 models, you may want to replace the chat template with the Qwen2.5 cha
 Model copies with swapped templates are available here: https://huggingface.co/collections/willcb/qwen3-68434f4883925bfdb4570ee5"
 
     return prompt_ids, prompt_mask, completion_ids, completion_mask
+
+@dataclass
+class TokenizedRollout:
+    """Single rollout tokenization result"""
+    prompt_ids: List[int]
+    prompt_mask: List[int]
+    completion_ids: List[int]
+    completion_mask: List[int]
+
+class TokenizationStrategy(ABC):
+    """Abstract base class for tokenization strategies"""
+    
+    @abstractmethod
+    def process_rollout(self, rollout: Rollout, config: ProcessingConfig) -> TokenizedRollout:
+        """Process a single rollout into tokenized format"""
+        pass
+
+class ChatFormatStrategy(TokenizationStrategy):
+    """Strategy for processing chat format conversations"""
+    
+    def process_rollout(self, rollout: Rollout, config: ProcessingConfig) -> TokenizedRollout:
+        """Process chat format using incremental prefixes"""
+        # Extract prompt messages from rollout context
+        messages = rollout.context.messages
+        if not isinstance(messages, list):
+            messages = list(messages)
+
+        # Get completion messages from samples
+        completion = rollout.get_sample_messages()
+
+        # Tokenize just the prompt
+        prompt_text = config.processing_class.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        assert isinstance(prompt_text, str)
+        prompt_ids = config.processing_class.encode(prompt_text)
+        prompt_mask = [1] * len(prompt_ids)
+
+        # Track completion tokens and masks by processing incrementally
+        completion_ids = []
+        completion_mask = []
+        prev_ids = prompt_ids
+
+        # Process each completion message incrementally
+        for i, msg in enumerate(completion):
+            # Create conversation prefix: prompt + completion[:i+1]
+            conversation_prefix = list(messages) + completion[:i + 1]
+
+            # Tokenize the full prefix
+            prefix_text = config.processing_class.apply_chat_template(
+                conversation_prefix,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+            assert isinstance(prefix_text, str), f"Expected string from apply_chat_template, got {type(prefix_text)}"
+            current_ids = config.processing_class.encode(prefix_text)
+            assert current_ids[:len(prev_ids) - 1] == prev_ids[:-1], f"Tokenization difference in chat format"
+
+            # Add new tokens to completion tokens
+            new_tokens = current_ids[len(prev_ids):]
+            assert len(new_tokens) > 0, f"No new tokens in chat format"
+            completion_ids.extend(new_tokens)
+
+            # Create mask based on message role
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                msg_mask = [1] * len(new_tokens)
+            elif isinstance(msg, dict) and msg.get("role") != "assistant" and config.mask_env_responses:
+                # Mask intermediate 'user' and/or 'tool' messages
+                msg_mask = [0] * len(new_tokens)
+            else:
+                # Default to not masking
+                msg_mask = [1] * len(new_tokens)
+
+            completion_mask.extend(msg_mask)
+            prev_ids = current_ids
+
+        assert len(completion_ids) == len(completion_mask), f"Length mismatch in chat format"
+
+        return TokenizedRollout(
+            prompt_ids=prompt_ids,
+            prompt_mask=prompt_mask,
+            completion_ids=completion_ids,
+            completion_mask=completion_mask
+        )
+
+class ProcessingPipeline:
+    """Orchestrates the tokenization process using strategies"""
+    
+    def __init__(self, strategy: TokenizationStrategy):
+        self.strategy = strategy
+    
+    def process_rollouts(self, 
+                        rollouts: Tapestry, 
+                        processing_config: ProcessingConfig,
+                        generation_config: GenerationConfig) -> ProcessedTokens:
+        """Process all rollouts using the configured strategy"""
+        all_prompt_ids = []
+        all_prompt_masks = []
+        all_completion_ids = []
+        all_completion_masks = []
+
+        for rollout in rollouts:
+            tokenized = self.strategy.process_rollout(rollout, processing_config)
+            
+            # Apply truncation if needed
+            completion_ids = tokenized.completion_ids
+            completion_mask = tokenized.completion_mask
+            
+            if (generation_config.mask_truncated_completions and 
+                generation_config.max_completion_length > 0 and 
+                len(completion_ids) > generation_config.max_completion_length):
+                completion_ids = completion_ids[:generation_config.max_completion_length]
+                completion_mask = [0] * len(completion_ids)
+            
+            all_prompt_ids.append(tokenized.prompt_ids)
+            all_prompt_masks.append(tokenized.prompt_mask)
+            all_completion_ids.append(completion_ids)
+            all_completion_masks.append(completion_mask)
+
+        return ProcessedTokens(
+            prompt_ids=all_prompt_ids,
+            prompt_mask=all_prompt_masks,
+            completion_ids=all_completion_ids,
+            completion_mask=all_completion_masks,
+        )

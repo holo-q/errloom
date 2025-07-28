@@ -29,11 +29,21 @@ from trl.trainer.utils import (
 )
 
 from errloom.loom import Loom
-from errloom.training.async_batch_generator import AsyncBatchGenerator, BatchRequest
+from errloom.training.async_batch_generator import (
+    AsyncBatchGenerator, 
+    BatchRequest, 
+    GenerationConfig, 
+    ProcessingConfig, 
+    DistributedConfig
+)
 from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.training.grpo_config import GRPOConfig
 from errloom.utils.log import LogContext
 from errloom.utils import log
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+from rich.panel import Panel
 
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
@@ -666,7 +676,7 @@ class GRPOTrainer(Trainer):
                         completion_mask: List[List[int]],
                         device: torch.device) -> Dict[str, torch.Tensor]:
         ids = [prompt_ids[i] + completion_ids[i] for i in range(len(prompt_ids))]
-        mask = [prompt_mask[i] + completion_mask[i] for i in range(len(mask))]
+        mask = [prompt_mask[i] + completion_mask[i] for i in range(len(prompt_mask))]
         max_len = max(len(ids[i]) for i in range(len(ids)))
         ids = [torch.cat([
             torch.tensor(ids[i], dtype=torch.long, device=device),
@@ -783,19 +793,44 @@ class GRPOTrainer(Trainer):
                         self.logger.info(f"  • Processes: [green]{self.accelerator.num_processes}[/]")
                         self.logger.info(f"  • Local batch size: [green]{local_batch_size}[/]")
 
-                        request = BatchRequest(
-                            batch_id=batch_id,
-                            rows={'prompt': all_prompts, 'text': all_prompts, 'answer': all_answers, 'task': all_tasks, 'info': all_infos},
-                            processing_class=self.processing_class,
-                            mask_env_responses=self.mask_env_responses,
+                        # Create configuration objects
+                        from datasets import Dataset
+                        rows_dataset = Dataset.from_dict({
+                            'prompt': all_prompts, 
+                            'text': all_prompts, 
+                            'answer': all_answers, 
+                            'task': all_tasks, 
+                            'info': all_infos
+                        })
+                        
+                        generation_config = GenerationConfig(
                             max_completion_length=self.max_completion_length,
                             mask_truncated_completions=self.mask_truncated_completions,
+                            mask_env_responses=self.mask_env_responses,
                             max_concurrent=self.max_concurrent,
+                            generation_timeout=self.async_generator.generation_timeout,
+                            num_batches_ahead=self.async_generator.num_batches_ahead,
+                        )
+                        
+                        processing_config = ProcessingConfig(
+                            processing_class=self.processing_class,  # type: ignore
+                            mask_env_responses=self.mask_env_responses,
+                        )
+                        
+                        distributed_config = DistributedConfig(
                             device=self.accelerator.device,
                             accelerator=self.accelerator,
                             process_index=self.accelerator.process_index,
                             num_processes=self.accelerator.num_processes,
                             local_batch_size=local_batch_size,
+                        )
+                        
+                        request = BatchRequest(
+                            batch_id=batch_id,
+                            rows=rows_dataset,
+                            generation_config=generation_config,
+                            processing_config=processing_config,
+                            distributed_config=distributed_config,
                         )
                         self.async_generator.submit_batch(request)
                         self.logger.info(f"[green]✓[/] Batch {batch_id} submitted to async generator")
