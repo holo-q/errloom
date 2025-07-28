@@ -61,9 +61,3 @@ def extract_json(context: ContextType) -> Optional[str]:
             return None
 
     return ret
-
-def format_conversation(conversation: MessageList):
-    text = ""
-    for msg in conversation:
-        text += msg['content']
-    return text

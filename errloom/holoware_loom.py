@@ -4,6 +4,7 @@ from typing import Optional
 
 from rich import box
 from rich.table import Table
+from rich.box import Box
 
 from errloom import holoware_load
 from errloom.aliases import Data
@@ -16,6 +17,16 @@ from errloom.utils import log
 # logger = logging.getLogger(__name__)
 
 # TODO allow multiple evaluation contexts
+EMPTY: Box = Box(
+    "    \n"
+    "    \n"
+    "    \n"
+    "    \n"
+    "    \n"
+    "    \n"
+    "    \n"
+    "    \n"
+)
 
 class HolowareLoom(Loom):
     """
@@ -32,33 +43,27 @@ class HolowareLoom(Loom):
     def __init__(
         self,
         path: str,
-        data: Optional[Data | str] = None,
-        data_bench: Optional[Data | str] = None,
-        data_train: Optional[Data | str] = None,
-        test_model: str = "Qwen/Qwen2.5-7B-Instruct",
+        model: Optional[str] = "Qwen/Qwen2.5-7B-Instruct",
         max_concurrent: int = 64,
         **kwargs
     ):
         super().__init__(
-            data=data,
-            data_train=data_train,
-            data_bench=data_bench,
+            model=model,
             max_concurrent=max_concurrent,
-            message_type='chat',
+            message_type='completion',
             **kwargs
         )
 
         self.holoware = holoware_load.get_default_loader().load_holoware(path)
-        self.message_type = 'completion'
 
-        tb = Table(box=box.SIMPLE)
+        tb = Table(box=EMPTY)
         tb.add_column("Parameter", style="cyan", width=25)
         tb.add_column("Value", style="white")
 
         tb.add_row("Holoware path", path)
-        tb.add_row("Dataset size", str(len(data)))
+        # tb.add_row("Dataset size", str(len(self.data)))
         tb.add_row("Max concurrent", f"{max_concurrent}")
-        tb.add_row("Test model", test_model)
+        tb.add_row("Model", model)
 
         self.logger.info(tb)
         self.logger.info(self.holoware.to_rich())

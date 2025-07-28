@@ -58,7 +58,13 @@ class Loom(ABC):
                  session: Optional['Session'] = None,
                  dump_rollouts: Optional[str | bool] = False):
         self.trainer: Optional['GRPOTrainer'] = None
-        self.client = client or MockClient()
+        
+        # Use provided client or create default MockClient
+        if client is not None:
+            self.client = client
+        else:
+            from errloom.interop.mock_client import MockClient
+            self.client = MockClient()
         self.client_args = {
             **client_args,
             'n':          1,  # n > 1 not supported; use duplicate prompts for multiple completions
@@ -427,16 +433,7 @@ Max concurrent: {tapestry.max_concurrent}
 
         return self.weave(inputs)
 
-    def _convert_messages_for_api(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert internal message format to OpenAI API format."""
-        api_messages = []
-        for msg in messages:
-            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                api_messages.append({
-                    'role': msg['role'],
-                    'content': msg['content']
-                })
-        return api_messages
+
 
     def _handle_api_response(self, response, message_type: str) -> str:
         """Handle API response and extract content with error checking."""
@@ -466,31 +463,27 @@ Max concurrent: {tapestry.max_concurrent}
         else:
             sanitized_args = rollout.sampling_args
 
-        def _sample() -> str:
-            try:
-                res: ChatCompletion
-                if self.message_type == 'chat':
-                    assert isinstance(rollout.context.messages, list)
-                    # Convert messages to the format expected by OpenAI API
-                    messages = self._convert_messages_for_api(rollout.context.messages)
-                    res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)  # type: ignore
-                    return self._handle_api_response(res, self.message_type)
-                elif self.message_type == 'completion':
-                    assert isinstance(rollout.context.text, str)
-                    from openai.types.completion import Completion
-                    completion_res: Completion = client.completions.create(model=model, prompt=rollout.context.text, **sanitized_args)
-                    return self._handle_api_response(completion_res, self.message_type)
-
+        try:
+            res: ChatCompletion
+            if self.message_type == 'chat':
+                # Use Rollout method to get OpenAI format messages
+                messages = rollout.to_openai_messages()
+                res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)  # type: ignore
+                ret = self._handle_api_response(res, self.message_type)
+            elif self.message_type == 'completion':
+                # Use Rollout method to get completion text
+                prompt = rollout.to_completion_text()
+                from openai.types.completion import Completion
+                completion_res: Completion = client.completions.create(model=model, prompt=prompt, **sanitized_args)
+                ret = self._handle_api_response(completion_res, self.message_type)
+            else:
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
-            except Exception as e:
-                # Check for prompt too long errors
-                error_msg = str(e)
-                if "longer than the maximum" in error_msg or "exceeds the model" in error_msg:
-                    return "[ERROR] prompt_too_long"
-                # Re-raise other errors
-                raise
+        except Exception as e:
+            error_msg = str(e)
+            if "longer than the maximum" in error_msg or "exceeds the model" in error_msg:
+                return "[ERROR] prompt_too_long"
+            raise
 
-        ret = _sample()
         rollout.samples.append(ret)
         return ret
 

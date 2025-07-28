@@ -447,6 +447,103 @@ def getLogger(name: Optional[str] = None) -> EnhancedLogger:
 # MAIN
 # ----------------------------------------
 
+# COLORIZE FUNCTIONS
+# ----------------------------------------
+
+def colorize_session(text: str) -> str:
+    """Colorize session names and identifiers."""
+    return f"[white]{text}[/]"
+
+def colorize_target(text: str) -> str:
+    """Colorize target names (holoware, loom names)."""
+    return f"[bright_green]{text}[/]"
+
+def colorize_model(text: str) -> str:
+    """Colorize model names."""
+    return f"[white]{text}[/]"
+
+def colorize_client(text: str) -> str:
+    """Colorize client type names."""
+    return f"[bright_magenta]{text}[/]"
+
+def colorize_error(text: str) -> str:
+    """Colorize error messages."""
+    return f"[bold red]{text}[/]"
+
+def colorize_success(text: str) -> str:
+    """Colorize success messages."""
+    return f"[bold green]{text}[/]"
+
+def colorize_warning(text: str) -> str:
+    """Colorize warning messages."""
+    return f"[yellow]{text}[/]"
+
+def colorize_info(text: str) -> str:
+    """Colorize informational messages."""
+    return f"[cyan]{text}[/]"
+
+def colorize_debug(text: str) -> str:
+    """Colorize debug messages."""
+    return f"[dim]{text}[/]"
+
+def colorize_title(text: str) -> str:
+    """Colorize titles and headers."""
+    return f"[bold bright_blue]{text}[/]"
+
+def colorize_path(text: str) -> str:
+    """Colorize file paths and locations."""
+    return f"[bright_cyan]{text}[/]"
+
+def colorize_mode_dry(text: str) -> str:
+    """Colorize dry mode messages."""
+    return f"[yellow]{text}[/]"
+
+def colorize_mode_production(text: str) -> str:
+    """Colorize production mode messages."""
+    return f"[green]{text}[/]"
+
+def colorize_mode_dump(text: str) -> str:
+    """Colorize dump mode messages."""
+    return f"[blue]{text}[/]"
+
+def colorize_field_label(text: str) -> str:
+    """Colorize field labels (like 'Session:', 'Model:')."""
+    return f"[bold cyan]{text}[/]"
+
+def colorize_completion(text: str) -> str:
+    """Colorize completion/training completion messages."""
+    return f"[bold green]{text}[/]"
+
+def colorize_progress(text: str) -> str:
+    """Colorize progress indicators."""
+    return f"[magenta]{text}[/]"
+
+def colorize_data(text: str) -> str:
+    """Colorize data-related information."""
+    return f"[bright_yellow]{text}[/]"
+
+def colorize_rule_title(text: str) -> str:
+    """Colorize rule titles for visual separation."""
+    return f"[bold cyan]{text}[/]"
+
+def colorize_deployment(text: str) -> str:
+    """Colorize deployment-related messages."""
+    return f"[bold cyan]{text}[/]"
+
+def colorize_check_mark() -> str:
+    """Standard green checkmark."""
+    return "[green]✓[/]"
+
+def colorize_cross_mark() -> str:
+    """Standard red cross mark."""
+    return "[red]✗[/]"
+
+def colorize_arrow() -> str:
+    """Standard arrow for file operations."""
+    return "[green]→[/]"
+
+# ----------------------------------------
+
 logger_main = logging.getLogger("main")
 
 def log(*s, logger=logger_main, stacklevel=1):
@@ -462,7 +559,7 @@ def logl(*s, logger=logger_main, stacklevel=1):
     logger.info("")
 
 def logi(text, logger=logger_main, stacklevel=1):
-    logger.info(f"[cyan]{text}[/]", stacklevel=stacklevel + 1)
+    logger.info(colorize_info(text), stacklevel=stacklevel + 1)
     logger.info("")
 
 def log_stacktrace_to_file_only(logger, exception: Exception, context: str = ""):
@@ -511,14 +608,14 @@ class LogContext:
         self.logger = logger
 
     def __enter__(self):
-        log(f"[cyan]{self.intro}[/]", logger=self.logger, stacklevel=2)
+        log(colorize_info(self.intro), logger=self.logger, stacklevel=2)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            logl(f"[green]✓[/] {self.outro}", logger=self.logger, stacklevel=2)
+            logl(f"{colorize_check_mark()} {self.outro}", logger=self.logger, stacklevel=2)
         else:
-            logl(f"[red]✗[/] {self.outro} failed: {exc_val}", logger=self.logger, stacklevel=2)
+            logl(f"{colorize_cross_mark()} {self.outro} failed: {exc_val}", logger=self.logger, stacklevel=2)
             return False
 
 # GLOBAL INDENT TRACKER - thread-local to handle concurrent logging

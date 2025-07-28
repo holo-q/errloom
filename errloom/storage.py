@@ -56,10 +56,10 @@ class Storage(msgspec.Struct):
 			encoded = encoder.encode(serializable_data)
 			formatted = msgspec.json.format(encoded, indent=2)
 			f.write(formatted)
-		log.info(f"write_json -> {self._path}")
+		log.debug(f"write_json -> {self._path}")
 
 	def read_json(self):
-		log.info(f"read_json -> {self._path}")
+		log.debug(f"read_json -> {self._path}")
 		try:
 			if self.path.exists():
 				with self.path.open("r") as f:
@@ -96,10 +96,10 @@ class Storage(msgspec.Struct):
 		serializable_data = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 		with self.path.with_suffix(".dill").open("wb") as f:
 			dill.dump(serializable_data, f)
-		log.info(f"write_dill -> {self._path}")
+		log.debug(f"write_dill -> {self._path}")
 
 	def read_dill(self):
-		log.info(f"read_dill -> {self._path}")
+		log.debug(f"read_dill -> {self._path}")
 		try:
 			dill_path = self.path.with_suffix(".dill")
 			if dill_path.exists():

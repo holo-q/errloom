@@ -19,18 +19,25 @@ from rich.rule import Rule
 
 from errloom import defaults, discovery, Loom
 from errloom.aliases import Data
-from errloom.argp import errlargs
+from errloom.argp import errlargs, create_client_from_args, show_help
 from errloom.comm import CommModel
 from errloom.holoware_loom import HolowareLoom
 from errloom.session import Session
-from errloom.utils.log import log, logc, LogContext, logger_main
+from errloom.utils.log import (log, logc, LogContext, logger_main, colorize_session, 
+                              colorize_target, colorize_model, colorize_client, colorize_error, 
+                              colorize_success, colorize_warning, colorize_field_label, 
+                              colorize_title, colorize_mode_dry, colorize_mode_production, 
+                              colorize_mode_dump, colorize_completion, colorize_rule_title,
+                              colorize_deployment)
 
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
 
+
 def execute_dry_run(n: int):
-    HolowareLoom("compressor.hol", data="agentlans/wikipedia-paragraphs", dry=True, unsafe=errlargs.unsafe).weave(errlargs.n)
-    log(Rule("[yellow]DRY RUN COMPLETE[/]"))
+    client = create_client_from_args(errlargs, dry_run=True)
+    HolowareLoom("compressor.hol", client=client, data="agentlans/wikipedia-paragraphs", dry=True, unsafe=errlargs.unsafe).weave(errlargs.n)
+    log(Rule(colorize_mode_dry("DRY RUN COMPLETE")))
 
 def setup_async():
     def setup_executor(loop):
@@ -60,70 +67,105 @@ def main(default_title: Optional[str] = None,
          default_session: Optional[Session] = None):
 
     # Early detection and routing based on arguments
-    positional_arg = getattr(errlargs, 'positional', None)
-    holoware_specified = default_holoware or errlargs.ware or positional_arg
+    loom_or_ware_arg = getattr(errlargs, 'loom_or_ware', None)
+    command_arg = getattr(errlargs, 'command', None)
+    holoware_specified = default_holoware or errlargs.ware or loom_or_ware_arg
 
     # Check for deployment/remote actions first
     if _is_deployment_mode():
         _handle_deployment()
         return
 
-    # Handle positional argument context detection
-    if positional_arg:
+    # If no loom/ware specified, show help
+    if not loom_or_ware_arg and not holoware_specified:
+        show_help()
+        return
+
+    # If no command specified, show help
+    if not command_arg:
+        show_help()
+        return
+
+    # Handle loom_or_ware argument context detection
+    if loom_or_ware_arg:
         # Detect if it's a holoware file (.hol extension) or loom class
-        if positional_arg.endswith('.hol') or positional_arg in ['qa', 'tool', 'codemath', 'doublecheck', 'smola']:
+        if loom_or_ware_arg.endswith('.hol') or loom_or_ware_arg in ['qa', 'tool', 'codemath', 'doublecheck', 'smola']:
             # It's a holoware file
-            default_holoware = positional_arg if positional_arg.endswith('.hol') else f"{positional_arg}.hol"
+            default_holoware = loom_or_ware_arg if loom_or_ware_arg.endswith('.hol') else f"{loom_or_ware_arg}.hol"
             default_loom = HolowareLoom
         else:
             # It's likely a loom class
-            loom_class = discovery.get_class(positional_arg)
+            loom_class = discovery.get_class(loom_or_ware_arg)
             if loom_class:
                 default_loom = loom_class
             else:
-                log(f"[bold red]❌ Unknown loom class: {positional_arg}")
-                _show_help()
+                log(colorize_error(f"❌ Unknown loom class: {loom_or_ware_arg}"))
+                show_help()
                 return
 
-    # If no holoware specified and no other clear action, show help
-    if not holoware_specified and not errlargs.dry and not errlargs.save:
-        _show_help()
-        return
-
     setup_async()
-    is_class_loom = isinstance(default_loom, type)
     model_name = default_model
-    LoomClass = default_loom if is_class_loom else type(default_loom)
+    LoomClass = default_loom if isinstance(default_loom, type) else type(default_loom)
+    loom = default_loom if isinstance(default_loom, Loom) else None
+    loom_name = loom.__class__.__name__ if loom else "HolowareLoom"
 
     name = default_holoware or LoomClass.__name__
     name_ext = f"{name.split('/')[-1].lower()}-{model_name.split('/')[-1].lower()}"
     title = default_title or name_ext
     session = default_session or Session.Create(title)
 
-    # logc()
-    log(Rule(f"[bold cyan]{title}", style="cyan"))
-
     # ----------------------------------------
 
     model, tokenizer = None, None
     loom = None
     try:
-        log(f"[dim]Base model: {errlargs.model}[/]")
-        log(Rule(style="dim"))
-        log("")
-
         with LogContext("🏗️ Setting up environment...", "Environment ready"):
-            if is_class_loom:
-                if default_loom == HolowareLoom:
+            client = create_client_from_args(errlargs)
+            client_type = type(client).__name__
+            
+            logc()
+            log("")
+            log("╔══════════════════════════════════════════════════════════════════════════════════╗")
+            log("║                                                                                  ║")
+            log(f"║                        {colorize_title('🚀 ERRLOOM TRAINING SESSION 🚀')}                            ║")
+            log("║                                                                                  ║")
+            log("╚══════════════════════════════════════════════════════════════════════════════════╝")
+            log("")
+            
+            # Session info header
+            name = default_holoware or LoomClass.__name__
+            log(f"{colorize_field_label('📋 Session:')} {colorize_session(title)}")
+            log(f"{colorize_field_label('🎯 Target:')} {colorize_target(name)}")
+            log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}") 
+            log(f"{colorize_field_label('🔌 Client:')} {colorize_client(client_type)}")
+            log("")
+            
+            # Mode-specific messaging
+            if errlargs.dry and client_type != "MockClient":
+                log(colorize_mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
+            elif errlargs.dry:
+                log(colorize_mode_dry(f"🧪 DRY MODE: Using {client_type} for mock completions"))
+            elif errlargs.dry is False:
+                log(colorize_mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
+            else:
+                log(f"[dim]🔄 ACTIVE MODE: Using {client_type} for completions[/]")
+            
+            log("")
+            log(Rule(colorize_rule_title(f"Initializing {loom_name}"), style="cyan"))
+            # ----------------------------------------
+            
+            if loom is None:
+                if isinstance(LoomClass, type) and issubclass(LoomClass, HolowareLoom):
                     # Check if we have a holoware from positional or --ware
                     holoware_to_use = default_holoware or errlargs.ware
                     if not holoware_to_use:
-                        _show_help()
+                        show_help()
                         return
 
-                    log(f"Initializing {LoomClass.__name__} with holoware: {holoware_to_use} ...")
                     loom = LoomClass(
                         holoware_to_use,  # path argument comes first
+                        model=model_name,
+                        client=client,
                         data=default_data,
                         data_split=0.5,
                         dry=errlargs.dry,
@@ -131,40 +173,44 @@ def main(default_title: Optional[str] = None,
                         show_rollout_errors=errlargs.show_rollout_errors,
                         session=session if errlargs.dump else None,
                         dump_rollouts=errlargs.dump)
-                else:
-                    log(f"Initializing {LoomClass.__name__} ...")
+                elif issubclass(LoomClass, Loom):
                     loom = LoomClass(
                         model=model_name, tokenizer=tokenizer,
+                        client=client,
                         data=default_data, data_split=0.5,
                         dry=errlargs.dry, unsafe=errlargs.unsafe,
                         show_rollout_errors=errlargs.show_rollout_errors,
                         session=session if errlargs.dump else None,
                         dump_rollouts=errlargs.dump)
+                else:
+                    raise ValueError(f"Unknown loom class: {LoomClass}")
             else:
                 log(f"Using pre-supplied loom: {loom} ...")
 
     except Exception as e:
-        log(Rule("[red]❌ Training Failed", style="red"))
-        log(f"[bold red]❌ An error occurred during initialization: {e}")
+        log(Rule(colorize_error("❌ Training Failed"), style="red"))
+        log(colorize_error(f"❌ An error occurred during initialization: {e}"))
         log(Rule(style="red"))
         raise
 
     # ----------------------------------------
+    log(Rule("[bold cyan]Weaving[/]", style="cyan"))
 
     try:
         assert loom is not None
         loom.weave(errlargs.n)
 
-        if errlargs.dry:
-            log(Rule("[bold green]🏆 TRAINING COMPLETED"))
-            log(f"[bold green]🏆 Training finished successfully!")
-            log(Rule(style="green"))
+        if errlargs.command == "dry":
+            log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
+        elif errlargs.command == "dump":
+            log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
+        elif errlargs.command == "train":
+            log(Rule(colorize_completion("🏆 TRAINING COMPLETED")))
         else:
-            log(Rule("[bold green] ALL WOVEN"))
-            log(Rule(style="green"))
+            log(Rule(colorize_completion(" ALL WOVEN")))
     except Exception as e:
-        log(Rule("[red]❌ Training Failed"))
-        log(f"[bold red]❌ An error occurred during training: {e}")
+        log(Rule(colorize_error("❌ Training Failed")))
+        log(colorize_error(f"❌ An error occurred during training: {e}"))
         log(Rule(style="red"))
         raise
 
@@ -182,7 +228,7 @@ def _is_deployment_mode() -> bool:
 def _handle_deployment():
     """Handle deployment/remote operations."""
     logc()
-    log(Rule("[bold cyan]Errloom - Remote Deployment", style="cyan"))
+    log(Rule(colorize_deployment("Errloom - Remote Deployment"), style="cyan"))
     log("")
 
     try:
@@ -193,50 +239,12 @@ def _handle_deployment():
         asyncio.run(deploy_main())
 
     except ImportError as e:
-        log(f"[red]❌ Deployment failed: Missing dependency - {e}[/]")
+        log(colorize_error(f"❌ Deployment failed: Missing dependency - {e}"))
         log("[dim]Make sure all deployment dependencies are installed.[/]")
     except Exception as e:
-        log(f"[red]❌ Deployment failed: {e}[/]")
+        log(colorize_error(f"❌ Deployment failed: {e}"))
         log("[dim]Check the logs for more details.[/]")
 
-    log(Rule(style="dim"))
-
-
-def _show_help():
-    """Show helpful guidance when no holoware is specified."""
-    from errloom.holoware_load import get_default_loader
-
-    logc()
-    log(Rule("[bold cyan]Errloom - Holoware Training", style="cyan"))
-    log("")
-
-    # Try to find available holoware
-    try:
-        available_holoware = get_default_loader().list_prompts()
-        if available_holoware:
-            log("[bold]Available holoware files:[/]")
-            for hol in sorted(available_holoware):
-                log(f"  [cyan]{hol}[/cyan]")
-            log("")
-        else:
-            log("[yellow]No .hol files found in prompts/ or hol/ directories[/]")
-            log("")
-    except Exception as e:
-        log(f"[yellow]Could not list available holoware files: {e}[/]")
-        log("")
-
-    log("[bold]Usage examples:[/]")
-    log("  [cyan]uv run main prompt.hol[/cyan]               # Run prompt.hol holoware")
-    log("  [cyan]uv run main qa.hol --dry --n 1[/cyan]       # Dry run with 1 sample")
-    log("")
-    log("[bold]Deployment options:[/]")
-    log("  [cyan]uv run main -vai[/cyan]                     # Deploy to VastAI")
-    log("  [cyan]uv run main -vaig[/cyan]                    # Open deployment GUI")
-    log("  [cyan]uv run main -vaish[/cyan]                   # Start shell on remote")
-    log("  [cyan]uv run main -vaiq[/cyan]                    # Quick deploy (no copy)")
-    log("  [cyan]uv run main --help[/cyan]                   # Show all options")
-    log("")
-    log("[dim]For more information, see the documentation or run --help[/]")
     log(Rule(style="dim"))
 
 

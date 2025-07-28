@@ -12,7 +12,7 @@ from errloom.holoware import Span
 from errloom.tapestry import Context, Rollout
 from errloom.utils import log
 from errloom.utils.log import indent_decorator
-from errloom.utils.openai_chat import extract_fence
+
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom

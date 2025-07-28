@@ -31,9 +31,9 @@ discovery.crawl_package(
 # this means that we get closer to truth together and is crucial
 # for exponential acceleration without plateaus
 
-from errloom.holoware_handlers import HolowareHandlers
+# from errloom.holoware_handlers import HolowareHandlers
 
-for name,Class in discovery.get_all_classes().items():
-    if issubclass(Class, Span):
-        if type(Class).__name__ not in HolowareHandlers.__dict__:
-            log(f"HoloSpan class {name} has no handler in HolowareHandlers")
+# for name,Class in discovery.get_all_classes().items():
+#     if issubclass(Class, Span):
+#         if type(Class).__name__ not in HolowareHandlers.__dict__:
+#             log(f"HoloSpan class {name} has no handler in HolowareHandlers")

@@ -10,7 +10,7 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.rule import Rule
 
-from errloom.utils.openai_chat import extract_fence, MessageList, MessageTuple
+from errloom.utils.openai_chat import MessageList, MessageTuple
 
 @dataclass
 class Context:
@@ -30,6 +30,127 @@ class Context:
     @property
     def messages(self) -> MessageTuple:
         return tuple(self._messages)
+
+    def to_openai_messages(self) -> List[Dict[str, str]]:
+        """
+        Convert context messages to OpenAI API format.
+        
+        Returns:
+            List of message dicts with 'role' and 'content' keys,
+            compatible with OpenAI chat completions API.
+        """
+        api_messages = []
+        for msg in self._messages:
+            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                api_messages.append({
+                    'role': msg['role'],
+                    'content': msg['content']
+                })
+        return api_messages
+
+    def to_completion_text(self) -> str:
+        """
+        Convert context to plain text format for completion API.
+        
+        Returns:
+            Concatenated text content from all messages, suitable for
+            OpenAI completions API.
+        """
+        if self.text:
+            return self.text
+        
+        text_parts = []
+        for msg in self._messages:
+            content = msg.get('content', '')
+            if content:
+                text_parts.append(content)
+        return ''.join(text_parts)
+
+    @staticmethod
+    def from_openai_messages(openai_messages: List[Dict[str, str]], text: str = "") -> 'Context':
+        """
+        Create a Context from OpenAI API format messages.
+        
+        Args:
+            openai_messages: List of OpenAI format message dicts
+            text: Optional text field to set
+            
+        Returns:
+            New Context instance
+        """
+        context = Context(text=text)
+        for msg in openai_messages:
+            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                context.add_message(msg['role'], msg['content'])
+        return context
+
+    def extract_fence(self, wrapper_tag: Optional[str], role: str = 'assistant') -> Optional[str]:
+        """
+        Extract content from a dynamic wrapper tag, e.g., <compress>...</compress>
+        
+        Args:
+            wrapper_tag: The tag name to extract content from
+            role: Role to search within (default: 'assistant')
+            
+        Returns:
+            Extracted content or None if not found
+        """
+        import re
+        
+        if not wrapper_tag:
+            # Return last message content if no tag specified
+            for msg in reversed(self._messages):
+                if role is None or msg.get("role") == role:
+                    return msg.get("content", "").strip()
+            return None
+
+        tag = wrapper_tag.lower()
+
+        for msg in reversed(self._messages):
+            if role is not None and msg.get("role") != role:
+                continue
+            content = msg.get("content", "")
+            matches = list(re.finditer(fr'<{tag}>\s*(.*?)\s*(?:</{tag}>|$)', content, re.DOTALL))
+            if matches:
+                return matches[-1].group(1).strip()
+
+        return None
+
+    def extract_json(self, role: str = 'assistant') -> Optional[str]:
+        """
+        Extract JSON from context messages.
+        
+        Args:
+            role: Role to search within (default: 'assistant')
+            
+        Returns:
+            Extracted JSON string or None if not found
+        """
+        import re
+        from errloom.utils import log
+        
+        # Find the last message from the specified role
+        content = None
+        for msg in reversed(self._messages):
+            if msg.get("role") == role:
+                content = msg.get("content", "")
+                break
+        
+        if not content:
+            return None
+
+        # Look for ```json blocks first
+        block_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        if block_match:
+            return block_match.group(1).strip()
+        
+        # Look for standalone JSON object
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*}[^{}]*)*}', content, re.DOTALL)
+        if match:
+            return match.group(0)
+        
+        log.getLogger(__name__).warning("No JSON found in context")
+        return None
 
     @staticmethod
     def extract_rollout_data(rollout: 'Rollout') -> Dict[str, Any]:
@@ -237,12 +358,70 @@ class Rollout:
     def context(self) -> Context:
         return self.contexts[-1]
 
-    def extract_fence(self, tag, role="assistant") -> Optional[str]:
-        for c in self.contexts:
-            ret = extract_fence(list(c.messages), tag, role)
-            if ret:
-                return ret
+    def to_openai_messages(self) -> List[Dict[str, str]]:
+        """
+        Get OpenAI API format messages from the current context.
+        
+        Returns:
+            List of message dicts compatible with OpenAI chat completions API.
+        """
+        return self.context.to_openai_messages()
+
+    def to_completion_text(self) -> str:
+        """
+        Get completion text from the current context.
+        
+        Returns:
+            Text suitable for OpenAI completions API.
+        """
+        return self.context.to_completion_text()
+
+    @staticmethod
+    def from_openai_messages(openai_messages: List[Dict[str, str]], row: Dict[str, Any], **kwargs) -> 'Rollout':
+        """
+        Create a Rollout from OpenAI API format messages.
+        
+        Args:
+            openai_messages: List of OpenAI format message dicts
+            row: Initial row data for the rollout
+            **kwargs: Additional rollout parameters
+            
+        Returns:
+            New Rollout instance with a context populated from the messages
+        """
+        rollout = Rollout(row=row, **kwargs)
+        context = Context.from_openai_messages(openai_messages)
+        rollout.contexts.append(context)
+        return rollout
+
+    def extract_fence(self, wrapper_tag: Optional[str], role: str = "assistant") -> Optional[str]:
+        """
+        Extract content from a dynamic wrapper tag across all contexts.
+        
+        Args:
+            wrapper_tag: The tag name to extract content from
+            role: Role to search within (default: 'assistant')
+            
+        Returns:
+            Extracted content or None if not found
+        """
+        for context in self.contexts:
+            result = context.extract_fence(wrapper_tag, role)
+            if result:
+                return result
         return None
+
+    def extract_json(self, role: str = "assistant") -> Optional[str]:
+        """
+        Extract JSON from the current context.
+        
+        Args:
+            role: Role to search within (default: 'assistant')
+            
+        Returns:
+            Extracted JSON string or None if not found
+        """
+        return self.context.extract_json(role)
 
     def to_rich(self) -> Panel:
         renderables = []
