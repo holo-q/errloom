@@ -1,10 +1,14 @@
 # adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py
 
 import logging
+import queue
+import threading
+import time
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Sized, Tuple, Union
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 import datasets
 import numpy as np
@@ -48,6 +52,219 @@ from rich.panel import Panel
 
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
+
+@dataclass
+class RLLossResult:
+    """Result from RL algorithm loss computation"""
+    loss: torch.Tensor
+    metrics: Dict[str, float]
+    clipping_stats: Dict[str, torch.Tensor]
+
+@dataclass
+class PolicyMetrics:
+    """Container for policy-related metrics during training"""
+    importance_ratios: torch.Tensor
+    advantages: torch.Tensor
+    clipped_ratios: torch.Tensor
+    policy_loss: torch.Tensor
+    kl_loss: Optional[torch.Tensor] = None
+
+class RLAlgorithm(ABC):
+    """Abstract base class for RL algorithms (GRPO, GSPO, etc.)"""
+    
+    def __init__(self, config: Any, logger: Any):
+        self.config = config
+        self.logger = logger
+    
+    @abstractmethod
+    def compute_importance_ratios(self, 
+                                 per_token_logps: torch.Tensor,
+                                 old_per_token_logps: torch.Tensor,
+                                 completion_mask: torch.Tensor) -> torch.Tensor:
+        """Compute importance ratios for policy updates"""
+        pass
+    
+    @abstractmethod
+    def compute_advantages(self, 
+                          rewards: torch.Tensor,
+                          num_generations: int) -> torch.Tensor:
+        """Compute advantages from rewards"""
+        pass
+    
+    @abstractmethod
+    def compute_policy_loss(self,
+                           importance_ratios: torch.Tensor,
+                           advantages: torch.Tensor,
+                           completion_mask: torch.Tensor) -> RLLossResult:
+        """Compute the policy loss with algorithm-specific logic"""
+        pass
+    
+    def get_algorithm_name(self) -> str:
+        """Return the algorithm name for logging"""
+        return self.__class__.__name__.replace('Algorithm', '').upper()
+
+class GRPOAlgorithm(RLAlgorithm):
+    """GRPO (Group Relative Policy Optimization) implementation"""
+    
+    def compute_importance_ratios(self, 
+                                 per_token_logps: torch.Tensor,
+                                 old_per_token_logps: torch.Tensor,
+                                 completion_mask: torch.Tensor) -> torch.Tensor:
+        """GRPO uses token-level importance ratios"""
+        return torch.exp(per_token_logps - old_per_token_logps)
+    
+    def compute_advantages(self, 
+                          rewards: torch.Tensor,
+                          num_generations: int) -> torch.Tensor:
+        """GRPO advantage computation with group normalization"""
+        # Always use full batch statistics
+        mean_grouped = rewards.view(-1, num_generations).mean(dim=1)
+        std_grouped = rewards.view(-1, num_generations).std(dim=1)
+
+        # Normalize the rewards to compute advantages
+        mean_grouped = mean_grouped.repeat_interleave(num_generations, dim=0)
+        std_grouped = std_grouped.repeat_interleave(num_generations, dim=0)
+        advantages = rewards - mean_grouped
+
+        if self.config.scale_rewards:
+            advantages = advantages / (std_grouped + 1e-4)
+
+        return advantages
+    
+    def compute_policy_loss(self,
+                           importance_ratios: torch.Tensor,
+                           advantages: torch.Tensor,
+                           completion_mask: torch.Tensor) -> RLLossResult:
+        """GRPO policy loss with token-level clipping"""
+        # GRPO clipping parameters
+        epsilon_low = self.config.epsilon
+        epsilon_high = getattr(self.config, 'epsilon_high', self.config.epsilon)
+        
+        # Token-level clipping
+        coef_1 = importance_ratios
+        coef_2 = torch.clamp(coef_1, 1 - epsilon_low, 1 + epsilon_high)
+
+        if hasattr(self.config, 'delta') and self.config.delta is not None:
+            # Use clamp instead of min to handle tensor-float comparison
+            per_token_loss1 = torch.clamp(coef_1, max=self.config.delta) * advantages.unsqueeze(1)
+        else:
+            # Original GRPO clipping (only lower bound implicitly applied by the final min)
+            per_token_loss1 = coef_1 * advantages.unsqueeze(1)
+
+        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+        per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+        
+        # Apply loss aggregation based on loss_type
+        if self.config.loss_type == "grpo":
+            loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+        elif self.config.loss_type == "bnpo":
+            loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+        elif self.config.loss_type == "dr_grpo":
+            max_completion_length = getattr(self.config, 'max_completion_length', completion_mask.size(-1))
+            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * max_completion_length)
+        else:
+            raise ValueError(f"Unknown loss type: {self.config.loss_type}")
+        
+        # Compute clipping statistics
+        is_low_clipped = (coef_1 < 1 - epsilon_low) & (advantages.unsqueeze(1) < 0)
+        is_high_clipped = (coef_1 > 1 + epsilon_high) & (advantages.unsqueeze(1) > 0)
+        is_region_clipped = is_low_clipped | is_high_clipped
+        
+        low_clip = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
+        high_clip = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
+        clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
+        
+        metrics = {}
+        clipping_stats = {
+            'low_clip': low_clip,
+            'high_clip': high_clip,
+            'clip_ratio': clip_ratio
+        }
+        
+        return RLLossResult(
+            loss=loss,
+            metrics=metrics,
+            clipping_stats=clipping_stats
+        )
+
+class GSPOAlgorithm(RLAlgorithm):
+    """GSPO (Group Sequence Policy Optimization) implementation"""
+    
+    def compute_importance_ratios(self, 
+                                 per_token_logps: torch.Tensor,
+                                 old_per_token_logps: torch.Tensor,
+                                 completion_mask: torch.Tensor) -> torch.Tensor:
+        """GSPO uses sequence-level importance ratios with length normalization"""
+        # Compute log ratio for each token
+        log_ratios = per_token_logps - old_per_token_logps
+        
+        # Sum over sequence length, weighted by completion mask
+        sequence_log_ratios = (log_ratios * completion_mask).sum(dim=1)
+        sequence_lengths = completion_mask.sum(dim=1)
+        
+        # Length-normalized sequence importance ratio: (π_θ(y|x) / π_θ_old(y|x))^(1/|y|)
+        length_normalized_log_ratios = sequence_log_ratios / sequence_lengths
+        sequence_importance_ratios = torch.exp(length_normalized_log_ratios)
+        
+        # Expand to match per-token shape for consistent interface
+        return sequence_importance_ratios.unsqueeze(1).expand_as(completion_mask)
+    
+    def compute_advantages(self, 
+                          rewards: torch.Tensor,
+                          num_generations: int) -> torch.Tensor:
+        """GSPO uses same group-based advantage computation as GRPO"""
+        # Always use full batch statistics
+        mean_grouped = rewards.view(-1, num_generations).mean(dim=1)
+        std_grouped = rewards.view(-1, num_generations).std(dim=1)
+
+        # Normalize the rewards to compute advantages
+        mean_grouped = mean_grouped.repeat_interleave(num_generations, dim=0)
+        std_grouped = std_grouped.repeat_interleave(num_generations, dim=0)
+        advantages = rewards - mean_grouped
+
+        if self.config.scale_rewards:
+            advantages = advantages / (std_grouped + 1e-4)
+
+        return advantages
+    
+    def compute_policy_loss(self,
+                           importance_ratios: torch.Tensor,
+                           advantages: torch.Tensor,
+                           completion_mask: torch.Tensor) -> RLLossResult:
+        """GSPO policy loss with sequence-level clipping"""
+        # GSPO uses different clipping ranges (typically much smaller)
+        epsilon = getattr(self.config, 'gspo_epsilon', 0.05)  # GSPO typically uses smaller epsilon
+        
+        # Extract sequence-level importance ratios (they're repeated across tokens)
+        seq_importance_ratios = importance_ratios[:, 0]  # First token has the sequence ratio
+        
+        # Sequence-level clipping
+        clipped_ratios = torch.clamp(seq_importance_ratios, 1 - epsilon, 1 + epsilon)
+        
+        # Compute sequence-level losses
+        loss1 = seq_importance_ratios * advantages
+        loss2 = clipped_ratios * advantages
+        sequence_loss = -torch.min(loss1, loss2)
+        
+        # Average over batch
+        loss = sequence_loss.mean()
+        
+        # Compute clipping statistics
+        is_clipped = (seq_importance_ratios < 1 - epsilon) | (seq_importance_ratios > 1 + epsilon)
+        clip_ratio = is_clipped.float().mean()
+        
+        metrics = {}
+        clipping_stats = {
+            'clip_ratio': clip_ratio,
+            'mean_importance_ratio': seq_importance_ratios.mean(),
+            'std_importance_ratio': seq_importance_ratios.std()
+        }
+        
+        return RLLossResult(
+            loss=loss,
+            metrics=metrics,
+            clipping_stats=clipping_stats
+        )
 
 @dataclass
 class BatchData:
@@ -268,12 +485,19 @@ class GRPOTrainer(Trainer):
         tokenizer: PreTrainedTokenizerBase,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: Optional[OptimizerConfig] = None,
-        peft_config: Optional[PeftConfig] = None
+        peft_config: Optional[PeftConfig] = None,
+        algorithm: Optional[RLAlgorithm] = None
     ):
         # Initialize the logger with proper hierarchy
         self.logger = log.getLogger(f'errloom.training.{self.__class__.__name__}')
         
-        with LogContext("🔧 Configuring GRPO Trainer...", "trainer_config", logger=self.logger):
+        # Initialize RL algorithm (default to GRPO for backward compatibility)
+        if algorithm is None:
+            algorithm = GRPOAlgorithm(config=args, logger=self.logger)
+        self.algorithm = algorithm
+        
+        algorithm_name = self.algorithm.get_algorithm_name()
+        with LogContext(f"🔧 Configuring {algorithm_name} Trainer...", "trainer_config", logger=self.logger):
             self.logger.info(f"[cyan]Training Configuration:[/]")
             self.logger.info(f"  • Learning rate: [green]{args.learning_rate}[/]")
             self.logger.info(f"  • Batch size: [green]{args.per_device_train_batch_size}[/]")
@@ -998,20 +1222,8 @@ class GRPOTrainer(Trainer):
         self,
         rewards: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute advantages from rewards with normalization using full batch statistics."""
-        # Always use full batch statistics
-        mean_grouped = rewards.view(-1, self.num_generations).mean(dim=1)
-        std_grouped = rewards.view(-1, self.num_generations).std(dim=1)
-
-        # Normalize the rewards to compute advantages
-        mean_grouped = mean_grouped.repeat_interleave(self.num_generations, dim=0)
-        std_grouped = std_grouped.repeat_interleave(self.num_generations, dim=0)
-        advantages = rewards - mean_grouped
-
-        if self.scale_rewards:
-            advantages = advantages / (std_grouped + 1e-4)
-
-        return advantages
+        """Compute advantages from rewards using algorithm-specific logic."""
+        return self.algorithm.compute_advantages(rewards, self.num_generations)
 
 
     def compute_loss(self,
@@ -1042,18 +1254,16 @@ class GRPOTrainer(Trainer):
         )
         
         self.logger.push_debug("Policy")
-        coef_1 = torch.exp(per_token_logps - old_per_token_logps)
-        coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
-
-        if self.delta is not None:
-            # Use clamp instead of min to handle tensor-float comparison
-            per_token_loss1 = torch.clamp(coef_1, max=self.delta) * advantages.unsqueeze(1)
-        else:
-            # Original GRPO clipping (only lower bound implicitly applied by the final min)
-            per_token_loss1 = coef_1 * advantages.unsqueeze(1)
-
-        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
-        per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+        # Compute importance ratios using algorithm-specific logic
+        importance_ratios = self.algorithm.compute_importance_ratios(
+            per_token_logps, old_per_token_logps, completion_mask
+        )
+        
+        # Compute policy loss using algorithm-specific logic
+        rl_result = self.algorithm.compute_policy_loss(
+            importance_ratios, advantages, completion_mask
+        )
+        policy_loss = rl_result.loss
         self.logger.pop()
 
         # Compute the KL divergence between the model and the reference model
@@ -1072,40 +1282,43 @@ class GRPOTrainer(Trainer):
             per_token_kl = (
                 torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
             )
-            per_token_loss = per_token_loss + self.beta * per_token_kl
+            # Add KL penalty to policy loss
+            per_token_kl_loss = self.beta * per_token_kl
+            if hasattr(rl_result, 'loss'):
+                # For algorithms that return token-level losses, add KL to each token
+                if len(per_token_kl_loss.shape) == 2:  # token-level
+                    total_loss = policy_loss + (per_token_kl_loss * completion_mask).sum() / completion_mask.sum()
+                else:  # sequence-level
+                    total_loss = policy_loss + per_token_kl_loss.mean()
+            else:
+                total_loss = policy_loss + per_token_kl_loss.mean()
+            
             mean_kl = (per_token_kl * completion_mask).sum() / completion_mask.sum()
             self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).nanmean().item())  # type: ignore
             self.logger.pop()
-
-        if self.loss_type == "grpo":
-            loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
-        elif self.loss_type == "bnpo":
-            loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
-        elif self.loss_type == "dr_grpo":
-            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)  # type: ignore
         else:
-            raise ValueError(f"Unknown loss type: {self.loss_type}")
+            total_loss = policy_loss
 
-        # Compute the clipped probability ratios
-        is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
-        is_high_clipped = (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
-        is_region_clipped = is_low_clipped | is_high_clipped
-
-        low_clip = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
-        high_clip = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
-        clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
-
-        gathered_low_clip = self.accelerator.gather_for_metrics(low_clip)
-        self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item())  # type: ignore
-        self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item())  # type: ignore
-        gathered_high_clip = self.accelerator.gather_for_metrics(high_clip)
-        self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item())  # type: ignore
-        self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())  # type: ignore
-        gathered_clip_ratio = self.accelerator.gather_for_metrics(clip_ratio)
-        self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())  # type: ignore
+        # Log algorithm-specific metrics
+        for metric_name, metric_value in rl_result.metrics.items():
+            if isinstance(metric_value, torch.Tensor):
+                metric_value = metric_value.item()
+            self._metrics[mode][f"{self.algorithm.get_algorithm_name().lower()}_{metric_name}"].append(metric_value)
+        
+        # Log clipping statistics
+        for stat_name, stat_value in rl_result.clipping_stats.items():
+            gathered_stat = self.accelerator.gather_for_metrics(stat_value)
+            if stat_name in ['low_clip', 'high_clip']:
+                self._metrics[mode][f"clip_ratio/{stat_name}_mean"].append(gathered_stat.nanmean().item())
+                if stat_name == 'low_clip':
+                    self._metrics[mode][f"clip_ratio/{stat_name}_min"].append(nanmin(gathered_stat).item())
+                else:
+                    self._metrics[mode][f"clip_ratio/{stat_name}_max"].append(nanmax(gathered_stat).item())
+            else:
+                self._metrics[mode][f"clip_ratio/{stat_name}"].append(gathered_stat.nanmean().item())
         
         self.logger.pop()
-        return loss
+        return total_loss
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval", **kwargs):
         """
@@ -1418,3 +1631,75 @@ def print_prompt_completions_sample(
 
     panel = Panel(table, expand=False, title=f"Step {step}", border_style="bold white")
     console.print(panel)
+
+# Factory functions for creating RL trainers with different algorithms
+
+def create_grpo_trainer(
+    loom: Loom,
+    model: PreTrainedModel,
+    args: GRPOConfig,
+    tokenizer: PreTrainedTokenizerBase,
+    callbacks: Optional[list[TrainerCallback]] = None,
+    optimizers: Optional[OptimizerConfig] = None,
+    peft_config: Optional[PeftConfig] = None
+) -> GRPOTrainer:
+    """Factory function to create a GRPO trainer"""
+    algorithm = GRPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GRPOAlgorithm'))
+    return GRPOTrainer(
+        loom=loom,
+        model=model,
+        args=args,
+        tokenizer=tokenizer,
+        callbacks=callbacks,
+        optimizers=optimizers,
+        peft_config=peft_config,
+        algorithm=algorithm
+    )
+
+def create_gspo_trainer(
+    loom: Loom,
+    model: PreTrainedModel,
+    args: GRPOConfig,  # Can reuse GRPOConfig, GSPO uses different epsilon values
+    tokenizer: PreTrainedTokenizerBase,
+    callbacks: Optional[list[TrainerCallback]] = None,
+    optimizers: Optional[OptimizerConfig] = None,
+    peft_config: Optional[PeftConfig] = None
+) -> GRPOTrainer:
+    """Factory function to create a GSPO trainer"""
+    algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
+    return GRPOTrainer(
+        loom=loom,
+        model=model,
+        args=args,
+        tokenizer=tokenizer,
+        callbacks=callbacks,
+        optimizers=optimizers,
+        peft_config=peft_config,
+        algorithm=algorithm
+    )
+
+class GSPOTrainer(GRPOTrainer):
+    """GSPO (Group Sequence Policy Optimization) trainer - convenience class"""
+    
+    def __init__(
+        self,
+        loom: Loom,
+        model: PreTrainedModel,
+        args: GRPOConfig,
+        tokenizer: PreTrainedTokenizerBase,
+        callbacks: Optional[list[TrainerCallback]] = None,
+        optimizers: Optional[OptimizerConfig] = None,
+        peft_config: Optional[PeftConfig] = None
+    ):
+        """Initialize GSPO trainer with GSPO algorithm"""
+        algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
+        super().__init__(
+            loom=loom,
+            model=model,
+            args=args,
+            tokenizer=tokenizer,
+            callbacks=callbacks,
+            optimizers=optimizers,
+            peft_config=peft_config,
+            algorithm=algorithm
+        )
