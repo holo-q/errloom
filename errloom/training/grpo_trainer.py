@@ -57,6 +57,16 @@ class BatchData:
     tasks: List[Any]
     infos: List[Any]
 
+@dataclass
+class OptimizerConfig:
+    """Container for optimizer and scheduler configuration"""
+    optimizer: Optional[torch.optim.Optimizer] = None
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None
+    
+    def to_tuple(self) -> tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]]:
+        """Convert to tuple format for backward compatibility with transformers"""
+        return (self.optimizer, self.lr_scheduler)
+
 class RepeatSampler(Sampler):
     """
     Sampler that repeats the indices of a dataset in a structured manner.
@@ -257,7 +267,7 @@ class GRPOTrainer(Trainer):
         args: GRPOConfig,
         tokenizer: PreTrainedTokenizerBase,
         callbacks: Optional[list[TrainerCallback]] = None,
-        optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
+        optimizers: Optional[OptimizerConfig] = None,
         peft_config: Optional[PeftConfig] = None
     ):
         # Initialize the logger with proper hierarchy
@@ -348,7 +358,7 @@ class GRPOTrainer(Trainer):
             eval_dataset=eval_dataset,
             processing_class=tokenizer,
             callbacks=callbacks,
-            optimizers=optimizers,
+            optimizers=optimizers.to_tuple() if optimizers else (None, None),
         )
 
         # Reference model
@@ -710,7 +720,7 @@ class GRPOTrainer(Trainer):
             batch_offset: 0 for current batch, >0 for future batches (peek ahead)
 
         Returns:
-            Tuple of (all_prompts, all_answers, all_tasks)
+            BatchData containing prompts, answers, tasks, and infos
         """
         batches = self._async_dataloader.peek_ahead(batch_offset)
         batch = batches[batch_offset - 1] if batch_offset > 0 else batches[0]
