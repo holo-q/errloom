@@ -18,11 +18,58 @@ from errloom.utils import log
 logger = log.getLogger(__name__)
 
 @dataclass
+class RewardScores:
+    """Container for all reward-related scores"""
+    reward: List[float]  # Primary reward scores (gravity)
+    individual_rewards: Dict[str, List[float]] = field(default_factory=dict)  # Individual attractor scores
+    
+    def to_dict(self) -> Dict[str, List[float]]:
+        """Convert to dictionary format for backward compatibility"""
+        result = {'reward': self.reward}
+        result.update(self.individual_rewards)
+        return result
+    
+    @classmethod
+    def from_rollouts(cls, rollouts: List[Rollout]) -> 'RewardScores':
+        """Create RewardScores from rollout data"""
+        gravity_scores = []
+        individual_rewards = {}
+        
+        for rollout in rollouts:
+            gravity_scores.append(rollout.gravity)
+            for key, value in rollout.gravities.items():
+                if key not in individual_rewards:
+                    individual_rewards[key] = []
+                individual_rewards[key].append(value)
+        
+        return cls(
+            reward=gravity_scores,
+            individual_rewards=individual_rewards
+        )
+
+@dataclass
+class ProcessedTokens:
+    """Container for tokenized prompt and completion data"""
+    prompt_ids: List[List[int]]
+    prompt_mask: List[List[int]]
+    completion_ids: List[List[int]]
+    completion_mask: List[List[int]]
+    
+    def to_dict(self) -> Dict[str, List[List[int]]]:
+        """Convert to dictionary format for backward compatibility"""
+        return {
+            "prompt_ids": self.prompt_ids,
+            "prompt_mask": self.prompt_mask,
+            "completion_ids": self.completion_ids,
+            "completion_mask": self.completion_mask,
+        }
+
+@dataclass
 class BatchRequest:
     """Request for batch generation"""
     batch_id: int
     rows: Dataset
-    processing_class: Any
+    processing_class: PreTrainedTokenizerBase
     mask_env_responses: bool
     max_completion_length: int
     mask_truncated_completions: bool
@@ -33,16 +80,25 @@ class BatchRequest:
     num_processes: int
     local_batch_size: int
 
-
 @dataclass
 class BatchResult:
     """Result from batch generation"""
     batch_id: int
-    processed_results: Dict[str, Any]
+    processed_tokens: ProcessedTokens
+    reward_scores: RewardScores
     generation_time: float = 0.0
-    all_reward_dict: Dict[str, List[float]] = field(default_factory=dict)  # All reward scores
     completions: List[Any] = field(default_factory=list)  # Store completions for logging
     prompts: List[Any] = field(default_factory=list)  # Store prompts for logging
+    
+    @property
+    def processed_results(self) -> Dict[str, Any]:
+        """Backward compatibility property for trainer access"""
+        return self.processed_tokens.to_dict()
+    
+    @property
+    def all_reward_dict(self) -> Dict[str, List[float]]:
+        """Backward compatibility property for trainer access"""
+        return self.reward_scores.to_dict()
 
 
 class AsyncBatchGenerator:
@@ -262,21 +318,7 @@ class AsyncBatchGenerator:
         logger.info(f"Loom generated {len(loom_results.rollouts)} rollouts")
 
         # Extract rewards from rollouts
-        all_reward_dict = {}
-        gravity_scores = []
-        gravities_dict = {}
-        
-        # Collect all gravity and gravities data
-        for rollout in loom_results.rollouts:
-            gravity_scores.append(rollout.gravity)
-            for key, value in rollout.gravities.items():
-                if key not in gravities_dict:
-                    gravities_dict[key] = []
-                gravities_dict[key].append(value)
-        
-        # Store in all_reward_dict
-        all_reward_dict['reward'] = gravity_scores
-        all_reward_dict.update(gravities_dict)
+        reward_scores = RewardScores.from_rollouts(loom_results.rollouts)
 
         # Extract completions and prompts
         completions = []
@@ -295,18 +337,18 @@ class AsyncBatchGenerator:
                 prompts.append(rollout.row.get('prompt', ''))
 
         # Process results
-        processed_results = process_rollouts(
+        processed_tokens = process_rollouts(
             loom_results,
             processing_class=request.processing_class,
-            mask_env_responses=request.mask_env_responses,
             max_completion_length=request.max_completion_length,
-            mask_truncated_completions=request.mask_truncated_completions
+            mask_truncated_completions=request.mask_truncated_completions,
+            mask_env_responses=request.mask_env_responses
         )
 
         result = BatchResult(
             batch_id=request.batch_id,
-            processed_results=processed_results,
-            all_reward_dict=all_reward_dict,
+            processed_tokens=processed_tokens,
+            reward_scores=reward_scores,
             completions=completions,
             prompts=prompts
         )
@@ -327,12 +369,12 @@ def process_rollouts(
     max_completion_length: int = -1,
     mask_truncated_completions: bool = False,
     mask_env_responses: bool = False,
-) -> Dict[str, List[Any]]: # TODO dataclass
+) -> ProcessedTokens:
     """
     Main tokenization pipeline that handles both chat and completion formats.
 
     Returns:
-        Dict with prompt_ids, prompt_mask, completion_ids, completion_mask, rewards
+        ProcessedTokens containing prompt_ids, prompt_mask, completion_ids, completion_mask
     """
     # TODO: states + rewards for intermediate-reward objectives
 
@@ -366,12 +408,12 @@ def process_rollouts(
         all_completion_ids.append(completion_ids)
         all_completion_masks.append(completion_mask)
 
-    return {
-        "prompt_ids":      all_prompt_ids,
-        "prompt_mask":     all_prompt_masks,
-        "completion_ids":  all_completion_ids,
-        "completion_mask": all_completion_masks,
-    }
+    return ProcessedTokens(
+        prompt_ids=all_prompt_ids,
+        prompt_mask=all_prompt_masks,
+        completion_ids=all_completion_ids,
+        completion_mask=all_completion_masks,
+    )
 
 def process_completion(
     rollout: Rollout,
