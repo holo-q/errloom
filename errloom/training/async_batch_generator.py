@@ -223,10 +223,24 @@ class AsyncBatchGenerator:
         """
         Generate a single batch. This runs in the worker thread.
         """
-        # Call loom generation
+        import time
+        start_time = time.time()
+        
+        # Convert rows dict to Dataset if needed
+        rows = request.rows
+        if isinstance(rows, dict):
+            from datasets import Dataset
+            rows = Dataset.from_dict(rows)
+            logger.info(f"[cyan]🎯 Batch {request.batch_id}:[/] Processing {len(rows)} rows")
+        
+        # Call loom generation  
+        logger.info(f"[dim]⚡ Batch {request.batch_id}:[/] Starting loom rollouts...")
         loom_results = self.loom.weave(
-            request.rows,
+            rows,
         )
+        
+        generation_time = time.time() - start_time
+        logger.info(f"[green]✓ Batch {request.batch_id}:[/] Generated {len(loom_results.rollouts)} rollouts in {generation_time:.2f}s")
 
         logger.info(f"Loom generated {len(loom_results.rollouts)} rollouts")
 

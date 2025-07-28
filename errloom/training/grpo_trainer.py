@@ -32,6 +32,7 @@ from errloom.loom import Loom
 from errloom.training.async_batch_generator import AsyncBatchGenerator, BatchRequest
 from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.training.grpo_config import GRPOConfig
+from errloom.utils.log import LogContext
 
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
@@ -239,7 +240,19 @@ class GRPOTrainer(Trainer):
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional[PeftConfig] = None
     ):
-        self.logger = logging.getLogger(__name__)
+        # Initialize the logger with proper hierarchy
+        self.logger = logging.getLogger(f'errloom.training.{self.__class__.__name__}')
+        
+        with LogContext("🔧 Configuring GRPO Trainer...", "trainer_config", logger=self.logger):
+            self.logger.info(f"[cyan]Training Configuration:[/]")
+            self.logger.info(f"  • Learning rate: [green]{args.learning_rate}[/]")
+            self.logger.info(f"  • Batch size: [green]{args.per_device_train_batch_size}[/]")
+            self.logger.info(f"  • Max steps: [green]{args.max_steps}[/]") 
+            self.logger.info(f"  • Beta (KL coeff): [green]{args.beta}[/]")
+            self.logger.info(f"  • Epsilon (clipping): [green]{args.epsilon}[/]")
+            if hasattr(args, 'disable_nccl_init') and args.disable_nccl_init:
+                self.logger.info(f"  • [yellow]NCCL disabled for local testing[/]")
+
         self.loom: Loom | None = loom
 
         # Models
@@ -383,7 +396,15 @@ class GRPOTrainer(Trainer):
         # Only initialize communicator on the main process
         # Other processes will only use the client for non-NCCL operations
         if self.accelerator.is_main_process and not getattr(args, 'disable_nccl_init', False):
-            self.vllm_client.init_communicator()
+            with LogContext("🔗 Initializing vLLM Communicator...", "vllm_comm", logger=self.logger):
+                self.logger.info(f"[cyan]Connecting to vLLM server at {host}:{port}[/]")
+                self.vllm_client.init_communicator()
+                self.logger.info(f"[green]✓[/] vLLM communicator ready")
+        else:
+            if getattr(args, 'disable_nccl_init', False):
+                self.logger.info(f"[yellow]⚠[/] NCCL communicator disabled for local testing")
+            else:
+                self.logger.info(f"[dim]Non-main process, skipping NCCL init[/]")
 
         self._last_loaded_step = 0  # Initialize to 0 since vLLM already has initial weights
         self.model_accepts_loss_kwargs = False
@@ -747,23 +768,31 @@ class GRPOTrainer(Trainer):
 
                 # Submit batch (main process only)
                 if self.accelerator.is_main_process:
-                    request = BatchRequest(
-                        batch_id=batch_id,
-                        rows={'prompt': all_prompts, 'text': all_prompts, 'answer': all_answers, 'task': all_tasks, 'info': all_infos},
-                        processing_class=self.processing_class,
-                        mask_env_responses=self.mask_env_responses,
-                        max_completion_length=self.max_completion_length,
-                        mask_truncated_completions=self.mask_truncated_completions,
-                        max_concurrent=self.max_concurrent,
-                        device=self.accelerator.device,
-                        accelerator=self.accelerator,
-                        process_index=self.accelerator.process_index,
-                        num_processes=self.accelerator.num_processes,
-                        local_batch_size=local_batch_size,
-                    )
-                    self.async_generator.submit_batch(request)
-                    self.logger.info(f"Submitted batch {batch_id} with {len(all_prompts)} prompts (num processes: {self.accelerator.num_processes})")
-                    batches_submitted += 1
+                    batch_id = self.state.global_step
+                    
+                    with LogContext(f"📦 Preparing Batch {batch_id}...", f"batch_{batch_id}", logger=self.logger):
+                        self.logger.info(f"[cyan]Batch Configuration:[/]")
+                        self.logger.info(f"  • Global step: [green]{self.state.global_step}[/]")
+                        self.logger.info(f"  • Total prompts: [green]{len(all_prompts)}[/]")
+                        self.logger.info(f"  • Processes: [green]{self.accelerator.num_processes}[/]")
+                        self.logger.info(f"  • Local batch size: [green]{local_batch_size}[/]")
+
+                        request = BatchRequest(
+                            batch_id=batch_id,
+                            rows={'prompt': all_prompts, 'text': all_prompts, 'answer': all_answers, 'task': all_tasks, 'info': all_infos},
+                            processing_class=self.processing_class,
+                            mask_env_responses=self.mask_env_responses,
+                            max_completion_length=self.max_completion_length,
+                            mask_truncated_completions=self.mask_truncated_completions,
+                            max_concurrent=self.max_concurrent,
+                            device=self.accelerator.device,
+                            accelerator=self.accelerator,
+                            process_index=self.accelerator.process_index,
+                            num_processes=self.accelerator.num_processes,
+                            local_batch_size=local_batch_size,
+                        )
+                        self.async_generator.submit_batch(request)
+                        self.logger.info(f"[green]✓[/] Batch {batch_id} submitted to async generator")
                 self.accelerator.wait_for_everyone()
 
             # Update next batch id
