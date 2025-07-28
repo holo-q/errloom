@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, Literal
 import re
+from enum import Enum
 
 from rich import box
 from rich.console import Group
@@ -12,23 +13,122 @@ from rich.rule import Rule
 
 from errloom.utils.openai_chat import MessageList, MessageTuple
 
+class FragmentType(Enum):
+    """Type of text fragment for training purposes."""
+    PROMPT = "prompt"          # Input text, typically masked
+    COMPLETION = "completion"  # Generated text, typically reinforced  
+    REINFORCED = "reinforced"  # Text to reinforce (unmasked)
+    MASKED = "masked"          # Text to mask (ignored in loss)
+
+@dataclass
+class TextFragment:
+    """
+    A fragment of text with training metadata.
+    """
+    content: str
+    fragment_type: FragmentType
+    role: Optional[str] = None  # For chat mode: assistant, user, system, tool
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
 @dataclass
 class Context:
     """
-    Represents a conversation context with messages and related data.
+    Represents a conversation context with text fragments and training metadata.
     """
     text: str = ""
     _messages: MessageList = field(default_factory=list)
-    # attractors: List[Any] = field(default_factory=list)
+    fragments: List[TextFragment] = field(default_factory=list)
+    mode: Literal["chat", "completion"] = "chat"
+
+    def add_fragment(self, content: str, fragment_type: FragmentType, role: Optional[str] = None, **metadata):
+        """Add a text fragment with training metadata."""
+        fragment = TextFragment(
+            content=content,
+            fragment_type=fragment_type, 
+            role=role,
+            metadata=metadata
+        )
+        self.fragments.append(fragment)
+        
+        # Update legacy structures based on mode
+        if self.mode == "chat" and role:
+            self._update_messages_from_fragments()
+        else:
+            self._update_text_from_fragments()
 
     def add_text(self, text: str):
-        self._messages[-1]['content'] += text
+        """Legacy method - adds as masked prompt by default."""
+        if self._messages and self._messages[-1].get('role') == 'assistant':
+            # Continuing assistant message
+            self.add_fragment(text, FragmentType.COMPLETION, role='assistant')
+        else:
+            self.add_fragment(text, FragmentType.MASKED)
 
     def add_message(self, ego: str, text: str):
-        self._messages.append({'role': ego, 'content': text})
+        """Legacy method - adds based on role defaults."""
+        fragment_type = FragmentType.COMPLETION if ego == 'assistant' else FragmentType.MASKED
+        self.add_fragment(text, fragment_type, role=ego)
+
+    def add_prompt(self, content: str, role: Optional[str] = None):
+        """Add prompt text (typically masked)."""
+        self.add_fragment(content, FragmentType.PROMPT, role=role)
+
+    def add_completion(self, content: str, role: Optional[str] = None):
+        """Add completion text (typically reinforced)."""
+        self.add_fragment(content, FragmentType.COMPLETION, role=role or 'assistant')
+
+    def add_reinforced(self, content: str, role: Optional[str] = None):
+        """Add text to reinforce (unmasked in training)."""
+        self.add_fragment(content, FragmentType.REINFORCED, role=role)
+
+    def add_masked(self, content: str, role: Optional[str] = None):
+        """Add text to mask (ignored in training)."""
+        self.add_fragment(content, FragmentType.MASKED, role=role)
+
+    def _update_messages_from_fragments(self):
+        """Update _messages from fragments for chat mode."""
+        self._messages.clear()
+        current_role = None
+        current_content = ""
+        
+        for fragment in self.fragments:
+            if fragment.role != current_role:
+                # Role change - finish previous message
+                if current_role and current_content:
+                    self._messages.append({'role': current_role, 'content': current_content})
+                current_role = fragment.role
+                current_content = fragment.content
+            else:
+                # Same role - accumulate content
+                current_content += fragment.content
+        
+        # Add final message
+        if current_role and current_content:
+            self._messages.append({'role': current_role, 'content': current_content})
+
+    def _update_text_from_fragments(self):
+        """Update text from fragments for completion mode."""
+        self.text = "".join(fragment.content for fragment in self.fragments)
+
+    def get_training_data(self) -> Dict[str, List[Any]]:
+        """
+        Extract training data with fine-grained fragment control.
+        
+        Returns:
+            Dict with fragment_contents, fragment_types, fragment_roles, masks
+        """
+        return {
+            'fragment_contents': [f.content for f in self.fragments],
+            'fragment_types': [f.fragment_type.value for f in self.fragments], 
+            'fragment_roles': [f.role for f in self.fragments],
+            'masks': [f.fragment_type in [FragmentType.REINFORCED, FragmentType.COMPLETION] for f in self.fragments]
+        }
 
     @property
     def messages(self) -> MessageTuple:
+        """Get messages for chat mode."""
+        if self.mode != "chat":
+            raise ValueError("Messages only available in chat mode")
         return tuple(self._messages)
 
     def to_openai_messages(self) -> List[Dict[str, str]]:
@@ -36,9 +136,11 @@ class Context:
         Convert context messages to OpenAI API format.
         
         Returns:
-            List of message dicts with 'role' and 'content' keys,
-            compatible with OpenAI chat completions API.
+            List of message dicts compatible with OpenAI chat completions API.
         """
+        if self.mode != "chat":
+            raise ValueError("OpenAI messages only available in chat mode")
+        
         api_messages = []
         for msg in self._messages:
             if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
@@ -53,18 +155,26 @@ class Context:
         Convert context to plain text format for completion API.
         
         Returns:
-            Concatenated text content from all messages, suitable for
-            OpenAI completions API.
+            Concatenated text content, suitable for completions API.
         """
-        if self.text:
+        if self.mode == "completion":
             return self.text
         
+        # For chat mode, concatenate message contents
         text_parts = []
         for msg in self._messages:
             content = msg.get('content', '')
             if content:
                 text_parts.append(content)
         return ''.join(text_parts)
+
+    def set_mode(self, mode: Literal["chat", "completion"]):
+        """Set the context mode and update internal structures."""
+        self.mode = mode
+        if mode == "chat":
+            self._update_messages_from_fragments()
+        else:
+            self._update_text_from_fragments()
 
     @staticmethod
     def from_openai_messages(openai_messages: List[Dict[str, str]], text: str = "") -> 'Context':
@@ -163,9 +273,15 @@ class Context:
         Returns:
             Dictionary containing the extracted data fields
         """
+        # Get completion from last sample message or fallback to empty string
+        completion = ''
+        if rollout.samples:
+            last_sample = rollout.samples[-1]
+            completion = last_sample.get('content', '') if isinstance(last_sample, dict) else str(last_sample)
+            
         return {
             'prompt': rollout.row.get('prompt', ''),
-            'completion': rollout.samples[-1] if rollout.samples else '',
+            'completion': completion,
             'answer': rollout.row.get('answer', ''),
             'gravity': rollout.gravity,
             'task': rollout.task
@@ -316,32 +432,103 @@ def _pretty_repr(obj: Any) -> str:
 class Rollout:
     """
     Work state for a rollout and final returned output.
-    Gravity work also occurs in this state and mutates it.
-    # TODO Possible rename to String, Lstring, Wstring or Unstring. Treating it as a super-string is a very interesting continuation of the software engineering semantic.
+    Fragment-based architecture for fine-grained training control.
     """
     row: Dict[str, Any]
     contexts: list[Context] = field(default_factory=list)
-    mask: list[bool] = field(default_factory=list)
-    samples: list[str] = field(default_factory=list)
     gravity: float = 0.0
     gravities: Dict[str, float] = field(default_factory=dict)
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
-
-
+    
+    # Legacy compatibility fields (auto-computed from fragments)
+    mask: list[bool] = field(default_factory=list, init=False)
+    samples: list[Dict[str, str]] = field(default_factory=list, init=False)
 
     def __post_init__(self):
         pass
 
-    def new_context(self):
-        self.contexts.append(Context())
+    def new_context(self, mode: Literal["chat", "completion"] = "chat"):
+        """Create a new context with specified mode."""
+        context = Context(mode=mode)
+        self.contexts.append(context)
+
+    @property
+    def active_context(self) -> Context:
+        """Get the currently active context."""
+        if not self.contexts:
+            raise RuntimeError("No contexts available - call new_context() first")
+        return self.contexts[-1]
 
     def add_text(self, text: str):
-        self.contexts[-1].add_text(text)
+        """Legacy method - delegates to active context."""
+        self.active_context.add_text(text)
+        self._update_legacy_fields()
 
     def add_message(self, ego: str, text: str):
-        self.contexts[-1].add_message(ego, text)
+        """Legacy method - delegates to active context."""
+        self.active_context.add_message(ego, text)
+        self._update_legacy_fields()
+
+    # New fragment-based API
+    def add_prompt(self, content: str, role: Optional[str] = None):
+        """Add prompt text (typically masked)."""
+        self.active_context.add_prompt(content, role)
+        self._update_legacy_fields()
+
+    def add_completion(self, content: str, role: Optional[str] = None):
+        """Add completion text (typically reinforced)."""
+        self.active_context.add_completion(content, role)
+        self._update_legacy_fields()
+
+    def add_reinforced(self, content: str, role: Optional[str] = None):
+        """Add text to reinforce (unmasked in training)."""
+        self.active_context.add_reinforced(content, role)
+        self._update_legacy_fields()
+
+    def add_masked(self, content: str, role: Optional[str] = None):
+        """Add text to mask (ignored in training)."""
+        self.active_context.add_masked(content, role)
+        self._update_legacy_fields()
+
+    def set_mode(self, mode: Literal["chat", "completion"]):
+        """Set the mode for all contexts."""
+        for context in self.contexts:
+            context.set_mode(mode)
+        self._update_legacy_fields()
+
+    def _update_legacy_fields(self):
+        """Update legacy mask/samples fields from fragment data."""
+        if not self.contexts:
+            return
+            
+        # Get training data from active context
+        training_data = self.active_context.get_training_data()
+        
+        # Update legacy fields for backward compatibility
+        self.mask = training_data['masks']
+        
+        # Build samples from fragments with roles
+        self.samples = []
+        contents = training_data['fragment_contents']
+        roles = training_data['fragment_roles']
+        
+        for content, role in zip(contents, roles):
+            if role:  # Only add fragments with roles as samples
+                self.samples.append({'role': role, 'content': content})
+
+    def get_sample_messages(self) -> List[Dict[str, str]]:
+        """Get samples as properly formatted message objects."""
+        return [dict(msg) for msg in self.samples]  # Return clean copies
+
+    def get_sample_strings(self) -> List[str]:
+        """Get samples as strings for backward compatibility."""
+        return [msg.get("content", "") for msg in self.samples]
+
+    def get_mask_for_samples(self) -> List[bool]:
+        """Get mask array corresponding to samples."""
+        return self.mask.copy()
 
     def __rich_repr__(self):
         yield "row", self.row
@@ -356,7 +543,8 @@ class Rollout:
 
     @property
     def context(self) -> Context:
-        return self.contexts[-1]
+        """Legacy property - use active_context instead."""
+        return self.active_context
 
     def to_openai_messages(self) -> List[Dict[str, str]]:
         """

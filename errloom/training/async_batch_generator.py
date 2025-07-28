@@ -266,7 +266,8 @@ class AsyncBatchGenerator:
         prompts = []
         
         for rollout in loom_results.rollouts:
-            completions.append(rollout.samples)
+            # Use new method to get sample messages
+            completions.append(rollout.get_sample_messages())
             # Extract prompt from rollout context
             if hasattr(rollout.context, 'messages') and rollout.context.messages:
                 prompts.append(rollout.context.messages)
@@ -315,8 +316,12 @@ def process_rollouts(
     """
     # TODO: states + rewards for intermediate-reward objectives
 
-    # Determine format from first prompt
-    is_chat_format = isinstance(rollouts[0].context, list)
+    # Determine format from first rollout context
+    # In Errloom, rollout.context is a Context object with messages for chat format
+    first_rollout = rollouts[0]
+    is_chat_format = (hasattr(first_rollout, 'context') and 
+                     hasattr(first_rollout.context, 'messages') and 
+                     first_rollout.context.messages)
 
     all_prompt_ids = []
     all_prompt_masks = []
@@ -353,34 +358,14 @@ def process_completion(
     processing_class: PreTrainedTokenizerBase
 ) -> Tuple[List[int], List[int], List[int], List[int]]:
     """
-    Process completion format text.
-
-    Logic:
-    1. Tokenize prompt separately to get boundary
-    2. Tokenize completion
-    3. Create masks (prompt mask all 1s, completion mask handles EOS)
-
-    Returns:
-        prompt_ids, prompt_mask, completion_ids, completion_mask
+    DEPRECATED: This function is a Verifiers legacy that assumes simple prompt->completion format.
+    Errloom uses dynamic context scaffolding with chat format exclusively.
+    This function should never be called in the current architecture.
     """
-    # Extract prompt and completion from rollout
-    # TODO we need to actually properly track which indices in the context were AI generated and which were user generated. We are not doing simple prefix->completion stuff.
-    
-    # Get completion from samples
-    if isinstance(rollout.samples, list) and rollout.samples:
-        completion = rollout.samples[0] if isinstance(rollout.samples[0], str) else str(rollout.samples[0])
-    else:
-        completion = str(rollout.samples) if rollout.samples else ''
-
-    # Tokenize prompt
-    prompt_ids = processing_class.encode(prompt)
-    prompt_mask = [1] * len(prompt_ids)
-
-    # Tokenize completion
-    completion_ids = processing_class.encode(completion)
-    completion_mask = [1] * len(completion_ids)
-
-    return prompt_ids, prompt_mask, completion_ids, completion_mask
+    raise NotImplementedError(
+        "process_completion is deprecated in Errloom. "
+        "All processing should use process_chat_format with dynamic context scaffolding."
+    )
 
 def process_chat_format(
     rollout: Rollout,
@@ -401,9 +386,11 @@ def process_chat_format(
 
     # Extract prompt messages from rollout context
     messages = rollout.context.messages
+    if not isinstance(messages, list):
+        messages = list(messages)
 
-    # Get completion messages from samples
-    completion = rollout.samples if isinstance(rollout.samples, list) else [rollout.samples]
+    # Get completion messages from samples - they're automatically maintained by rollout
+    completion = rollout.get_sample_messages()
 
     # tokenize just the prompt
     prompt_text = processing_class.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -421,7 +408,8 @@ def process_chat_format(
     # process each completion message incrementally
     for i, msg in enumerate(completion):
         # create conversation prefix: prompt + completion[:i+1]
-        conversation_prefix = messages + completion[:i + 1]
+        # Type cast to resolve linter - both are message dicts in practice
+        conversation_prefix = list(messages) + completion[:i + 1]
 
         # tokenize the full prefix
         prefix_text = processing_class.apply_chat_template(

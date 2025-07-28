@@ -82,7 +82,6 @@ class Loom(ABC):
         self.dump_rollouts = dump_rollouts
         self.logger = log.getLogger(f'errloom.looms.{self.__class__.__name__}')
         self.init_data(data, data_bench, data_train, data_split)
-
         if isinstance(model, Tuple):
             self.model_name = model[0]
             self.model = model[1]

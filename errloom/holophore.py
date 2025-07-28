@@ -50,23 +50,47 @@ class Holophore:
             for span in ware.spans:
                 if span.uuid == uid:
                     return span
-        raise f"Span not found with uid {uid}"
+        raise ValueError(f"Span not found with uid {uid}")
 
     def new_context(self):
         self._rollout.new_context()
 
     def add_text(self, text: str):
-        ctx = self.contexts[-1]
+        ctx = self.active_context
         if len(ctx.messages) == 0 or self.ego != ctx.messages[-1]['role']:
             ctx.add_message(self.ego, text)
         else:
             ctx.add_text(text)
         self._newtext += text
 
-
     def add_message(self, ego: str, text: str):
-        self.contexts[-1].add_message(ego, text)
+        self.active_context.add_message(ego, text)
         self._newtext += text
+
+    # New fragment-based API for fine-grained training control
+    def add_prompt(self, content: str, role: Optional[str] = None):
+        """Add prompt text (typically masked)."""
+        self._rollout.add_prompt(content, role)
+        self._newtext += content
+
+    def add_completion(self, content: str, role: Optional[str] = None):
+        """Add completion text (typically reinforced).""" 
+        self._rollout.add_completion(content, role)
+        self._newtext += content
+
+    def add_reinforced(self, content: str, role: Optional[str] = None):
+        """Add text to reinforce (unmasked in training)."""
+        self._rollout.add_reinforced(content, role)
+        self._newtext += content
+
+    def add_masked(self, content: str, role: Optional[str] = None):
+        """Add text to mask (ignored in training)."""
+        self._rollout.add_masked(content, role)
+        self._newtext += content
+
+    def set_mode(self, mode):
+        """Set the context mode (chat/completion)."""
+        self._rollout.set_mode(mode)
 
     # @indent
     # def flush(self):
@@ -103,6 +127,11 @@ class Holophore:
     @property
     def contexts(self):
         return self._rollout.contexts
+
+    @property
+    def active_context(self):
+        """Get the currently active context."""
+        return self._rollout.active_context
 
     @property
     def loom(self) -> 'Loom':
