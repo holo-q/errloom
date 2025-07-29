@@ -261,11 +261,11 @@ def _print_version_info():
             versions.append(f"{pkg}==unknown")
     
     # Print in columns for better readability
-    log(f"{colorize_field_label('📦 Packages:')} {' | '.join(versions[:4])}")
+    log(f"{colorize_field_label('📦 Packages:')} {' '.join(versions[:4])}")
     if len(versions) > 4:
-        log(f"{colorize_field_label('          ')} {' | '.join(versions[4:8])}")
+        log(f"{colorize_field_label('          ')} {' '.join(versions[4:8])}")
     if len(versions) > 8:
-        log(f"{colorize_field_label('          ')} {' | '.join(versions[8:])}")
+        log(f"{colorize_field_label('          ')} {' '.join(versions[8:])}")
 
 
 def _handle_deployment():

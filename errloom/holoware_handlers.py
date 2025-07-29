@@ -52,4 +52,9 @@ class HolowareHandlers:
 
         injection = phore.invoke__holo__(phore, span)
         if injection:
-            phore.add_text(injection)
+            # Ensure injection is a string - convert Holophore to string if needed
+            if hasattr(injection, '__str__'):
+                injection_str = str(injection)
+            else:
+                injection_str = injection
+            phore.add_text(injection_str)

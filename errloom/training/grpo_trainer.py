@@ -476,6 +476,44 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     return torch.max(tensor[~torch.isnan(tensor)])
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Training Data Structures  
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ProcessedBatchData:
+    """Container for processed batch data from strategies"""
+    prompt_ids: List[List[int]]
+    prompt_mask: List[List[int]]  
+    completion_ids: List[List[int]]
+    completion_mask: List[List[int]]
+    rewards: List[float]
+    all_reward_dict: Dict[str, Any] = field(default_factory=dict)
+    completions: List[Any] = field(default_factory=list)
+
+@dataclass
+class ProcessedTensorData:
+    """Container for processed tensor data ready for training"""
+    prompt_ids: torch.Tensor
+    prompt_mask: torch.Tensor
+    completion_ids: torch.Tensor  
+    completion_mask: torch.Tensor
+    old_per_token_logps: Optional[torch.Tensor] = None
+    advantages: Optional[torch.Tensor] = None
+
+@dataclass
+class TrainingInputs:
+    """Container for training step inputs"""
+    input_ids: torch.Tensor
+    attention_mask: torch.Tensor
+    prompt_ids: torch.Tensor
+    prompt_mask: torch.Tensor
+    completion_ids: torch.Tensor
+    completion_mask: torch.Tensor
+    old_per_token_logps: Optional[torch.Tensor] = None
+    advantages: Optional[torch.Tensor] = None
+
+
 class GRPOTrainer(Trainer):
     def __init__(
         self,
@@ -561,10 +599,14 @@ class GRPOTrainer(Trainer):
         # Multi-step
         self.num_iterations = args.num_accum  # = 𝜇 in the GRPO paper
         self.epsilon_low = args.epsilon
-        self.epsilon_high = args.epsilon_high if args.epsilon_high is not None else args.epsilon
+        # Get epsilon values, falling back to epsilon if epsilon_high is None
+        epsilon_high = getattr(args, 'epsilon_high', None)
+        if epsilon_high is None:
+            epsilon_high = self.epsilon_low
+        self.epsilon_high = epsilon_high
         self.gradient_accumulation_steps = args.gradient_accumulation_steps
         self._step = 0
-        self._buffered_inputs: Optional[List[Dict[str, Optional[torch.Tensor]]]] = None
+        self._buffered_inputs: Optional[List[TrainingInputs]] = None
 
         # Data
         self.shuffle_dataset = args.shuffle_dataset
@@ -1215,16 +1257,16 @@ class GRPOTrainer(Trainer):
             input_ids = torch.cat([prompt_ids_padded, completion_ids_padded], dim=1)
             attention_mask = torch.cat([prompt_mask_padded, completion_mask_padded], dim=1)
             
-            processed_inputs = {
-                "input_ids":           input_ids,
-                "attention_mask":      attention_mask,
-                "prompt_ids":          prompt_ids_padded,
-                "prompt_mask":         prompt_mask_padded,
-                "completion_ids":      completion_ids_padded,
-                "completion_mask":     completion_mask_padded,
-                "old_per_token_logps": None,  # This is correct - the code handles None case
-                "advantages":          torch.stack(advantages_list),
-            }
+            processed_inputs = TrainingInputs(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                prompt_ids=prompt_ids_padded,
+                prompt_mask=prompt_mask_padded,
+                completion_ids=completion_ids_padded,
+                completion_mask=completion_mask_padded,
+                old_per_token_logps=None,  # This is correct - the code handles None case
+                advantages=torch.stack(advantages_list),
+            )
 
             # Buffer inputs using strategy
             self._buffered_inputs = self.training_pipeline.input_buffer_strategy.buffer_inputs(self, processed_inputs)
@@ -1249,8 +1291,16 @@ class GRPOTrainer(Trainer):
             # This should not happen with proper orchestration
             raise RuntimeError(f"No inputs available for step {self._step}")
 
-    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> Dict[str, torch.Tensor | None]:
-        """Implementation method for processing batch results"""
+    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> ProcessedTensorData:
+        """Process batch result into tensor format.
+        
+        Args:
+            batch_result: Result from async batch generator
+            process_slice: Slice for this process's portion of the data
+            
+        Returns:
+            ProcessedTensorData with tensors ready for training
+        """
         # Extract processed results  
         processed_results = batch_result.processed_results
 
@@ -1304,14 +1354,14 @@ class GRPOTrainer(Trainer):
         # Take this process's slice of advantages
         advantages = all_advantages[process_slice]
         
-        return {
-            "prompt_ids":          prompt_ids,
-            "prompt_mask":         prompt_mask,
-            "completion_ids":      completion_ids,
-            "completion_mask":     completion_mask,
-            "old_per_token_logps": None,
-            "advantages":          advantages,
-        }
+        return ProcessedTensorData(
+            prompt_ids=prompt_ids,
+            prompt_mask=prompt_mask,
+            completion_ids=completion_ids,
+            completion_mask=completion_mask,
+            old_per_token_logps=None,
+            advantages=advantages,
+        )
 
     def _compute_advantages(
         self,
@@ -1323,17 +1373,27 @@ class GRPOTrainer(Trainer):
 
     def compute_loss(self,
                      model: PreTrainedModel,
-                     inputs: Dict[str, torch.Tensor | None],
+                     inputs: TrainingInputs,
                      return_outputs: bool = False,
                      num_items_in_batch: int | None = None) -> torch.Tensor:
-        self.logger.push_debug("Loss")
+        """
+        Compute the GRPO loss given the model outputs.
+        """
+        mode = "train" if model.training else "eval" 
+        self.logger.push_debug("Policy")
+
+        # Extract inputs from dataclass
+        input_ids = inputs.input_ids
+        attention_mask = inputs.attention_mask
+        prompt_ids, prompt_mask = inputs.prompt_ids, inputs.prompt_mask
+        completion_ids, completion_mask = inputs.completion_ids, inputs.completion_mask
+        old_per_token_logps = inputs.old_per_token_logps
+        advantages = inputs.advantages
         
-        mode = "train"
-        # Compute the per-token log probabilities for the model
-        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
-        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
-        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
-        attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
+        # Ensure tensors are not None for required operations
+        if completion_ids is None or completion_mask is None or advantages is None:
+            raise ValueError("Required tensors cannot be None: completion_ids, completion_mask, advantages")
+            
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         
         self.logger.push_debug("Logprobs")
@@ -1341,11 +1401,10 @@ class GRPOTrainer(Trainer):
         self.logger.pop()
 
         # Compute the loss
-        advantages = inputs["advantages"]
         # When using num_iterations == 1, old_per_token_logps == per_token_logps,
         # so we can skip it's computation (see _generate_and_score_completions) and use per_token_logps.detach() instead.
         old_per_token_logps = (
-            per_token_logps.detach() if inputs["old_per_token_logps"] is None else inputs["old_per_token_logps"]
+            per_token_logps.detach() if old_per_token_logps is None else old_per_token_logps
         )
         
         self.logger.push_debug("Policy")
@@ -1934,7 +1993,7 @@ class BatchProcessingStrategy(ABC):
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
                            batch_result: Any,
-                           process_slice: slice) -> Dict[str, torch.Tensor | None]:
+                           process_slice: slice) -> ProcessedTensorData:
         """Process batch results into training inputs
         
         Use cases:
@@ -1965,7 +2024,7 @@ class InputBufferStrategy(ABC):
     @abstractmethod
     def buffer_inputs(self, 
                      trainer: 'GRPOTrainer',
-                     processed_inputs: Dict[str, torch.Tensor | None]) -> List[Dict[str, torch.Tensor | None]]:
+                     processed_inputs: TrainingInputs) -> List[TrainingInputs]:
         """Buffer and split inputs for gradient accumulation
         
         Use cases:
@@ -1979,7 +2038,7 @@ class InputBufferStrategy(ABC):
     @abstractmethod
     def get_step_inputs(self, 
                        trainer: 'GRPOTrainer',
-                       step: int) -> Dict[str, torch.Tensor | None]:
+                       step: int) -> TrainingInputs:
         """Get inputs for current step from buffer
         
         Use cases:
@@ -2386,7 +2445,7 @@ class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
                            batch_result: Any,
-                           process_slice: slice) -> Dict[str, torch.Tensor | None]:
+                           process_slice: slice) -> ProcessedTensorData:
         return trainer._process_batch_result_impl(batch_result, process_slice)
 
 class DefaultInputBufferStrategy(InputBufferStrategy):
@@ -2394,16 +2453,14 @@ class DefaultInputBufferStrategy(InputBufferStrategy):
     
     def buffer_inputs(self, 
                      trainer: 'GRPOTrainer',
-                     processed_inputs: Dict[str, torch.Tensor | None]) -> List[Dict[str, torch.Tensor | None]]:
-        from errloom.training.grpo_trainer import shuffle_tensor_dict, split_tensor_dict
-        
-        # Shuffle and split for gradient accumulation
-        shuffled_inputs = shuffle_tensor_dict(processed_inputs)
-        return split_tensor_dict(shuffled_inputs, trainer.gradient_accumulation_steps)
+                     processed_inputs: TrainingInputs) -> List[TrainingInputs]:
+        # Use the new TrainingInputs-aware functions
+        shuffled_inputs = shuffle_training_inputs(processed_inputs)
+        return split_training_inputs(shuffled_inputs, trainer.gradient_accumulation_steps)
     
     def get_step_inputs(self, 
                        trainer: 'GRPOTrainer',
-                       step: int) -> Dict[str, torch.Tensor | None]:
+                       step: int) -> TrainingInputs:
         if trainer._buffered_inputs is None:
             raise RuntimeError("No buffered inputs available")
         return trainer._buffered_inputs[step % trainer.gradient_accumulation_steps]
@@ -2458,3 +2515,63 @@ class TrainingPipelineFactory:
         # TODO: Implement StreamingOrchestrator and related strategies
         # For now, return default with notes for future implementation
         return TrainingPipelineFactory.create_default(1, 1)  # Minimal accumulation for streaming
+
+def shuffle_training_inputs(inputs: TrainingInputs) -> TrainingInputs:
+    """Shuffle TrainingInputs along the batch dimension in unison."""
+    batch_size = inputs.input_ids.shape[0]
+    permutation = torch.randperm(batch_size)
+    
+    return TrainingInputs(
+        input_ids=inputs.input_ids[permutation],
+        attention_mask=inputs.attention_mask[permutation],
+        prompt_ids=inputs.prompt_ids[permutation],
+        prompt_mask=inputs.prompt_mask[permutation],
+        completion_ids=inputs.completion_ids[permutation],
+        completion_mask=inputs.completion_mask[permutation],
+        old_per_token_logps=inputs.old_per_token_logps[permutation] if inputs.old_per_token_logps is not None else None,
+        advantages=inputs.advantages[permutation] if inputs.advantages is not None else None,
+    )
+
+def split_training_inputs(inputs: TrainingInputs, num_chunks: int) -> List[TrainingInputs]:
+    """Split TrainingInputs into chunks for gradient accumulation."""
+    batch_size = inputs.input_ids.shape[0]
+    chunk_size = batch_size // num_chunks
+    
+    chunks = []
+    for i in range(num_chunks):
+        start_idx = i * chunk_size
+        end_idx = start_idx + chunk_size if i < num_chunks - 1 else batch_size
+        
+        chunks.append(TrainingInputs(
+            input_ids=inputs.input_ids[start_idx:end_idx],
+            attention_mask=inputs.attention_mask[start_idx:end_idx],
+            prompt_ids=inputs.prompt_ids[start_idx:end_idx],
+            prompt_mask=inputs.prompt_mask[start_idx:end_idx],
+            completion_ids=inputs.completion_ids[start_idx:end_idx],
+            completion_mask=inputs.completion_mask[start_idx:end_idx],
+            old_per_token_logps=inputs.old_per_token_logps[start_idx:end_idx] if inputs.old_per_token_logps is not None else None,
+            advantages=inputs.advantages[start_idx:end_idx] if inputs.advantages is not None else None,
+        ))
+    
+    return chunks
+
+def shuffle_tensor_dict(tensor_dict: dict[str, Optional[torch.Tensor]]) -> dict[str, Optional[torch.Tensor]]:
+    """
+    Shuffles a dictionary of tensors along the first dimension in unison.
+
+    Example:
+        >>> x = torch.arange(6).reshape(3, 2)
+        >>> y = torch.arange(3).reshape(3, 1)
+        >>> tensor_dict = {"x": x, "y": y}
+        >>> shuffle_tensor_dict(tensor_dict)
+        {'x': tensor([[2, 3],
+                      [0, 1],
+                      [4, 5]]),
+         'y': tensor([[1],
+                      [0],
+                      [2]])}
+    """
+    first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
+    batch_size = first_tensor.shape[0]
+    permutation = torch.randperm(batch_size)
+    return {key: tensor[permutation] if tensor is not None else None for key, tensor in tensor_dict.items()}
