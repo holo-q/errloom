@@ -92,10 +92,8 @@ class QuestionAnswerLoom(Loom):
         completion = self.sample(
             rollout=rollout,
         )
-        if self.message_type == 'chat':
-            rollout.samples = [{'role': 'assistant', 'content': completion}]
-        else:
-            rollout.samples = completion
+        # Always use message dictionary format for consistency
+        rollout.samples = [{'role': 'assistant', 'content': completion}]
 
         return rollout
 

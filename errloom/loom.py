@@ -329,7 +329,8 @@ class Loom(ABC):
         for rollout_idx, rollout in enumerate(tapestry.rollouts):
             if not rollout.contexts:
                 # No contexts, create a simple text file with samples
-                content = "\n".join(rollout.samples) if rollout.samples else ""
+                sample_strings = rollout.get_sample_strings() if hasattr(rollout, 'get_sample_strings') else []
+                content = "\n".join(sample_strings) if sample_strings else ""
                 if content.strip():
                     file_path = rollouts_dir / f"rollout_{rollout_idx:04d}.txt"
                     with open(file_path, 'w', encoding='utf-8') as f:
@@ -496,7 +497,16 @@ Max concurrent: {tapestry.max_concurrent}
                 return "[ERROR] prompt_too_long"
             raise
 
-        rollout.samples.append(ret)
+        # Convert response to proper message format for new architecture
+        if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
+            # For new architecture, always store as message dictionaries
+            rollout.samples.append({'role': 'assistant', 'content': ret})
+        else:
+            # Fallback for legacy compatibility
+            if not hasattr(rollout, 'samples'):
+                rollout.samples = []
+            rollout.samples.append({'role': 'assistant', 'content': ret})
+        
         return ret
 
     def make_dataset(self,

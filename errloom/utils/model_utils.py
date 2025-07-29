@@ -65,11 +65,33 @@ def is_liger_available() -> bool:
 
 def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[str, Any], None] = None) -> Any:
     if model_kwargs is None:
-        model_kwargs = dict(
-            torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
-            use_cache=False,
-        )
+        # Detect if we're running on CPU or GPU
+        import torch
+        is_cpu = not torch.cuda.is_available() or torch.cuda.device_count() == 0
+        
+        # Check if CPU mode is explicitly requested via errlargs
+        try:
+            from errloom import errlargs
+            if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+                is_cpu = True
+        except ImportError:
+            pass
+        
+        if is_cpu:
+            # CPU-optimized configuration
+            model_kwargs = dict(
+                torch_dtype=torch.float32,  # Use fp32 for CPU
+                attn_implementation="eager",  # Disable flash attention for CPU
+                use_cache=False,
+            )
+        else:
+            # GPU-optimized configuration  
+            model_kwargs = dict(
+                torch_dtype=torch.bfloat16,
+                attn_implementation="flash_attention_2",
+                use_cache=False,
+            )
+    
     if is_liger_available() and use_liger:
         print("Using Liger kernel")
         from liger_kernel.transformers import AutoLigerKernelForCausalLM  # type: ignore

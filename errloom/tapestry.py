@@ -520,7 +520,30 @@ class Rollout:
 
     def get_sample_messages(self) -> List[Dict[str, str]]:
         """Get samples as properly formatted message objects."""
-        return [dict(msg) for msg in self.samples]  # Return clean copies
+        try:
+            result = []
+            for i, msg in enumerate(self.samples):
+                if isinstance(msg, dict):
+                    result.append(dict(msg))  # Return clean copies
+                else:
+                    # Handle malformed samples gracefully
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Sample {i} is not a dict: {type(msg)} = {msg!r}")
+                    # Try to convert to proper format
+                    if isinstance(msg, str):
+                        result.append({'role': 'assistant', 'content': msg})
+                    else:
+                        # Skip malformed entries
+                        logger.error(f"Skipping malformed sample {i}: {msg!r}")
+            return result
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in get_sample_messages: {e}")
+            logger.error(f"self.samples = {self.samples!r}")
+            # Return empty list to prevent crash
+            return []
 
     def get_sample_strings(self) -> List[str]:
         """Get samples as strings for backward compatibility."""

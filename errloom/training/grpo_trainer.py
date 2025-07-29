@@ -986,29 +986,31 @@ class GRPOTrainer(Trainer):
         self, inputs: list[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         """
-        Modular training loop using configurable pipeline strategies.
+        Prepare inputs for training step using the pluggable training pipeline.
         
-        This method orchestrates the training process through pluggable components:
-        1. Training orchestration (when to generate, sync weights, etc.)
+        The training pipeline orchestrates:
+        1. Generation orchestration strategy
         2. Weight synchronization strategy  
         3. Batch data gathering strategy
         4. Batch processing strategy
         5. Input buffering strategy
         """
-        self.logger.push_debug("Prepare")
-        
         # Ensure all processes are synchronized at the start
         self.accelerator.wait_for_everyone()
 
         # Check if we need to generate new completions using orchestrator
         if self.training_pipeline.orchestrator.should_generate_new_batch(self._step, self._buffered_inputs):
-            self.logger.push_info("Generate")
+            
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # 🔄 GENERATION PHASE
+            # ═══════════════════════════════════════════════════════════════════════════════
+            self.logger.info(f"[bold blue]🔄 STEP {self.state.global_step}[/] [dim]→[/] Generating completions...")
             
             # Sync weights using strategy
             if self.training_pipeline.weight_sync_strategy.should_sync_weights(
                 self.state.global_step, self._last_loaded_step
             ):
-                self.logger.info(f"Syncing weights to vLLM at step {self.state.global_step}")
+                self.logger.info(f"  [yellow]⚡ Syncing weights[/] to vLLM (step {self.state.global_step})")
                 self.training_pipeline.weight_sync_strategy.sync_weights(self)
                 self._last_loaded_step = self.state.global_step
 
@@ -1026,7 +1028,6 @@ class GRPOTrainer(Trainer):
             # Submit batches planned by orchestrator
             batches_submitted = 0
 
-            self.logger.push_debug("Submit")
             for batch_id in range(self._next_batch_id, generation_phase.target_batch_id + 1):
                 batch_offset = batch_id - generation_phase.batch_id_to_retrieve
                 batch_data = self._gather_batch_data(batch_offset)
@@ -1037,62 +1038,59 @@ class GRPOTrainer(Trainer):
                 if self.accelerator.is_main_process:
                     batch_id = self.state.global_step
                     
-                    with LogContext(f"📦 Preparing Batch {batch_id}...", f"batch_{batch_id}", logger=self.logger):
-                        self.logger.info(f"[cyan]Batch Configuration:[/]")
-                        self.logger.info(f"  • Global step: [green]{self.state.global_step}[/]")
-                        self.logger.info(f"  • Total prompts: [green]{len(batch_data.prompts)}[/]")
-                        self.logger.info(f"  • Processes: [green]{self.accelerator.num_processes}[/]")
-                        self.logger.info(f"  • Local batch size: [green]{local_batch_size}[/]")
+                    self.logger.info(f"  [cyan]📦 Batch {batch_id}[/] [dim]│[/] "
+                                     f"prompts=[green]{len(batch_data.prompts)}[/] "
+                                     f"processes=[blue]{self.accelerator.num_processes}[/] "
+                                     f"local_size=[yellow]{local_batch_size}[/]")
 
-                        # Create configuration objects
-                        from datasets import Dataset
-                        rows_dataset = Dataset.from_dict({
-                            'prompt': batch_data.prompts, 
-                            'text': batch_data.prompts, 
-                            'answer': batch_data.answers, 
-                            'task': batch_data.tasks, 
-                            'info': batch_data.infos
-                        })
-                        
-                        generation_config = GenerationConfig(
-                            max_completion_length=self.max_completion_length,
-                            mask_truncated_completions=self.mask_truncated_completions,
-                            mask_env_responses=self.mask_env_responses,
-                            max_concurrent=self.max_concurrent,
-                            generation_timeout=self.async_generator.generation_timeout,
-                            num_batches_ahead=self.async_generator.num_batches_ahead,
-                        )
-                        
-                        processing_config = ProcessingConfig(
-                            processing_class=self.processing_class,  # type: ignore
-                            mask_env_responses=self.mask_env_responses,
-                        )
-                        
-                        distributed_config = DistributedConfig(
-                            device=self.accelerator.device,
-                            accelerator=self.accelerator,
-                            process_index=self.accelerator.process_index,
-                            num_processes=self.accelerator.num_processes,
-                            local_batch_size=local_batch_size,
-                        )
-                        
-                        request = BatchRequest(
-                            batch_id=batch_id,
-                            rows=rows_dataset,
-                            generation_config=generation_config,
-                            processing_config=processing_config,
-                            distributed_config=distributed_config,
-                        )
-                        self.async_generator.submit_batch(request)
-                        self.logger.info(f"[green]✓[/] Batch {batch_id} submitted to async generator")
+                    # Create configuration objects
+                    from datasets import Dataset
+                    rows_dataset = Dataset.from_dict({
+                        'prompt': batch_data.prompts, 
+                        'text': batch_data.prompts, 
+                        'answer': batch_data.answers, 
+                        'task': batch_data.tasks, 
+                        'info': batch_data.infos
+                    })
+                    
+                    generation_config = GenerationConfig(
+                        max_completion_length=self.max_completion_length,
+                        mask_truncated_completions=self.mask_truncated_completions,
+                        mask_env_responses=self.mask_env_responses,
+                        max_concurrent=self.max_concurrent,
+                        generation_timeout=self.async_generator.generation_timeout,
+                        num_batches_ahead=self.async_generator.num_batches_ahead,
+                    )
+                    
+                    processing_config = ProcessingConfig(
+                        processing_class=self.processing_class,  # type: ignore
+                        mask_env_responses=self.mask_env_responses,
+                    )
+                    
+                    distributed_config = DistributedConfig(
+                        device=self.accelerator.device,
+                        accelerator=self.accelerator,
+                        process_index=self.accelerator.process_index,
+                        num_processes=self.accelerator.num_processes,
+                        local_batch_size=local_batch_size,
+                    )
+                    
+                    request = BatchRequest(
+                        batch_id=batch_id,
+                        rows=rows_dataset,
+                        generation_config=generation_config,
+                        processing_config=processing_config,
+                        distributed_config=distributed_config,
+                    )
+                    self.async_generator.submit_batch(request)
+                    self.logger.info(f"    [green]✓ Submitted[/] batch {batch_id} to async generator")
                 self.accelerator.wait_for_everyone()
-            self.logger.pop()
 
             # Update next batch id
             if self.accelerator.is_main_process:
                 self._next_batch_id = self._next_batch_id + batches_submitted
                 if batches_submitted > 0:
-                    self.logger.info(f"Submitted {batches_submitted} batches, next_batch_id now {self._next_batch_id}")
+                    self.logger.info(f"  [green]✓ Submitted {batches_submitted} batches[/], next_batch_id=[blue]{self._next_batch_id}[/]")
             self.accelerator.wait_for_everyone()
             # Synchronize next_batch_id across all processes
             next_batch_id_list = [self._next_batch_id if self.accelerator.is_main_process else 0]
@@ -1100,9 +1098,13 @@ class GRPOTrainer(Trainer):
             self._next_batch_id = next_batch_id_list[0]
             self.accelerator.wait_for_everyone()
 
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # 📤 RETRIEVAL PHASE  
+            # ═══════════════════════════════════════════════════════════════════════════════
+            
             # Now retrieve the batch we need for this step
             if self.accelerator.is_main_process:
-                self.logger.info(f"Retrieving batch {generation_phase.batch_id_to_retrieve} for processing")
+                self.logger.info(f"[bold purple]📤 RETRIEVAL[/] [dim]→[/] Batch {generation_phase.batch_id_to_retrieve}")
 
                 # Get batch result
                 batch_result = self.async_generator.get_batch(generation_phase.batch_id_to_retrieve)
@@ -1114,114 +1116,140 @@ class GRPOTrainer(Trainer):
                     'prompt_mask':     processed_results['prompt_mask'],
                     'completion_ids':  processed_results['completion_ids'],
                     'completion_mask': processed_results['completion_mask'],
-                    'rewards':         processed_results['rewards'],
-                    'all_reward_dict': batch_result.all_reward_dict if hasattr(batch_result, 'all_reward_dict') else {'reward': processed_results['rewards']},
+                    'rewards':         processed_results.get('rewards') or batch_result.reward_scores.reward,
+                    'all_reward_dict': batch_result.all_reward_dict if hasattr(batch_result, 'all_reward_dict') else {'reward': processed_results.get('rewards') or batch_result.reward_scores.reward},
                     'completions':     batch_result.completions if hasattr(batch_result, 'completions') else [],
                     'prompts':         batch_result.prompts if hasattr(batch_result, 'prompts') else [],
                 }
             else:
                 broadcast_data = None
-            self.accelerator.wait_for_everyone()
 
-            self.logger.push_debug("Broadcast")
-            # Broadcast processed data
-            broadcast_list = [broadcast_data]
-            broadcast_object_list(broadcast_list, from_process=0)
-            broadcast_data = broadcast_list[0]
-            self.accelerator.wait_for_everyone()
-            self.logger.pop()
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # 📡 BROADCAST PHASE
+            # ═══════════════════════════════════════════════════════════════════════════════
+            self.logger.info(f"[bold yellow]📡 BROADCAST[/] [dim]→[/] Distributing batch data...")
+            
+            # Broadcast data to all processes
+            broadcast_data = broadcast_object_list([broadcast_data], from_process=0)[0]
+            
+            # Ensure we have valid broadcast data
+            if broadcast_data is None:
+                raise RuntimeError("Failed to broadcast batch data from main process")
 
-            # Each process takes its slice
-            process_slice = slice(
-                self.accelerator.process_index * len(inputs),
-                (self.accelerator.process_index + 1) * len(inputs),
-            )
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # ⚙️ PROCESSING PHASE
+            # ═══════════════════════════════════════════════════════════════════════════════  
+            self.logger.info(f"[bold green]⚙️ PROCESSING[/] [dim]→[/] Converting to tensors...")
+            
+            # Extract rollout data (transitioning from legacy prompt/completion terminology)
+            rollout_prompt_ids = broadcast_data['prompt_ids']
+            rollout_prompt_masks = broadcast_data['prompt_mask'] 
+            rollout_completion_ids = broadcast_data['completion_ids']
+            rollout_completion_masks = broadcast_data['completion_mask']
+            rollout_rewards = broadcast_data['rewards']
 
-            self.logger.push_debug("Process")
             # Create rewards tensor and compute advantages using full batch
-            assert broadcast_data is not None  # After broadcast, all processes have data
-            all_rewards = torch.tensor(broadcast_data['rewards'], device=self.accelerator.device)
+            all_rewards = torch.tensor(rollout_rewards, device=self.accelerator.device)
             all_advantages = self._compute_advantages(all_rewards)
+
+            # Log reward statistics
+            if self.accelerator.is_main_process:
+                reward_mean = all_rewards.mean().item()
+                reward_std = all_rewards.std().item()
+                advantage_mean = all_advantages.mean().item()
+                self.logger.info(f"  [magenta]📊 Rewards[/] mean=[green]{reward_mean:.3f}[/] "
+                               f"std=[yellow]{reward_std:.3f}[/] adv_mean=[blue]{advantage_mean:.3f}[/]")
 
             # Now create tensors only for this process's slice
             prompt_ids_list = []
             prompt_mask_list = []
             completion_ids_list = []
             completion_mask_list = []
+            advantages_list = []
+            
+            # Process slice for this accelerator
+            num_completions = len(rollout_prompt_ids)
+            process_slice = slice(
+                self.accelerator.process_index * num_completions // self.accelerator.num_processes,
+                (self.accelerator.process_index + 1) * num_completions // self.accelerator.num_processes
+            )
 
             for i in range(process_slice.start, process_slice.stop):
-                prompt_ids_list.append(torch.tensor(broadcast_data['prompt_ids'][i], device=self.accelerator.device))
-                prompt_mask_list.append(torch.tensor(broadcast_data['prompt_mask'][i], device=self.accelerator.device))
-                completion_ids_list.append(torch.tensor(broadcast_data['completion_ids'][i], device=self.accelerator.device))
-                completion_mask_list.append(torch.tensor(broadcast_data['completion_mask'][i], device=self.accelerator.device))
+                # Convert individual sequences to tensors directly from broadcast_data
+                prompt_ids_tensor = torch.tensor(rollout_prompt_ids[i], device=self.accelerator.device)
+                prompt_mask_tensor = torch.tensor(rollout_prompt_masks[i], device=self.accelerator.device)
+                completion_ids_tensor = torch.tensor(rollout_completion_ids[i], device=self.accelerator.device)
+                completion_mask_tensor = torch.tensor(rollout_completion_masks[i], device=self.accelerator.device)
+                
+                prompt_ids_list.append(prompt_ids_tensor)
+                prompt_mask_list.append(prompt_mask_tensor)  
+                completion_ids_list.append(completion_ids_tensor)
+                completion_mask_list.append(completion_mask_tensor)
+                advantages_list.append(all_advantages[i])
 
-            # Pad sequences
-            prompt_ids = pad(prompt_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='left')  # type: ignore
-            prompt_mask = pad(prompt_mask_list, padding_side='left')  # type: ignore
-            completion_ids = pad(completion_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='right')  # type: ignore
-            completion_mask = pad(completion_mask_list)
-
-            # Truncate if needed
-            if self.max_prompt_length is not None and prompt_ids.size(1) > self.max_prompt_length:
-                prompt_ids = prompt_ids[:, -self.max_prompt_length:]
-                prompt_mask = prompt_mask[:, -self.max_prompt_length:]
-
-            if self.max_completion_length is not None and completion_ids.size(1) > self.max_completion_length:
-                completion_ids = completion_ids[:, :self.max_completion_length]
-                completion_mask = completion_mask[:, :self.max_completion_length]
-
-            # Take this process's slice of advantages
-            advantages = all_advantages[process_slice]
-
-            # Log metrics on main process only
+            # Store for logging (main process only)
             if self.accelerator.is_main_process:
-                self._log_reward_metrics_primary(
-                    mode="train",
-                    all_reward_dict=broadcast_data['all_reward_dict'],
-                    all_rewards=all_rewards,
-                    generation_batch_size=len(all_rewards)
-                )
+                self._log_reward_metrics_primary("train", broadcast_data['all_reward_dict'], all_rewards, len(rollout_rewards))
+                self._log_textual_data_primary(broadcast_data['prompts'], broadcast_data['completions'], broadcast_data['all_reward_dict'])
+                self._log_completion_metrics_primary("train", rollout_completion_masks, rollout_completion_ids, rollout_prompt_masks)
 
-                self._log_textual_data_primary(
-                    all_prompts=broadcast_data['prompts'],
-                    all_completions=broadcast_data['completions'],
-                    all_reward_dict=broadcast_data['all_reward_dict']
-                )
-
-                # Log completion metrics using full batch data on CPU to save memory
-                self._log_completion_metrics_primary(
-                    mode="train",
-                    all_completion_mask=broadcast_data['completion_mask'],
-                    all_completion_ids=broadcast_data['completion_ids'],
-                    all_prompt_mask=broadcast_data['prompt_mask']
-                )
-
-            # Concatenate all data for shuffling
-            full_batch = {
-                "prompt_ids":          prompt_ids,
-                "prompt_mask":         prompt_mask,
-                "completion_ids":      completion_ids,
-                "completion_mask":     completion_mask,
-                "old_per_token_logps": None,
-                "advantages":          advantages,
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # 💾 BUFFER PHASE
+            # ═══════════════════════════════════════════════════════════════════════════════
+            
+            # Create inputs for this step using the legacy format for now (will modernize later)
+            from torch.nn.utils.rnn import pad_sequence
+            
+            # Get proper padding token ID (handle different tokenizer types)
+            pad_token_id = getattr(self.processing_class, 'pad_token_id', 0)
+            if pad_token_id is None:
+                pad_token_id = 0
+            
+            # Pad sequences to same length
+            prompt_ids_padded = pad_sequence(prompt_ids_list, batch_first=True, padding_value=pad_token_id)
+            prompt_mask_padded = pad_sequence(prompt_mask_list, batch_first=True, padding_value=0)
+            completion_ids_padded = pad_sequence(completion_ids_list, batch_first=True, padding_value=pad_token_id)
+            completion_mask_padded = pad_sequence(completion_mask_list, batch_first=True, padding_value=0)
+            
+            # Concatenate prompt and completion for full sequences
+            input_ids = torch.cat([prompt_ids_padded, completion_ids_padded], dim=1)
+            attention_mask = torch.cat([prompt_mask_padded, completion_mask_padded], dim=1)
+            
+            processed_inputs = {
+                "input_ids":           input_ids,
+                "attention_mask":      attention_mask,
+                "prompt_ids":          prompt_ids_padded,
+                "prompt_mask":         prompt_mask_padded,
+                "completion_ids":      completion_ids_padded,
+                "completion_mask":     completion_mask_padded,
+                "old_per_token_logps": None,  # This is correct - the code handles None case
+                "advantages":          torch.stack(advantages_list),
             }
 
-            # Shuffle and split for gradient accumulation
-            full_batch = shuffle_tensor_dict(full_batch)
-            self._buffered_inputs = split_tensor_dict(full_batch, self.gradient_accumulation_steps)
-            self.accelerator.wait_for_everyone()
-            self.logger.pop()
-            self.logger.pop()
+            # Buffer inputs using strategy
+            self._buffered_inputs = self.training_pipeline.input_buffer_strategy.buffer_inputs(self, processed_inputs)
             
-        # Return appropriate slice from buffer using strategy
-        result = self.training_pipeline.input_buffer_strategy.get_step_inputs(self, self._step)
-        self._step += 1
-        self.accelerator.wait_for_everyone()
+            if self._buffered_inputs is not None:
+                self.logger.info(f"[bold cyan]💾 BUFFERED[/] {len(self._buffered_inputs)} input sets for training")
+            else:
+                raise RuntimeError("Failed to buffer inputs for training")
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # 🎯 TRAINING PHASE
+        # ═══════════════════════════════════════════════════════════════════════════════
         
-        self.logger.pop()
-        return result
-    
-    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> Dict[str, torch.Tensor]:
+        # Get inputs for this step using strategy
+        step_inputs = self.training_pipeline.input_buffer_strategy.get_step_inputs(self, self._step)
+        
+        if step_inputs is not None:
+            self.logger.info(f"[bold magenta]🎯 TRAINING[/] [dim]→[/] Step {self._step} with buffered inputs")
+            self._step += 1
+            return step_inputs
+        else:
+            # This should not happen with proper orchestration
+            raise RuntimeError(f"No inputs available for step {self._step}")
+
+    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> Dict[str, torch.Tensor | None]:
         """Implementation method for processing batch results"""
         # Extract processed results  
         processed_results = batch_result.processed_results
@@ -1255,9 +1283,13 @@ class GRPOTrainer(Trainer):
             completion_mask_list.append(torch.tensor(broadcast_data['completion_mask'][i], device=self.accelerator.device))
 
         # Pad sequences
-        prompt_ids = pad(prompt_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='left')  # type: ignore
+        pad_token_id = getattr(self.processing_class, 'pad_token_id', 0)
+        if pad_token_id is None:
+            pad_token_id = 0
+            
+        prompt_ids = pad(prompt_ids_list, padding_value=pad_token_id, padding_side='left')  # type: ignore
         prompt_mask = pad(prompt_mask_list, padding_side='left')  # type: ignore
-        completion_ids = pad(completion_ids_list, padding_value=self.processing_class.pad_token_id, padding_side='right')  # type: ignore
+        completion_ids = pad(completion_ids_list, padding_value=pad_token_id, padding_side='right')  # type: ignore
         completion_mask = pad(completion_mask_list)
 
         # Truncate if needed
@@ -1291,7 +1323,7 @@ class GRPOTrainer(Trainer):
 
     def compute_loss(self,
                      model: PreTrainedModel,
-                     inputs: Dict[str, torch.Tensor],
+                     inputs: Dict[str, torch.Tensor | None],
                      return_outputs: bool = False,
                      num_items_in_batch: int | None = None) -> torch.Tensor:
         self.logger.push_debug("Loss")
@@ -1902,7 +1934,7 @@ class BatchProcessingStrategy(ABC):
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
                            batch_result: Any,
-                           process_slice: slice) -> Dict[str, torch.Tensor]:
+                           process_slice: slice) -> Dict[str, torch.Tensor | None]:
         """Process batch results into training inputs
         
         Use cases:
@@ -1933,7 +1965,7 @@ class InputBufferStrategy(ABC):
     @abstractmethod
     def buffer_inputs(self, 
                      trainer: 'GRPOTrainer',
-                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+                     processed_inputs: Dict[str, torch.Tensor | None]) -> List[Dict[str, torch.Tensor | None]]:
         """Buffer and split inputs for gradient accumulation
         
         Use cases:
@@ -1947,7 +1979,7 @@ class InputBufferStrategy(ABC):
     @abstractmethod
     def get_step_inputs(self, 
                        trainer: 'GRPOTrainer',
-                       step: int) -> Dict[str, torch.Tensor]:
+                       step: int) -> Dict[str, torch.Tensor | None]:
         """Get inputs for current step from buffer
         
         Use cases:
@@ -2354,7 +2386,7 @@ class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
                            batch_result: Any,
-                           process_slice: slice) -> Dict[str, torch.Tensor]:
+                           process_slice: slice) -> Dict[str, torch.Tensor | None]:
         return trainer._process_batch_result_impl(batch_result, process_slice)
 
 class DefaultInputBufferStrategy(InputBufferStrategy):
@@ -2362,7 +2394,7 @@ class DefaultInputBufferStrategy(InputBufferStrategy):
     
     def buffer_inputs(self, 
                      trainer: 'GRPOTrainer',
-                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+                     processed_inputs: Dict[str, torch.Tensor | None]) -> List[Dict[str, torch.Tensor | None]]:
         from errloom.training.grpo_trainer import shuffle_tensor_dict, split_tensor_dict
         
         # Shuffle and split for gradient accumulation
@@ -2371,7 +2403,7 @@ class DefaultInputBufferStrategy(InputBufferStrategy):
     
     def get_step_inputs(self, 
                        trainer: 'GRPOTrainer',
-                       step: int) -> Dict[str, torch.Tensor]:
+                       step: int) -> Dict[str, torch.Tensor | None]:
         if trainer._buffered_inputs is None:
             raise RuntimeError("No buffered inputs available")
         return trainer._buffered_inputs[step % trainer.gradient_accumulation_steps]

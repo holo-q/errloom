@@ -52,6 +52,6 @@ class MultiTurnCompletionLoom(Loom):
                 input = input + env_msg
                 completion += env_msg
 
-        rollout.samples = completion
+        rollout.samples = [{'role': 'assistant', 'content': completion}]
         rollout.extra = state
         return rollout
