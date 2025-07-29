@@ -613,8 +613,8 @@ class GRPOTrainer(Trainer):
             if self.ref_model is not None:
                 disable_dropout_in_model(self.ref_model)
 
-        # Initialize the metrics
-        self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
+        # Initialize structured metrics
+        self._metrics = ModeMetrics()
         self._total_train_tokens = 0
         self.log_completions = args.log_completions
         self.wandb_log_unique_prompts = args.wandb_log_unique_prompts
@@ -627,11 +627,7 @@ class GRPOTrainer(Trainer):
         # maxlen is set to the total number of forward passes per step. This value of `maxlen` ensures we log only the
         # final optimization step.
         maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
-        self._textual_logs = {
-            "prompt":     deque(maxlen=maxlen),
-            "completion": deque(maxlen=maxlen),
-            "rewards":    defaultdict(lambda: deque(maxlen=maxlen)),
-        }
+        self._textual_logs = TextualLogs(maxlen=maxlen)
 
         # OpenAI client for Environment generation (using vLLM server)
         host = args.vllm_server_host
@@ -1361,28 +1357,24 @@ class GRPOTrainer(Trainer):
                 total_loss = policy_loss + per_token_kl_loss.mean()
             
             mean_kl = (per_token_kl * completion_mask).sum() / completion_mask.sum()
-            self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).nanmean().item())  # type: ignore
+            gathered_kl = self.accelerator.gather_for_metrics(mean_kl)
+            kl_value = gathered_kl.nanmean().item() if hasattr(gathered_kl, 'nanmean') else float(gathered_kl)
+            self._metrics.get_mode_metrics(mode).algorithm.add_kl_metric(kl_value)
             self.logger.pop()
         else:
             total_loss = policy_loss
 
         # Log algorithm-specific metrics
+        algorithm_name = self.algorithm.get_algorithm_name()
+        mode_metrics = self._metrics.get_mode_metrics(mode)
+        
         for metric_name, metric_value in rl_result.metrics.items():
             if isinstance(metric_value, torch.Tensor):
                 metric_value = metric_value.item()
-            self._metrics[mode][f"{self.algorithm.get_algorithm_name().lower()}_{metric_name}"].append(metric_value)
+            mode_metrics.algorithm.add_algorithm_metric(algorithm_name, metric_name, metric_value)
         
         # Log clipping statistics
-        for stat_name, stat_value in rl_result.clipping_stats.items():
-            gathered_stat = self.accelerator.gather_for_metrics(stat_value)
-            if stat_name in ['low_clip', 'high_clip']:
-                self._metrics[mode][f"clip_ratio/{stat_name}_mean"].append(gathered_stat.nanmean().item())
-                if stat_name == 'low_clip':
-                    self._metrics[mode][f"clip_ratio/{stat_name}_min"].append(nanmin(gathered_stat).item())
-                else:
-                    self._metrics[mode][f"clip_ratio/{stat_name}_max"].append(nanmax(gathered_stat).item())
-            else:
-                self._metrics[mode][f"clip_ratio/{stat_name}"].append(gathered_stat.nanmean().item())
+        mode_metrics.clipping.add_clipping_stats(rl_result.clipping_stats, self.accelerator)
         
         self.logger.pop()
         return total_loss
@@ -1487,7 +1479,15 @@ class GRPOTrainer(Trainer):
 
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
         mode = "train" if self.model is not None and self.model.training else "eval"  # type: ignore
-        metrics = {key: sum(val) / len(val) for key, val in self._metrics[mode].items()}  # average the metrics
+        
+        # Get structured metrics and convert to dictionary
+        mode_metrics_dict = self._metrics.to_dict(mode)
+        metrics = {}
+        
+        # Average the metrics (each metric is a list of values)
+        for key, val in mode_metrics_dict.items():
+            if isinstance(val, list) and len(val) > 0:
+                metrics[key] = sum(val) / len(val)
 
         # This method can be called both in training and evaluation. When called in evaluation, the keys in `logs`
         # start with "eval_". We need to add the prefix "eval_" to the keys in `metrics` to match the format.
@@ -1499,14 +1499,14 @@ class GRPOTrainer(Trainer):
             super().log(logs, start_time)
         else:
             super().log(logs)
-        self._metrics[mode].clear()
+        self._metrics.clear_mode(mode)
 
         if self.accelerator.is_main_process and self.log_completions:
-            if len(self._textual_logs["prompt"]) > 0:
+            if not self._textual_logs.is_empty():
                 print_prompt_completions_sample(
-                    self._textual_logs["prompt"],
-                    self._textual_logs["completion"],
-                    self._textual_logs["rewards"],
+                    list(self._textual_logs.prompts),
+                    list(self._textual_logs.completions),
+                    {k: list(v) for k, v in self._textual_logs.rewards.items()},
                     self.state.global_step,
                 )
 
@@ -1514,10 +1514,10 @@ class GRPOTrainer(Trainer):
                 import pandas as pd
 
                 table = {
-                    "step":       [str(self.state.global_step)] * len(self._textual_logs["prompt"]),
-                    "prompt":     list(self._textual_logs["prompt"]),
-                    "completion": list(self._textual_logs["completion"]),
-                    **{k: list(v) for k, v in self._textual_logs["rewards"].items()},
+                    "step":       [str(self.state.global_step)] * len(self._textual_logs.prompts),
+                    "prompt":     list(self._textual_logs.prompts),
+                    "completion": list(self._textual_logs.completions),
+                    **{k: list(v) for k, v in self._textual_logs.rewards.items()},
                 }
                 if len(table["prompt"]) > 0:
                     df = pd.DataFrame(table)
@@ -1526,10 +1526,7 @@ class GRPOTrainer(Trainer):
                     wandb.log({"completions": wandb.Table(dataframe=df)})
 
             # Clear the textual logs after logging
-            self._textual_logs["prompt"].clear()
-            self._textual_logs["completion"].clear()
-            for key in self._textual_logs["rewards"]:
-                self._textual_logs["rewards"][key].clear()
+            self._textual_logs.clear()
 
     def _log_reward_metrics_primary(
         self,
@@ -1542,11 +1539,12 @@ class GRPOTrainer(Trainer):
         Log generation metrics (PRIMARY PROCESS ONLY).
         This handles reward statistics and per-reward-function metrics using the full batch data.
         """
+        mode_metrics = self._metrics.get_mode_metrics(mode)
+        
         # Log reward statistics using full batch
         mean_rewards = all_rewards.view(-1, self.num_generations).mean(dim=1)
         std_rewards = all_rewards.view(-1, self.num_generations).std(dim=1)
-        self._metrics[mode]["reward"].append(mean_rewards.mean().item())
-        self._metrics[mode]["reward_std"].append(std_rewards.mean().item())
+        mode_metrics.rewards.add_reward_stats(mean_rewards.mean().item(), std_rewards.mean().item())
 
         # Log individual attraction rule gravities as metrics
         for reward_key in all_reward_dict:
@@ -1557,7 +1555,7 @@ class GRPOTrainer(Trainer):
                 else:
                     reward_tensor = reward_values
                 mean_reward = reward_tensor.mean().item()
-                self._metrics[mode][f"rewards/{reward_key}"].append(mean_reward)
+                mode_metrics.rewards.add_individual_reward(reward_key, mean_reward)
 
     def _log_textual_data_primary(
         self,
@@ -1569,15 +1567,7 @@ class GRPOTrainer(Trainer):
         Log textual data for wandb (PRIMARY PROCESS ONLY).
         This logs the full batch of prompts, completions, and rewards.
         """
-        self._textual_logs["prompt"].extend(all_prompts)
-        self._textual_logs["completion"].extend(all_completions)
-
-        # Log all reward scores - both individual functions and consolidated
-        for reward_key in all_reward_dict:
-            reward_values = all_reward_dict[reward_key]
-            self._textual_logs["rewards"][reward_key].extend(
-                reward_values.tolist() if isinstance(reward_values, torch.Tensor) else reward_values
-            )
+        self._textual_logs.add_logs(all_prompts, all_completions, all_reward_dict)
 
     def _log_completion_metrics_primary(
         self,
@@ -1590,17 +1580,17 @@ class GRPOTrainer(Trainer):
         Log completion-related metrics (PRIMARY PROCESS ONLY).
         This handles completion length statistics using the full batch data.
         """
+        mode_metrics = self._metrics.get_mode_metrics(mode)
+        
         # Log token count
         if mode == "train":
             total_tokens = sum(len(pm) + len(cm) for pm, cm in zip(all_prompt_mask, all_completion_mask))
             self.state.num_input_tokens_seen += total_tokens
-        self._metrics[mode]["num_tokens"] = [self.state.num_input_tokens_seen]
+        mode_metrics.num_tokens = [self.state.num_input_tokens_seen]
 
         # Log completion lengths
         completion_lengths = [sum(mask) for mask in all_completion_mask]
-        self._metrics[mode]["completions/mean_length"].append(float(sum(completion_lengths)) / len(completion_lengths))
-        self._metrics[mode]["completions/min_length"].append(float(min(completion_lengths)))
-        self._metrics[mode]["completions/max_length"].append(float(max(completion_lengths)))
+        mode_metrics.completions.add_length_stats(completion_lengths)
 
         # Check for EOS tokens
         term_lengths = []
@@ -1609,14 +1599,7 @@ class GRPOTrainer(Trainer):
             if has_eos:
                 term_lengths.append(sum(comp_mask))
 
-        clipped_completions_ratio = 1 - len(term_lengths) / len(completion_lengths)
-        self._metrics[mode]["completions/clipped_ratio"].append(clipped_completions_ratio)
-
-        if len(term_lengths) == 0:
-            term_lengths = [0]
-        self._metrics[mode]["completions/mean_terminated_length"].append(float(sum(term_lengths)) / len(term_lengths))
-        self._metrics[mode]["completions/min_terminated_length"].append(float(min(term_lengths)))
-        self._metrics[mode]["completions/max_terminated_length"].append(float(max(term_lengths)))
+        mode_metrics.completions.add_termination_stats(term_lengths, len(completion_lengths))
 
 def print_prompt_completions_sample(
     prompts: list[str],
@@ -1934,3 +1917,249 @@ class TrainingPipeline:
             batch_processing_strategy=DefaultBatchProcessingStrategy(),
             input_buffer_strategy=DefaultInputBufferStrategy()
         )
+
+@dataclass
+class RewardMetrics:
+    """Container for reward-related metrics"""
+    reward: List[float] = field(default_factory=list)
+    reward_std: List[float] = field(default_factory=list)
+    individual_rewards: Dict[str, List[float]] = field(default_factory=dict)
+    
+    def add_reward_stats(self, mean_reward: float, std_reward: float):
+        """Add main reward statistics"""
+        self.reward.append(mean_reward)
+        self.reward_std.append(std_reward)
+    
+    def add_individual_reward(self, reward_key: str, value: float):
+        """Add individual reward function value"""
+        if reward_key not in self.individual_rewards:
+            self.individual_rewards[reward_key] = []
+        self.individual_rewards[reward_key].append(value)
+    
+    def clear(self):
+        """Clear all metrics"""
+        self.reward.clear()
+        self.reward_std.clear()
+        self.individual_rewards.clear()
+
+@dataclass
+class CompletionMetrics:
+    """Container for completion-related metrics"""
+    mean_length: List[float] = field(default_factory=list)
+    min_length: List[float] = field(default_factory=list)
+    max_length: List[float] = field(default_factory=list)
+    clipped_ratio: List[float] = field(default_factory=list)
+    mean_terminated_length: List[float] = field(default_factory=list)
+    min_terminated_length: List[float] = field(default_factory=list)
+    max_terminated_length: List[float] = field(default_factory=list)
+    
+    def add_length_stats(self, completion_lengths: List[int]):
+        """Add completion length statistics"""
+        self.mean_length.append(float(sum(completion_lengths)) / len(completion_lengths))
+        self.min_length.append(float(min(completion_lengths)))
+        self.max_length.append(float(max(completion_lengths)))
+    
+    def add_termination_stats(self, term_lengths: List[int], total_completions: int):
+        """Add termination statistics"""
+        clipped_ratio = 1 - len(term_lengths) / total_completions
+        self.clipped_ratio.append(clipped_ratio)
+        
+        if len(term_lengths) == 0:
+            term_lengths = [0]
+        self.mean_terminated_length.append(float(sum(term_lengths)) / len(term_lengths))
+        self.min_terminated_length.append(float(min(term_lengths)))
+        self.max_terminated_length.append(float(max(term_lengths)))
+    
+    def clear(self):
+        """Clear all metrics"""
+        self.mean_length.clear()
+        self.min_length.clear()
+        self.max_length.clear()
+        self.clipped_ratio.clear()
+        self.mean_terminated_length.clear()
+        self.min_terminated_length.clear()
+        self.max_terminated_length.clear()
+
+@dataclass
+class ClippingMetrics:
+    """Container for clipping-related metrics"""
+    low_clip_mean: List[float] = field(default_factory=list)
+    high_clip_mean: List[float] = field(default_factory=list)
+    low_clip_min: List[float] = field(default_factory=list)
+    high_clip_max: List[float] = field(default_factory=list)
+    clip_ratio: List[float] = field(default_factory=list)
+    
+    def add_clipping_stats(self, stats: Dict[str, torch.Tensor], accelerator: Any):
+        """Add clipping statistics from RL algorithm result"""
+        for stat_name, stat_value in stats.items():
+            gathered_stat = accelerator.gather_for_metrics(stat_value)
+            if hasattr(gathered_stat, 'nanmean'):
+                # Handle tensor case
+                if stat_name in ['low_clip', 'high_clip']:
+                    mean_val = gathered_stat.nanmean().item()
+                    if stat_name == 'low_clip':
+                        self.low_clip_mean.append(mean_val)
+                        self.low_clip_min.append(nanmin(gathered_stat).item())
+                    else:
+                        self.high_clip_mean.append(mean_val)
+                        self.high_clip_max.append(nanmax(gathered_stat).item())
+                else:
+                    self.clip_ratio.append(gathered_stat.nanmean().item())
+            else:
+                # Handle list/dict case - convert to tensor first
+                if isinstance(gathered_stat, (list, dict)):
+                    tensor_stat = torch.tensor(list(gathered_stat.values()) if isinstance(gathered_stat, dict) else gathered_stat)
+                    if stat_name in ['low_clip', 'high_clip']:
+                        mean_val = tensor_stat.nanmean().item()
+                        if stat_name == 'low_clip':
+                            self.low_clip_mean.append(mean_val)
+                            self.low_clip_min.append(nanmin(tensor_stat).item())
+                        else:
+                            self.high_clip_mean.append(mean_val)
+                            self.high_clip_max.append(nanmax(tensor_stat).item())
+                    else:
+                        self.clip_ratio.append(tensor_stat.nanmean().item())
+    
+    def clear(self):
+        """Clear all metrics"""
+        self.low_clip_mean.clear()
+        self.high_clip_mean.clear()
+        self.low_clip_min.clear()
+        self.high_clip_max.clear()
+        self.clip_ratio.clear()
+
+@dataclass
+class AlgorithmMetrics:
+    """Container for algorithm-specific metrics"""
+    kl: List[float] = field(default_factory=list)
+    algorithm_specific: Dict[str, List[float]] = field(default_factory=dict)
+    
+    def add_kl_metric(self, kl_value: float):
+        """Add KL divergence metric"""
+        self.kl.append(kl_value)
+    
+    def add_algorithm_metric(self, algorithm_name: str, metric_name: str, value: float):
+        """Add algorithm-specific metric"""
+        key = f"{algorithm_name.lower()}_{metric_name}"
+        if key not in self.algorithm_specific:
+            self.algorithm_specific[key] = []
+        self.algorithm_specific[key].append(value)
+    
+    def clear(self):
+        """Clear all metrics"""
+        self.kl.clear()
+        self.algorithm_specific.clear()
+
+@dataclass
+class TrainingMetrics:
+    """Container for all training metrics"""
+    num_tokens: List[int] = field(default_factory=list)
+    rewards: RewardMetrics = field(default_factory=RewardMetrics)
+    completions: CompletionMetrics = field(default_factory=CompletionMetrics)
+    clipping: ClippingMetrics = field(default_factory=ClippingMetrics)
+    algorithm: AlgorithmMetrics = field(default_factory=AlgorithmMetrics)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for logging compatibility"""
+        result = {}
+        
+        # Add simple metrics
+        if self.num_tokens:
+            result["num_tokens"] = self.num_tokens
+        
+        # Add reward metrics
+        if self.rewards.reward:
+            result["reward"] = self.rewards.reward
+        if self.rewards.reward_std:
+            result["reward_std"] = self.rewards.reward_std
+        for key, values in self.rewards.individual_rewards.items():
+            result[f"rewards/{key}"] = values
+        
+        # Add completion metrics
+        for field_name in ["mean_length", "min_length", "max_length", "clipped_ratio", 
+                          "mean_terminated_length", "min_terminated_length", "max_terminated_length"]:
+            values = getattr(self.completions, field_name)
+            if values:
+                result[f"completions/{field_name}"] = values
+        
+        # Add clipping metrics
+        if self.clipping.low_clip_mean:
+            result["clip_ratio/low_clip_mean"] = self.clipping.low_clip_mean
+        if self.clipping.high_clip_mean:
+            result["clip_ratio/high_clip_mean"] = self.clipping.high_clip_mean
+        if self.clipping.low_clip_min:
+            result["clip_ratio/low_clip_min"] = self.clipping.low_clip_min
+        if self.clipping.high_clip_max:
+            result["clip_ratio/high_clip_max"] = self.clipping.high_clip_max
+        if self.clipping.clip_ratio:
+            result["clip_ratio/clip_ratio"] = self.clipping.clip_ratio
+        
+        # Add algorithm metrics
+        if self.algorithm.kl:
+            result["kl"] = self.algorithm.kl
+        for key, values in self.algorithm.algorithm_specific.items():
+            result[key] = values
+        
+        return result
+    
+    def clear(self):
+        """Clear all metrics"""
+        self.num_tokens.clear()
+        self.rewards.clear()
+        self.completions.clear()
+        self.clipping.clear()
+        self.algorithm.clear()
+
+@dataclass
+class TextualLogs:
+    """Container for textual logs (prompts, completions, rewards for wandb)"""
+    prompts: deque = field(default_factory=lambda: deque())
+    completions: deque = field(default_factory=lambda: deque())
+    rewards: Dict[str, deque] = field(default_factory=lambda: defaultdict(lambda: deque()))
+    
+    def __init__(self, maxlen: Optional[int] = None):
+        self.prompts = deque(maxlen=maxlen)
+        self.completions = deque(maxlen=maxlen)
+        self.rewards = defaultdict(lambda: deque(maxlen=maxlen))
+    
+    def add_logs(self, 
+                 prompts: List[Any],
+                 completions: List[Any],
+                 reward_dict: Dict[str, Any]):
+        """Add textual logs"""
+        self.prompts.extend(prompts)
+        self.completions.extend(completions)
+        
+        for reward_key, reward_values in reward_dict.items():
+            self.rewards[reward_key].extend(
+                reward_values.tolist() if isinstance(reward_values, torch.Tensor) else reward_values
+            )
+    
+    def clear(self):
+        """Clear all logs"""
+        self.prompts.clear()
+        self.completions.clear()
+        for key in self.rewards:
+            self.rewards[key].clear()
+    
+    def is_empty(self) -> bool:
+        """Check if logs are empty"""
+        return len(self.prompts) == 0
+
+@dataclass
+class ModeMetrics:
+    """Container for train/eval mode metrics"""
+    train: TrainingMetrics = field(default_factory=TrainingMetrics)
+    eval: TrainingMetrics = field(default_factory=TrainingMetrics)
+    
+    def get_mode_metrics(self, mode: str) -> TrainingMetrics:
+        """Get metrics for specific mode"""
+        return self.train if mode == "train" else self.eval
+    
+    def clear_mode(self, mode: str):
+        """Clear metrics for specific mode"""
+        self.get_mode_metrics(mode).clear()
+    
+    def to_dict(self, mode: str) -> Dict[str, Any]:
+        """Convert mode metrics to dict"""
+        return self.get_mode_metrics(mode).to_dict()
