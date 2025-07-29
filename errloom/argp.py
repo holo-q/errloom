@@ -19,6 +19,9 @@ def colorize_command(command: str) -> str:
     Returns:
         Rich markup string with appropriate colors applied
     """
+    from errloom.utils.log import (colorize_loom, colorize_holoware, colorize_session_name, 
+                                   colorize_placeholder, colorize_command_name)
+    
     # Split command into parts
     parts = command.split()
     
@@ -36,7 +39,7 @@ def colorize_command(command: str) -> str:
             colored_parts.append(f"[cyan]{part}[/]")
         elif part.endswith(".hol"):
             colored_parts.append(f"[bright_green]{part}[/]")
-        elif part in ["dry", "train", "dump"]:
+        elif part in ["dry", "train", "dump", "new", "resume", "vllm"]:
             # Commands - bright cyan
             colored_parts.append(f"[bright_cyan]{part}[/]")
         elif part.startswith("--"):
@@ -45,12 +48,49 @@ def colorize_command(command: str) -> str:
             colored_parts.append(f"[bright_yellow]{part}[/]")
         elif part.isdigit():
             colored_parts.append(f"[magenta]{part}[/]")
-        elif ":" in part and "." in part:
+        elif ":" in part and ("." in part or "localhost" in part or part.startswith("127.")):
+            # IP addresses, URLs, or localhost:port
             colored_parts.append(f"[magenta]{part}[/]")
+        elif part == "<loom/holoware/session_name>":
+            # Special handling for the complex placeholder
+            colored_text = "<" + colorize_loom("loom").replace("[/]", "") + "/" + \
+                          colorize_holoware("holoware").replace("[/]", "") + "/" + \
+                          colorize_session_name("session_name").replace("[/]", "") + ">"
+            colored_parts.append(colored_text)
+        elif part == "<command>":
+            # Special handling for command placeholder
+            colored_text = "<" + colorize_command_name("command").replace("[/]", "") + ">"
+            colored_parts.append(colored_text)
+        elif part.startswith("<") and part.endswith(">"):
+            # Generic placeholders
+            colored_parts.append(colorize_placeholder(part))
+        elif part == "..." or part == "…":
+            # Ellipsis for abbreviated commands
+            colored_parts.append(f"[dim]{part}[/]")
         else:
             colored_parts.append(f"[white]{part}[/]")
     
     return " ".join(colored_parts)
+
+
+def print_errloom_ascii():
+    """Print the beautiful Errloom ASCII art - Retro Computing Style."""
+    from errloom.utils.log import log
+    
+    # Create the ASCII art as a single multiline string to avoid RichHandler alignment issues
+    ascii_art = """
+[bright_yellow]╭─────────────────────────────────────────────────────────────────╮
+│  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄       ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄   ▄▄  │
+│  ██████  ██  ██  ██  ██  ██      ██  ██  ██  ██  ███▄▄███  │
+│  ██████  ██████  ██████  ██      ██  ██  ██  ██  ████████  │
+│  ██▄▄▄▄  ██▄▄██  ██▄▄██  ██      ██  ██  ██  ██  ██▄██▄██  │
+│  ██████  ██  ██  ██  ██  ██████  ██████  ██████  ██▄▄▄▄██  │
+╰─────────────────────────────────────────────────────────────────╯[/]
+
+[dim]              Swiss Army Knife for RL-Enhanced Prompt Scaffolding[/]
+"""
+    
+    log(ascii_art.strip())
 
 
 def show_help():
@@ -60,16 +100,17 @@ def show_help():
     from rich.rule import Rule
 
     logc()
-    log(Rule("[bold cyan]Errloom - Holoware Training", style="cyan"))
+    print_errloom_ascii()
+    log(Rule("[bold cyan]Holoware Training", style="cyan"))
     log("")
 
     # Try to find available holoware
     try:
         available_holoware = get_default_loader().list_prompts()
         if available_holoware:
-            log("[bold]Available holoware files:[/]")
+            log("[bold bright_yellow]Available holowares:[/]")
             for hol in sorted(available_holoware):
-                log(f"  [bright_green]{hol}[/bright_green]")
+                log(f"  [bright_green]{hol}[/]")
             log("")
         else:
             log("[yellow]No .hol files found in prompts/ or hol/ directories[/]")
@@ -78,53 +119,51 @@ def show_help():
         log(f"[yellow]Could not list available holoware files: {e}[/]")
         log("")
 
-    log("[bold]Usage:[/]")
-    log(f"  {colorize_command('uv run main <loom/ware> <command>')}")
+    log("[bold bright_yellow]Usage[/]")
+    log(f"  {colorize_command('uv run main <loom/holoware/session_name> <command>')}")
+    log(f"  {colorize_command('uv run vllm')}            [dim]# Run the vllm server for inference[/]")
     log("")
 
-    log("[bold]Commands:[/]")
-    log(f"  {colorize_command('dry')}     [dim]# Test run without training (mock completions)[/]")
-    log(f"  {colorize_command('train')}   [dim]# Production training run[/]")
-    log(f"  {colorize_command('dump')}    [dim]# Test run with rollout saving (no training)[/]")
+    log("[bold bright_yellow]Commands[/]")
+    log(f"  {colorize_command('new <name>')}    [dim]# Create a new session with a specific name (implicit if other commands used without session)[/]") # TODO
+    log(f"  {colorize_command('dry')}           [dim]# Test run without training (mock completions)[/]")
+    log(f"  {colorize_command('train')}         [dim]# Production training run[/]")
+    log(f"  {colorize_command('dump')}          [dim]# Test run with rollout saving (no training)[/]")
+    log(f"  {colorize_command('resume')}        [dim]# Resume the last training run in this session[/]") # TODO
+    log(f"  {colorize_command('vllm')}          [dim]# Run the vllm server for inference in this session[/]") # TODO
     log("")
 
-    log("[bold]Progressive testing workflow:[/]")
-    log(f"  {colorize_command('uv run main qa.hol dry --n 1')}               [dim]# Phase 1: Test scaffolding (mock)[/]")
-    log(f"  {colorize_command('uv run main qa.hol dump --lmstudio --n 3')}   [dim]# Phase 2: Test completions + save rollouts[/]")
-    log(f"  {colorize_command('uv run main qa.hol train --lmstudio')}        [dim]# Phase 3: Local training[/]")
-    log(f"  {colorize_command('uv run main qa.hol train --vllm')}            [dim]# Phase 4: Distributed training[/]")
+    log("[bold bright_yellow]Progressive Testing Workflow[/]")
+    log(f"  {colorize_command('uv run main prompt.hol dry')}                     [dim]# Phase 1: Test scaffolding (mock)[/]")
+    log(f"  {colorize_command('uv run main prompt.hol dump --lmstudio --n 3')}   [dim]# Phase 2: Test completions + save rollouts[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --lmstudio')}        [dim]# Phase 3: Local training[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --vllm')}            [dim]# Phase 4: Distributed training[/]")
     log("")
 
-    log("[bold]Local testing on RTX 3090 / smaller GPUs:[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train --local-test --test-steps 3')}   [dim]# Local test mode (reduced memory)[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train --micro-test --test-steps 2')}   [dim]# Micro test mode (minimal memory)[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train --local-test --n 5')}           [dim]# Local test with more data samples[/]")
+    log("[bold bright_yellow]Local testing on RTX 3090 / limited resources[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --local-test --test-steps 3')}   [dim]# Local test mode (reduced memory)[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --micro-test --test-steps 2')}   [dim]# Micro test mode (minimal memory)[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --local-test --n 5')}            [dim]# Local test with more data samples[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --cpu-mode --test-steps 2')}     [dim]# Debug training logic on CPU (very slow)[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train --cpu-mode --n 3')}              [dim]# CPU mode with more samples[/]")
     log("")
 
-    log("[bold]CPU debugging mode (no GPU required):[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train --cpu-mode --test-steps 2')}     [dim]# Debug training logic on CPU (very slow)[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train --cpu-mode --n 3')}              [dim]# CPU mode with more samples[/]")
-    log("")
-
-    log("[bold]Client options:[/]")
-    log(f"  {colorize_command('--lmstudio')}        [dim]# Connect to LM Studio (localhost:1234)[/]")
+    log("[bold bright_yellow]Client[/]")
     log(f"  {colorize_command('--client ip:port')}  [dim]# Connect to custom OpenAI-compatible server[/]")
+    log(f"  {colorize_command('--lmstudio')}        [dim]# Connect to LM Studio (localhost:1234)[/]")
     log(f"  {colorize_command('--vllm')}            [dim]# Use VLLM distributed client[/]")
-    log(f"  {colorize_command('--openai')}          [dim]# Use OpenAI API (requires OPENAI_API_KEY)[/]")
+    log(f"  {colorize_command('--openai')}          [dim]# Use OpenAI API (requires key)[/]") # TODO
+    log(f"  {colorize_command('--openrouter')}      [dim]# Use OpenRouter API (requires key)[/]") # TODO
     log("")
 
-    log("[bold]Usage examples:[/]")
-    log(f"  {colorize_command('uv run main qa.hol train')}                             [dim]# Full training run[/]")
-    log(f"  {colorize_command('uv run main codemath.hol dry --client 192.168.1.100:8080')}  [dim]# Custom server test[/]")
+    log("[bold bright_yellow]Deployment[/]")
+    log("[dim]Use these arguments to deploy the session to a remote server and run the commands on it.[/]")
+    log(f"  {colorize_command('uv run main ... train -vai')}     [dim]# Deploy to VastAI[/]")
+    log(f"  {colorize_command('uv run main ... train -vaig')}    [dim]# Open deployment GUI[/]")
+    log(f"  {colorize_command('uv run main ... train -vaish')}   [dim]# Start shell on remote[/]")
+    log(f"  {colorize_command('uv run main ... train --help')}   [dim]# Show all options[/]")
     log("")
-
-    log("[bold]Deployment options:[/]")
-    log(f"  {colorize_command('uv run main -vai')}     [dim]# Deploy to VastAI[/]")
-    log(f"  {colorize_command('uv run main -vaig')}    [dim]# Open deployment GUI[/]")
-    log(f"  {colorize_command('uv run main -vaish')}   [dim]# Start shell on remote[/]")
-    log(f"  {colorize_command('uv run main --help')}   [dim]# Show all options[/]")
-    log("")
-    log("[dim]For more information, see the documentation or run --help[/]")
+    log("[dim]For more information, see the documentation or run [bright_cyan]--help[/][/]")
     log(Rule(style="dim"))
 
 

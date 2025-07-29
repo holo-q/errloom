@@ -450,97 +450,172 @@ def getLogger(name: Optional[str] = None) -> EnhancedLogger:
 # COLORIZE FUNCTIONS
 # ----------------------------------------
 
+# COLORIZE FUNCTIONS
+# ----------------------------------------
+
+# Color scheme mapping for consistent theming across the application
+_COLOR_SCHEME = {
+    # Core entities
+    'session': '[white]',
+    'target': '[bright_green]',
+    'model': '[white]',
+    'client': '[bright_magenta]',
+    
+    # Status indicators
+    'error': '[bold red]',
+    'success': '[bold green]',
+    'warning': '[yellow]',
+    'info': '[cyan]',
+    'debug': '[dim]',
+    
+    # UI elements
+    'title': '[bold bright_blue]',
+    'path': '[bright_cyan]',
+    'field_label': '[bold cyan]',
+    'rule_title': '[bold cyan]',
+    
+    # Mode indicators
+    'mode_dry': '[yellow]',
+    'mode_production': '[green]',
+    'mode_dump': '[blue]',
+    
+    # Progress and data
+    'completion': '[bold green]',
+    'progress': '[magenta]',
+    'data': '[bright_yellow]',
+    'deployment': '[bold cyan]',
+    
+    # Holoware-specific
+    'loom': '[bright_blue]',
+    'holoware': '[bright_green]',
+    'session_name': '[white]',
+    'placeholder': '[bright_magenta]',
+    'command_name': '[bright_cyan]',
+    
+    # Symbols
+    'check_mark': '[green]✓[/]',
+    'cross_mark': '[red]✗[/]',
+    'arrow': '[green]→[/]',
+}
+
+def _colorize(text: str, color_key: str) -> str:
+    """Apply color formatting to text using the color scheme."""
+    color = _COLOR_SCHEME.get(color_key, '[white]')
+    if color.endswith('[/]'):
+        return color  # Symbol colors already include closing tag
+    return f"{color}{text}[/]"
+
 def colorize_session(text: str) -> str:
     """Colorize session names and identifiers."""
-    return f"[white]{text}[/]"
+    return _colorize(text, 'session')
 
 def colorize_target(text: str) -> str:
     """Colorize target names (holoware, loom names)."""
-    return f"[bright_green]{text}[/]"
+    return _colorize(text, 'target')
 
 def colorize_model(text: str) -> str:
     """Colorize model names."""
-    return f"[white]{text}[/]"
+    return _colorize(text, 'model')
 
 def colorize_client(text: str) -> str:
     """Colorize client type names."""
-    return f"[bright_magenta]{text}[/]"
+    return _colorize(text, 'client')
 
 def colorize_error(text: str) -> str:
     """Colorize error messages."""
-    return f"[bold red]{text}[/]"
+    return _colorize(text, 'error')
 
 def colorize_success(text: str) -> str:
     """Colorize success messages."""
-    return f"[bold green]{text}[/]"
+    return _colorize(text, 'success')
 
 def colorize_warning(text: str) -> str:
     """Colorize warning messages."""
-    return f"[yellow]{text}[/]"
+    return _colorize(text, 'warning')
 
 def colorize_info(text: str) -> str:
     """Colorize informational messages."""
-    return f"[cyan]{text}[/]"
+    return _colorize(text, 'info')
 
 def colorize_debug(text: str) -> str:
     """Colorize debug messages."""
-    return f"[dim]{text}[/]"
+    return _colorize(text, 'debug')
 
 def colorize_title(text: str) -> str:
     """Colorize titles and headers."""
-    return f"[bold bright_blue]{text}[/]"
+    return _colorize(text, 'title')
 
 def colorize_path(text: str) -> str:
     """Colorize file paths and locations."""
-    return f"[bright_cyan]{text}[/]"
+    return _colorize(text, 'path')
 
 def colorize_mode_dry(text: str) -> str:
     """Colorize dry mode messages."""
-    return f"[yellow]{text}[/]"
+    return _colorize(text, 'mode_dry')
 
 def colorize_mode_production(text: str) -> str:
     """Colorize production mode messages."""
-    return f"[green]{text}[/]"
+    return _colorize(text, 'mode_production')
 
 def colorize_mode_dump(text: str) -> str:
     """Colorize dump mode messages."""
-    return f"[blue]{text}[/]"
+    return _colorize(text, 'mode_dump')
 
 def colorize_field_label(text: str) -> str:
     """Colorize field labels (like 'Session:', 'Model:')."""
-    return f"[bold cyan]{text}[/]"
+    return _colorize(text, 'field_label')
 
 def colorize_completion(text: str) -> str:
     """Colorize completion/training completion messages."""
-    return f"[bold green]{text}[/]"
+    return _colorize(text, 'completion')
 
 def colorize_progress(text: str) -> str:
     """Colorize progress indicators."""
-    return f"[magenta]{text}[/]"
+    return _colorize(text, 'progress')
 
 def colorize_data(text: str) -> str:
     """Colorize data-related information."""
-    return f"[bright_yellow]{text}[/]"
+    return _colorize(text, 'data')
 
 def colorize_rule_title(text: str) -> str:
     """Colorize rule titles for visual separation."""
-    return f"[bold cyan]{text}[/]"
+    return _colorize(text, 'rule_title')
 
 def colorize_deployment(text: str) -> str:
     """Colorize deployment-related messages."""
-    return f"[bold cyan]{text}[/]"
+    return _colorize(text, 'deployment')
+
+def colorize_loom(text: str) -> str:
+    """Colorize loom class names and references."""
+    return _colorize(text, 'loom')
+
+def colorize_holoware(text: str) -> str:
+    """Colorize holoware file names and references."""
+    return _colorize(text, 'holoware')
+
+def colorize_session_name(text: str) -> str:
+    """Colorize session names and identifiers in placeholders."""
+    return _colorize(text, 'session_name')
+
+def colorize_placeholder(text: str) -> str:
+    """Colorize generic placeholders."""
+    return _colorize(text, 'placeholder')
+
+def colorize_command_name(text: str) -> str:
+    """Colorize command names in placeholders."""
+    return _colorize(text, 'command_name')
 
 def colorize_check_mark() -> str:
     """Standard green checkmark."""
-    return "[green]✓[/]"
+    return _COLOR_SCHEME['check_mark']
 
 def colorize_cross_mark() -> str:
     """Standard red cross mark."""
-    return "[red]✗[/]"
+    return _COLOR_SCHEME['cross_mark']
 
 def colorize_arrow() -> str:
     """Standard arrow for file operations."""
-    return "[green]→[/]"
+    return _COLOR_SCHEME['arrow']
 
 # ----------------------------------------
 
