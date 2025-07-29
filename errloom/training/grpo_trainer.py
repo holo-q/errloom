@@ -538,19 +538,19 @@ class TrainingInputs:
 @dataclass
 class ExtraBody:
     """Container for extra sampling body parameters"""
-    top_k: int
-    min_p: float
-    repetition_penalty: float
+    top_k: Optional[int]
+    min_p: Optional[float]
+    repetition_penalty: Optional[float]
 
 @dataclass
 class SamplingArgs:
     """Container for sampling arguments"""
-    temperature: float
-    top_p: float
+    temperature: Optional[float]
+    top_p: Optional[float]
     max_tokens: int
     n: int
-    presence_penalty: float
-    frequency_penalty: float
+    presence_penalty: Optional[float]
+    frequency_penalty: Optional[float]
     extra_body: ExtraBody
 
 @dataclass
@@ -2276,19 +2276,36 @@ class ClippingMetrics:
         """Add clipping statistics from RL algorithm result"""
         if stats.low_clip is not None:
             gathered_stat = accelerator.gather_for_metrics(stats.low_clip)
-            mean_val = gathered_stat.nanmean().item()
-            self.low_clip_mean.append(mean_val)
-            self.low_clip_min.append(nanmin(gathered_stat).item())
+            if isinstance(gathered_stat, torch.Tensor):
+                mean_val = gathered_stat.nanmean().item()
+                self.low_clip_mean.append(mean_val)
+                self.low_clip_min.append(nanmin(gathered_stat).item())
+            else:
+                # Handle non-tensor case (single process or different accelerator setup)
+                tensor_stat = torch.tensor(gathered_stat) if not isinstance(gathered_stat, torch.Tensor) else gathered_stat
+                mean_val = tensor_stat.nanmean().item()
+                self.low_clip_mean.append(mean_val)
+                self.low_clip_min.append(nanmin(tensor_stat).item())
             
         if stats.high_clip is not None:
             gathered_stat = accelerator.gather_for_metrics(stats.high_clip)
-            mean_val = gathered_stat.nanmean().item()
-            self.high_clip_mean.append(mean_val)
-            self.high_clip_max.append(nanmax(gathered_stat).item())
+            if isinstance(gathered_stat, torch.Tensor):
+                mean_val = gathered_stat.nanmean().item()
+                self.high_clip_mean.append(mean_val)
+                self.high_clip_max.append(nanmax(gathered_stat).item())
+            else:
+                tensor_stat = torch.tensor(gathered_stat) if not isinstance(gathered_stat, torch.Tensor) else gathered_stat
+                mean_val = tensor_stat.nanmean().item()
+                self.high_clip_mean.append(mean_val)
+                self.high_clip_max.append(nanmax(tensor_stat).item())
             
         if stats.clip_ratio is not None:
             gathered_stat = accelerator.gather_for_metrics(stats.clip_ratio)
-            self.clip_ratio.append(gathered_stat.nanmean().item())
+            if isinstance(gathered_stat, torch.Tensor):
+                self.clip_ratio.append(gathered_stat.nanmean().item())
+            else:
+                tensor_stat = torch.tensor(gathered_stat) if not isinstance(gathered_stat, torch.Tensor) else gathered_stat
+                self.clip_ratio.append(tensor_stat.nanmean().item())
     
     def clear(self):
         """Clear all metrics"""
@@ -2456,7 +2473,7 @@ class DefaultTrainingOrchestrator(TrainingOrchestrator):
         
         return GenerationPhase(
             should_generate=True,
-            # batch_id_to_retrieve=batch_id_to_retrieve,
+            batch_id_to_retrieve=batch_id_to_retrieve,
             target_batch_id=target_batch_id,
             batches_to_submit=list(range(batch_id_to_retrieve, target_batch_id + 1))
         )
