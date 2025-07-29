@@ -497,7 +497,7 @@ class GRPOTrainer(Trainer):
         self.algorithm = algorithm
         
         # Initialize modular training pipeline
-        self.training_pipeline = TrainingPipeline.create_default(
+        self.training_pipeline = TrainingPipelineFactory.create_default(
             gradient_accumulation_steps=args.gradient_accumulation_steps,
             num_iterations=args.num_accum
         )
@@ -1771,152 +1771,294 @@ class GenerationPhase:
     batches_to_submit: List[int]
 
 class TrainingOrchestrator(ABC):
-    """Abstract orchestrator for training phases"""
+    """Abstract orchestrator for training phases
+    
+    🎪 Advanced Use Cases:
+    - CurriculumOrchestrator: Difficulty progression based on performance metrics
+    - AdaptiveOrchestrator: Dynamic batch scheduling based on loss convergence
+    - MultiObjectiveOrchestrator: Coordinated sampling for Pareto frontier exploration
+    - OnlineOrchestrator: Continuous adaptation for streaming data environments
+    - FederatedOrchestrator: Cross-client coordination for federated RL
+    
+    🔮 Future Algorithms:
+    - GHPOOrchestrator: Difficulty-aware scheduling for Group Hindsight Policy Optimization
+    - SPOOrchestrator: Self-play coordination for tournament-style preference optimization
+    - MetaOrchestrator: Meta-learning orchestration for few-shot adaptation
+    - HierarchicalOrchestrator: Multi-level coordination for hierarchical RL
+    """
     
     @abstractmethod
     def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
-        """Determine if we need to generate new completions"""
-        pass
-    
-    @abstractmethod
-    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
-        """Plan which batches to submit and retrieve"""
-        pass
-
-class DefaultTrainingOrchestrator(TrainingOrchestrator):
-    """Default training orchestration matching current GRPO behavior"""
-    
-    def __init__(self, gradient_accumulation_steps: int, num_iterations: int):
-        self.gradient_accumulation_steps = gradient_accumulation_steps
-        self.num_iterations = num_iterations
-    
-    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
-        generate_every = self.gradient_accumulation_steps * self.num_iterations
-        return step % generate_every == 0 or buffered_inputs is None
-    
-    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
-        generate_every = self.gradient_accumulation_steps * self.num_iterations
-        batch_id_to_retrieve = step // generate_every
-        target_batch_id = batch_id_to_retrieve + async_generator.num_batches_ahead
+        """Determine if we need to generate new completions
         
-        return GenerationPhase(
-            should_generate=True,
-            batch_id_to_retrieve=batch_id_to_retrieve,
-            target_batch_id=target_batch_id,
-            batches_to_submit=list(range(batch_id_to_retrieve, target_batch_id + 1))
-        )
+        Use cases:
+        - Curriculum: Generate based on performance thresholds
+        - Adaptive: Generate based on convergence metrics  
+        - Online: Generate based on data stream availability
+        - Memory-aware: Generate based on memory pressure
+        """
+        pass
+    
+    @abstractmethod
+    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+        """Plan which batches to submit and retrieve
+        
+        Use cases:
+        - Multi-turn: Plan conversation-aware batch sequences
+        - Distributed: Coordinate across geographical regions
+        - Federated: Plan client-specific batch distributions
+        - Hierarchical: Plan multi-level batch coordination
+        """
+        pass
 
 class WeightSyncStrategy(ABC):
-    """Abstract strategy for syncing model weights to inference engine"""
+    """Abstract strategy for syncing model weights to inference engine
+    
+    🎪 Advanced Use Cases:
+    - MultiClusterWeightSync: Sync to multiple geographical clusters
+    - FederatedWeightSync: Aggregate and distribute federated updates
+    - HierarchicalWeightSync: Multi-tier sync for edge/cloud deployments
+    - StreamingWeightSync: Real-time continuous updates for online learning
+    - MemoryEfficientWeightSync: Gradient checkpointing for large models
+    
+    🔮 Future Deployments:
+    - QuantizedWeightSync: Dynamic precision adjustment for edge devices
+    - SparsityAwareSync: Efficient sync for sparse/MoE models
+    - VersionedWeightSync: A/B testing with multiple model versions
+    - BlockchainWeightSync: Decentralized model distribution
+    """
     
     @abstractmethod
     def should_sync_weights(self, current_step: int, last_synced_step: int) -> bool:
-        """Determine if weights should be synced"""
+        """Determine if weights should be synced
+        
+        Use cases:
+        - Adaptive: Sync based on weight divergence metrics
+        - Federated: Sync based on client aggregation schedules
+        - Memory-aware: Sync based on available bandwidth/memory
+        - Performance-driven: Sync based on inference latency targets
+        """
         pass
     
     @abstractmethod
     def sync_weights(self, trainer: 'GRPOTrainer') -> None:
-        """Perform weight synchronization"""
+        """Perform weight synchronization
+        
+        Use cases:
+        - Multi-cluster: Parallel sync to multiple inference engines
+        - Federated: Secure aggregation and distribution
+        - Streaming: Incremental delta updates
+        - Quantized: Dynamic precision adjustment during sync
+        """
         pass
-
-class VLLMWeightSyncStrategy(WeightSyncStrategy):
-    """Strategy for syncing weights to vLLM server"""
-    
-    def should_sync_weights(self, current_step: int, last_synced_step: int) -> bool:
-        return current_step > last_synced_step
-    
-    def sync_weights(self, trainer: 'GRPOTrainer') -> None:
-        trainer._move_model_to_vllm()
 
 class BatchDataStrategy(ABC):
-    """Abstract strategy for gathering batch data"""
+    """Abstract strategy for gathering batch data
+    
+    🎪 Advanced Use Cases:
+    - StreamingBatchData: Real-time data from live user interactions
+    - CurriculumBatchData: Difficulty-progressive data selection
+    - MultiModalBatchData: Coordinated text/image/audio data gathering
+    - DistributedBatchData: Cross-datacenter data federation
+    - MemoryMappedBatchData: Zero-copy data loading for massive datasets
+    
+    🔮 Future Data Sources:
+    - BlockchainBatchData: Decentralized training data marketplace
+    - SyntheticBatchData: AI-generated training data with quality control
+    - PrivacyPreservingBatchData: Differential privacy for sensitive data
+    - MultiAgentBatchData: Coordinated data from multiple AI agents
+    """
     
     @abstractmethod
     def gather_batch_data(self, trainer: 'GRPOTrainer', batch_offset: int) -> BatchData:
-        """Gather batch data from distributed processes"""
+        """Gather batch data from distributed processes
+        
+        Use cases:
+        - Streaming: Gather from real-time data streams
+        - Curriculum: Select data based on difficulty metrics
+        - Multi-modal: Coordinate heterogeneous data types
+        - Privacy-aware: Apply differential privacy during gathering
+        """
         pass
 
-class DefaultBatchDataStrategy(BatchDataStrategy):
-    """Default batch data gathering strategy"""
-    
-    def gather_batch_data(self, trainer: 'GRPOTrainer', batch_offset: int) -> BatchData:
-        return trainer._gather_batch_data_impl(batch_offset)
-
 class BatchProcessingStrategy(ABC):
-    """Abstract strategy for processing generated batches"""
+    """Abstract strategy for processing generated batches
+    
+    🎪 Advanced Use Cases:
+    - MultiTurnBatchProcessing: Conversation-level reward computation
+    - HierarchicalBatchProcessing: Multi-level action space processing
+    - MultiObjectiveBatchProcessing: Pareto-efficient reward aggregation
+    - PrivacyPreservingBatchProcessing: Federated learning with secure aggregation
+    - MixedPrecisionBatchProcessing: Dynamic precision for memory efficiency
+    
+    🔮 Future Processing Paradigms:
+    - NeuralProcessing: Learned batch processing with neural networks
+    - QuantumProcessing: Quantum advantage for optimization problems
+    - CausalProcessing: Causal inference for robust reward attribution
+    - MetaProcessing: Few-shot adaptation of processing strategies
+    """
     
     @abstractmethod  
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
                            batch_result: Any,
                            process_slice: slice) -> Dict[str, torch.Tensor]:
-        """Process batch results into training inputs"""
+        """Process batch results into training inputs
+        
+        Use cases:
+        - Multi-turn: Process conversation contexts with turn-level rewards
+        - Hierarchical: Process multi-level action sequences
+        - Multi-objective: Compute multiple reward functions simultaneously
+        - Causal: Apply causal masking for robust attribution
+        """
         pass
-
-class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
-    """Default batch processing matching current behavior"""
-    
-    def process_batch_result(self, 
-                           trainer: 'GRPOTrainer',
-                           batch_result: Any,
-                           process_slice: slice) -> Dict[str, torch.Tensor]:
-        return trainer._process_batch_result_impl(batch_result, process_slice)
 
 class InputBufferStrategy(ABC):
-    """Abstract strategy for managing input buffering across training steps"""
+    """Abstract strategy for managing input buffering across training steps
+    
+    🎪 Advanced Use Cases:
+    - GradientCheckpointingBuffer: Memory-efficient training for large models
+    - AdaptiveBatchSizeBuffer: Dynamic batch sizing based on memory/performance
+    - PriorityExperienceBuffer: Importance sampling for experience replay
+    - StreamingBuffer: Continuous data flow for online learning
+    - FederatedBuffer: Coordinated buffering across federated clients
+    
+    🔮 Future Buffer Architectures:
+    - QuantumBuffer: Quantum superposition for parallel hypothesis testing
+    - NeuralBuffer: Learned compression for efficient memory usage
+    - CausalBuffer: Temporally-aware buffering for causal inference
+    - MetaBuffer: Adaptive buffering strategies learned via meta-learning
+    """
     
     @abstractmethod
     def buffer_inputs(self, 
                      trainer: 'GRPOTrainer',
                      processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
-        """Buffer and split inputs for gradient accumulation"""
-        pass
-    
-    @abstractmethod
-    def get_step_inputs(self, 
-                       trainer: 'GRPOTrainer',
-                       step: int) -> Dict[str, torch.Tensor]:
-        """Get inputs for current step from buffer"""
-        pass
-
-class DefaultInputBufferStrategy(InputBufferStrategy):
-    """Default input buffering with shuffling and splitting"""
-    
-    def buffer_inputs(self, 
-                     trainer: 'GRPOTrainer',
-                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
-        from errloom.training.grpo_trainer import shuffle_tensor_dict, split_tensor_dict
+        """Buffer and split inputs for gradient accumulation
         
-        # Shuffle and split for gradient accumulation
-        shuffled_inputs = shuffle_tensor_dict(processed_inputs)
-        return split_tensor_dict(shuffled_inputs, trainer.gradient_accumulation_steps)
+        Use cases:
+        - Memory-efficient: Apply gradient checkpointing during buffering
+        - Adaptive: Dynamically adjust buffer size based on memory pressure
+        - Priority-based: Buffer high-importance samples preferentially
+        - Streaming: Maintain rolling buffer for continuous learning
+        """
+        pass
     
+    @abstractmethod
     def get_step_inputs(self, 
                        trainer: 'GRPOTrainer',
                        step: int) -> Dict[str, torch.Tensor]:
-        if trainer._buffered_inputs is None:
-            raise RuntimeError("No buffered inputs available")
-        return trainer._buffered_inputs[step % trainer.gradient_accumulation_steps]
+        """Get inputs for current step from buffer
+        
+        Use cases:
+        - Priority sampling: Return high-importance samples first
+        - Curriculum: Return difficulty-appropriate samples
+        - Multi-objective: Return samples balancing multiple objectives
+        - Federated: Return client-specific sample distributions
+        """
+        pass
 
 @dataclass
 class TrainingPipeline:
-    """Configurable training pipeline with pluggable strategies"""
+    """Configurable training pipeline with pluggable strategies
+    
+    🎪 Complete Advanced Pipelines:
+    
+    Multi-Turn Conversational RL:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=ConversationOrchestrator(turn_limit=10),
+        weight_sync_strategy=VLLMWeightSyncStrategy(),
+        batch_data_strategy=ConversationBatchDataStrategy(),
+        batch_processing_strategy=TurnAwareBatchProcessing(),
+        input_buffer_strategy=ConversationBuffer()
+    )
+    ```
+    
+    Federated Learning:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=FederatedOrchestrator(aggregation_rounds=100),
+        weight_sync_strategy=FederatedWeightSync(clients=client_list),
+        batch_data_strategy=PrivacyPreservingBatchData(epsilon=1.0),
+        batch_processing_strategy=SecureAggregationProcessing(),
+        input_buffer_strategy=FederatedBuffer(dp_noise=0.1)
+    )
+    ```
+    
+    Curriculum Learning:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=CurriculumOrchestrator(difficulty_schedule="linear"),
+        weight_sync_strategy=AdaptiveWeightSync(sync_threshold=0.01),
+        batch_data_strategy=DifficultyAwareBatchData(),
+        batch_processing_strategy=ProgressiveBatchProcessing(),
+        input_buffer_strategy=CurriculumBuffer(difficulty_sampling=True)
+    )
+    ```
+    
+    Online/Streaming Learning:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=StreamingOrchestrator(window_size=1000),
+        weight_sync_strategy=RealTimeWeightSync(latency_target_ms=50),
+        batch_data_strategy=StreamingBatchData(kafka_topics=["user_feedback"]),
+        batch_processing_strategy=IncrementalBatchProcessing(),
+        input_buffer_strategy=StreamingBuffer(decay_factor=0.99)
+    )
+    ```
+    
+    🔮 Future Algorithm Pipelines:
+    
+    GHPO (Group Hindsight Policy Optimization):
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=GHPOOrchestrator(hindsight_horizon=50),
+        weight_sync_strategy=VLLMWeightSyncStrategy(),
+        batch_data_strategy=HindsightBatchData(),
+        batch_processing_strategy=CounterfactualProcessing(),
+        input_buffer_strategy=HindsightBuffer()
+    )
+    ```
+    
+    SPO (Self-Play Preference Optimization):
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=SelfPlayOrchestrator(tournament_size=64),
+        weight_sync_strategy=MultiVersionWeightSync(),
+        batch_data_strategy=TournamentBatchData(),
+        batch_processing_strategy=PreferenceProcessing(),
+        input_buffer_strategy=TournamentBuffer()
+    )
+    ```
+    
+    Multi-Objective RL:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=ParetoOrchestrator(objectives=["helpfulness", "safety", "efficiency"]),
+        weight_sync_strategy=VLLMWeightSyncStrategy(),
+        batch_data_strategy=MultiObjectiveBatchData(),
+        batch_processing_strategy=ParetoProcessing(),
+        input_buffer_strategy=ParetoBuffer()
+    )
+    ```
+    
+    Quantum-Enhanced RL:
+    ```python
+    pipeline = TrainingPipeline(
+        orchestrator=QuantumOrchestrator(qubit_count=1024),
+        weight_sync_strategy=QuantumWeightSync(),
+        batch_data_strategy=QuantumBatchData(),
+        batch_processing_strategy=QuantumProcessing(),
+        input_buffer_strategy=QuantumBuffer()
+    )
+    ```
+    """
     orchestrator: TrainingOrchestrator
     weight_sync_strategy: WeightSyncStrategy  
     batch_data_strategy: BatchDataStrategy
     batch_processing_strategy: BatchProcessingStrategy
     input_buffer_strategy: InputBufferStrategy
-    
-    @classmethod
-    def create_default(cls, gradient_accumulation_steps: int, num_iterations: int) -> 'TrainingPipeline':
-        """Create default pipeline matching current GRPO behavior"""
-        return cls(
-            orchestrator=DefaultTrainingOrchestrator(gradient_accumulation_steps, num_iterations),
-            weight_sync_strategy=VLLMWeightSyncStrategy(),
-            batch_data_strategy=DefaultBatchDataStrategy(),
-            batch_processing_strategy=DefaultBatchProcessingStrategy(),
-            input_buffer_strategy=DefaultInputBufferStrategy()
-        )
 
 @dataclass
 class RewardMetrics:
@@ -2163,3 +2305,124 @@ class ModeMetrics:
     def to_dict(self, mode: str) -> Dict[str, Any]:
         """Convert mode metrics to dict"""
         return self.get_mode_metrics(mode).to_dict()
+
+# ============================================================================
+# CONCRETE IMPLEMENTATIONS (Default Strategies)
+# ============================================================================
+
+class DefaultTrainingOrchestrator(TrainingOrchestrator):
+    """Default training orchestration matching current GRPO behavior"""
+    
+    def __init__(self, gradient_accumulation_steps: int, num_iterations: int):
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.num_iterations = num_iterations
+    
+    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
+        generate_every = self.gradient_accumulation_steps * self.num_iterations
+        return step % generate_every == 0 or buffered_inputs is None
+    
+    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+        generate_every = self.gradient_accumulation_steps * self.num_iterations
+        batch_id_to_retrieve = step // generate_every
+        target_batch_id = batch_id_to_retrieve + async_generator.num_batches_ahead
+        
+        return GenerationPhase(
+            should_generate=True,
+            batch_id_to_retrieve=batch_id_to_retrieve,
+            target_batch_id=target_batch_id,
+            batches_to_submit=list(range(batch_id_to_retrieve, target_batch_id + 1))
+        )
+
+class VLLMWeightSyncStrategy(WeightSyncStrategy):
+    """Strategy for syncing weights to vLLM server"""
+    
+    def should_sync_weights(self, current_step: int, last_synced_step: int) -> bool:
+        return current_step > last_synced_step
+    
+    def sync_weights(self, trainer: 'GRPOTrainer') -> None:
+        trainer._move_model_to_vllm()
+
+class DefaultBatchDataStrategy(BatchDataStrategy):
+    """Default batch data gathering strategy"""
+    
+    def gather_batch_data(self, trainer: 'GRPOTrainer', batch_offset: int) -> BatchData:
+        return trainer._gather_batch_data_impl(batch_offset)
+
+class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
+    """Default batch processing matching current behavior"""
+    
+    def process_batch_result(self, 
+                           trainer: 'GRPOTrainer',
+                           batch_result: Any,
+                           process_slice: slice) -> Dict[str, torch.Tensor]:
+        return trainer._process_batch_result_impl(batch_result, process_slice)
+
+class DefaultInputBufferStrategy(InputBufferStrategy):
+    """Default input buffering with shuffling and splitting"""
+    
+    def buffer_inputs(self, 
+                     trainer: 'GRPOTrainer',
+                     processed_inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+        from errloom.training.grpo_trainer import shuffle_tensor_dict, split_tensor_dict
+        
+        # Shuffle and split for gradient accumulation
+        shuffled_inputs = shuffle_tensor_dict(processed_inputs)
+        return split_tensor_dict(shuffled_inputs, trainer.gradient_accumulation_steps)
+    
+    def get_step_inputs(self, 
+                       trainer: 'GRPOTrainer',
+                       step: int) -> Dict[str, torch.Tensor]:
+        if trainer._buffered_inputs is None:
+            raise RuntimeError("No buffered inputs available")
+        return trainer._buffered_inputs[step % trainer.gradient_accumulation_steps]
+
+# ============================================================================
+# PIPELINE FACTORY
+# ============================================================================
+
+@dataclass
+class TrainingPipelineFactory:
+    """Factory for creating common training pipeline configurations"""
+    
+    @staticmethod
+    def create_default(gradient_accumulation_steps: int, num_iterations: int) -> TrainingPipeline:
+        """Create default pipeline matching current GRPO behavior"""
+        return TrainingPipeline(
+            orchestrator=DefaultTrainingOrchestrator(gradient_accumulation_steps, num_iterations),
+            weight_sync_strategy=VLLMWeightSyncStrategy(),
+            batch_data_strategy=DefaultBatchDataStrategy(),
+            batch_processing_strategy=DefaultBatchProcessingStrategy(),
+            input_buffer_strategy=DefaultInputBufferStrategy()
+        )
+    
+    @staticmethod
+    def create_curriculum_learning(
+        gradient_accumulation_steps: int, 
+        num_iterations: int,
+        difficulty_schedule: str = "linear"
+    ) -> TrainingPipeline:
+        """Create curriculum learning pipeline (placeholder for future implementation)"""
+        # TODO: Implement CurriculumOrchestrator and related strategies
+        return TrainingPipelineFactory.create_default(gradient_accumulation_steps, num_iterations)
+    
+    @staticmethod
+    def create_federated_learning(
+        gradient_accumulation_steps: int,
+        num_iterations: int,
+        client_list: List[str],
+        dp_epsilon: float = 1.0
+    ) -> TrainingPipeline:
+        """Create federated learning pipeline (placeholder for future implementation)"""
+        # TODO: Implement FederatedOrchestrator and related strategies
+        return TrainingPipelineFactory.create_default(gradient_accumulation_steps, num_iterations)
+    
+    @staticmethod
+    def create_streaming_learning(
+        window_size: int = 1000,
+        latency_target_ms: int = 50,
+        decay_factor: float = 0.99
+    ) -> TrainingPipeline:
+        """Create online/streaming learning pipeline (placeholder for future implementation)"""
+        # TODO: Implement StreamingOrchestrator and related strategies
+        # For now, return default with notes for future implementation
+        return TrainingPipelineFactory.create_default(1, 1)  # Minimal accumulation for streaming
