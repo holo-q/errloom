@@ -15,6 +15,7 @@ import numpy as np
 import openai
 import torch
 import wandb
+from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list, gather_object, is_peft_model
 from peft import get_peft_model, PeftConfig
 from torch.utils.data import DataLoader, Sampler
@@ -39,11 +40,12 @@ from errloom.training.async_batch_generator import (
     BatchRequest, 
     GenerationConfig, 
     ProcessingConfig, 
-    DistributedConfig
+    DistributedConfig,
+    BatchResult
 )
 from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from errloom.training.grpo_config import GRPOConfig
-from errloom.utils.log import LogContext
+from errloom.utils.log import LogContext, EnhancedLogger
 from errloom.utils import log
 from rich.console import Console
 from rich.table import Table
@@ -54,11 +56,31 @@ import torch._dynamo
 torch._dynamo.config.suppress_errors = True  # type: ignore
 
 @dataclass
+class RLAlgorithmMetrics:
+    """Container for RL algorithm metrics"""
+    eval_reward: Optional[float] = None
+    eval_reward_std: Optional[float] = None
+    eval_completions_mean_length: Optional[float] = None
+    eval_completions_min_length: Optional[int] = None
+    eval_completions_max_length: Optional[int] = None
+    # Dynamic reward metrics - using a separate dict for now until we can enumerate all possible rewards
+    reward_metrics: Dict[str, float] = field(default_factory=dict)
+
+@dataclass
+class ClippingStats:
+    """Container for clipping statistics from RL algorithms"""
+    low_clip: Optional[torch.Tensor] = None
+    high_clip: Optional[torch.Tensor] = None
+    clip_ratio: Optional[torch.Tensor] = None
+    mean_importance_ratio: Optional[torch.Tensor] = None
+    std_importance_ratio: Optional[torch.Tensor] = None
+
+@dataclass
 class RLLossResult:
     """Result from RL algorithm loss computation"""
     loss: torch.Tensor
-    metrics: Dict[str, float]
-    clipping_stats: Dict[str, torch.Tensor]
+    metrics: RLAlgorithmMetrics
+    clipping_stats: ClippingStats
 
 @dataclass
 class PolicyMetrics:
@@ -72,7 +94,7 @@ class PolicyMetrics:
 class RLAlgorithm(ABC):
     """Abstract base class for RL algorithms (GRPO, GSPO, etc.)"""
     
-    def __init__(self, config: Any, logger: Any):
+    def __init__(self, config: GRPOConfig, logger: EnhancedLogger):
         self.config = config
         self.logger = logger
     
@@ -183,8 +205,8 @@ class GRPOAlgorithm(RLAlgorithm):
         
         return RLLossResult(
             loss=loss,
-            metrics=metrics,
-            clipping_stats=clipping_stats
+            metrics=RLAlgorithmMetrics(eval_reward=loss.item(), reward_metrics=metrics),
+            clipping_stats=ClippingStats(low_clip=low_clip, high_clip=high_clip, clip_ratio=clip_ratio)
         )
 
 class GSPOAlgorithm(RLAlgorithm):
@@ -262,8 +284,8 @@ class GSPOAlgorithm(RLAlgorithm):
         
         return RLLossResult(
             loss=loss,
-            metrics=metrics,
-            clipping_stats=clipping_stats
+            metrics=RLAlgorithmMetrics(eval_reward=loss.item(), reward_metrics=metrics),
+            clipping_stats=ClippingStats(low_clip=None, high_clip=None, clip_ratio=clip_ratio, mean_importance_ratio=seq_importance_ratios.mean(), std_importance_ratio=seq_importance_ratios.std())
         )
 
 @dataclass
@@ -512,6 +534,30 @@ class TrainingInputs:
     completion_mask: torch.Tensor
     old_per_token_logps: Optional[torch.Tensor] = None
     advantages: Optional[torch.Tensor] = None
+
+@dataclass
+class ExtraBody:
+    """Container for extra sampling body parameters"""
+    top_k: int
+    min_p: float
+    repetition_penalty: float
+
+@dataclass
+class SamplingArgs:
+    """Container for sampling arguments"""
+    temperature: float
+    top_p: float
+    max_tokens: int
+    n: int
+    presence_penalty: float
+    frequency_penalty: float
+    extra_body: ExtraBody
+
+@dataclass
+class TensorPair:
+    """Container for ids and mask tensor pair"""
+    ids: torch.Tensor
+    mask: torch.Tensor
 
 
 class GRPOTrainer(Trainer):
@@ -935,22 +981,22 @@ class GRPOTrainer(Trainer):
         # Ensure all processes wait for the main process to finish updating weights
         self.accelerator.wait_for_everyone()
 
-    def _get_sampling_args(self) -> Dict[str, Any]:
+    def _get_sampling_args(self) -> SamplingArgs:
         """Get sampling arguments for Environment generation."""
-        args = {
-            'temperature':       self.temperature,
-            'top_p':             self.top_p,
-            'max_tokens':        self.max_completion_length,
-            'n':                 1,
-            'presence_penalty':  self.presence_penalty,
-            'frequency_penalty': self.frequency_penalty,
-            'extra_body':        {
-                'top_k':              self.top_k,
-                'min_p':              self.min_p,
-                'repetition_penalty': self.repetition_penalty,
-            }
-        }
-        return args
+        extra_body = ExtraBody(
+            top_k=self.top_k,
+            min_p=self.min_p,
+            repetition_penalty=self.repetition_penalty
+        )
+        return SamplingArgs(
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_tokens=self.max_completion_length,
+            n=1,
+            presence_penalty=self.presence_penalty,
+            frequency_penalty=self.frequency_penalty,
+            extra_body=extra_body
+        )
 
     def _get_model_name(self) -> str:
         """Get model name for Environment generation."""
@@ -961,7 +1007,7 @@ class GRPOTrainer(Trainer):
                         prompt_mask: List[List[int]],
                         completion_ids: List[List[int]],
                         completion_mask: List[List[int]],
-                        device: torch.device) -> Dict[str, torch.Tensor]:
+                        device: torch.device) -> TensorPair:
         ids = [prompt_ids[i] + completion_ids[i] for i in range(len(prompt_ids))]
         mask = [prompt_mask[i] + completion_mask[i] for i in range(len(prompt_mask))]
         max_len = max(len(ids[i]) for i in range(len(ids)))
@@ -975,10 +1021,7 @@ class GRPOTrainer(Trainer):
         ]) for i in range(len(mask))]
         ids = torch.stack(ids, dim=0)
         mask = torch.stack(mask, dim=0)
-        return {
-            'ids':  ids,
-            'mask': mask
-        }
+        return TensorPair(ids=ids, mask=mask)
 
     def _gather_batch_data(self, batch_offset: int = 0) -> BatchData:
         """Public interface for batch data gathering"""
@@ -1026,7 +1069,7 @@ class GRPOTrainer(Trainer):
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]
-    ) -> dict[str, Union[torch.Tensor, Any]]:
+    ) -> TrainingInputs:
         """
         Prepare inputs for training step using the pluggable training pipeline.
         
@@ -1291,7 +1334,7 @@ class GRPOTrainer(Trainer):
             # This should not happen with proper orchestration
             raise RuntimeError(f"No inputs available for step {self._step}")
 
-    def _process_batch_result_impl(self, batch_result: Any, process_slice: slice) -> ProcessedTensorData:
+    def _process_batch_result_impl(self, batch_result: BatchResult, process_slice: slice) -> ProcessedTensorData:
         """Process batch result into tensor format.
         
         Args:
@@ -1459,7 +1502,7 @@ class GRPOTrainer(Trainer):
         algorithm_name = self.algorithm.get_algorithm_name()
         mode_metrics = self._metrics.get_mode_metrics(mode)
         
-        for metric_name, metric_value in rl_result.metrics.items():
+        for metric_name, metric_value in rl_result.metrics.reward_metrics.items():
             if isinstance(metric_value, torch.Tensor):
                 metric_value = metric_value.item()
             mode_metrics.algorithm.add_algorithm_metric(algorithm_name, metric_name, metric_value)
@@ -1846,12 +1889,19 @@ class GSPOTrainer(GRPOTrainer):
         )
 
 @dataclass
+class StepMetrics:
+    """Container for step-specific metrics"""
+    loss: Optional[float] = None
+    learning_rate: Optional[float] = None
+    gradient_norm: Optional[float] = None
+    
+@dataclass
 class TrainingStep:
     """Container for a single training step data"""
     step_id: int
     batch_data: BatchData
-    processed_inputs: Dict[str, torch.Tensor]
-    metrics: Dict[str, float] = field(default_factory=dict)
+    processed_inputs: TrainingInputs
+    metrics: StepMetrics = field(default_factory=StepMetrics)
 
 @dataclass  
 class GenerationPhase:
@@ -1879,7 +1929,7 @@ class TrainingOrchestrator(ABC):
     """
     
     @abstractmethod
-    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
+    def should_generate_new_batch(self, step: int, buffered_inputs: Optional[List[TrainingInputs]]) -> bool:
         """Determine if we need to generate new completions
         
         Use cases:
@@ -1891,7 +1941,7 @@ class TrainingOrchestrator(ABC):
         pass
     
     @abstractmethod
-    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+    def plan_generation_phase(self, step: int, async_generator: AsyncBatchGenerator) -> GenerationPhase:
         """Plan which batches to submit and retrieve
         
         Use cases:
@@ -1992,7 +2042,7 @@ class BatchProcessingStrategy(ABC):
     @abstractmethod  
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
-                           batch_result: Any,
+                           batch_result: BatchResult,
                            process_slice: slice) -> ProcessedTensorData:
         """Process batch results into training inputs
         
@@ -2222,36 +2272,23 @@ class ClippingMetrics:
     high_clip_max: List[float] = field(default_factory=list)
     clip_ratio: List[float] = field(default_factory=list)
     
-    def add_clipping_stats(self, stats: Dict[str, torch.Tensor], accelerator: Any):
+    def add_clipping_stats(self, stats: ClippingStats, accelerator: Accelerator):
         """Add clipping statistics from RL algorithm result"""
-        for stat_name, stat_value in stats.items():
-            gathered_stat = accelerator.gather_for_metrics(stat_value)
-            if hasattr(gathered_stat, 'nanmean'):
-                # Handle tensor case
-                if stat_name in ['low_clip', 'high_clip']:
-                    mean_val = gathered_stat.nanmean().item()
-                    if stat_name == 'low_clip':
-                        self.low_clip_mean.append(mean_val)
-                        self.low_clip_min.append(nanmin(gathered_stat).item())
-                    else:
-                        self.high_clip_mean.append(mean_val)
-                        self.high_clip_max.append(nanmax(gathered_stat).item())
-                else:
-                    self.clip_ratio.append(gathered_stat.nanmean().item())
-            else:
-                # Handle list/dict case - convert to tensor first
-                if isinstance(gathered_stat, (list, dict)):
-                    tensor_stat = torch.tensor(list(gathered_stat.values()) if isinstance(gathered_stat, dict) else gathered_stat)
-                    if stat_name in ['low_clip', 'high_clip']:
-                        mean_val = tensor_stat.nanmean().item()
-                        if stat_name == 'low_clip':
-                            self.low_clip_mean.append(mean_val)
-                            self.low_clip_min.append(nanmin(tensor_stat).item())
-                        else:
-                            self.high_clip_mean.append(mean_val)
-                            self.high_clip_max.append(nanmax(tensor_stat).item())
-                    else:
-                        self.clip_ratio.append(tensor_stat.nanmean().item())
+        if stats.low_clip is not None:
+            gathered_stat = accelerator.gather_for_metrics(stats.low_clip)
+            mean_val = gathered_stat.nanmean().item()
+            self.low_clip_mean.append(mean_val)
+            self.low_clip_min.append(nanmin(gathered_stat).item())
+            
+        if stats.high_clip is not None:
+            gathered_stat = accelerator.gather_for_metrics(stats.high_clip)
+            mean_val = gathered_stat.nanmean().item()
+            self.high_clip_mean.append(mean_val)
+            self.high_clip_max.append(nanmax(gathered_stat).item())
+            
+        if stats.clip_ratio is not None:
+            gathered_stat = accelerator.gather_for_metrics(stats.clip_ratio)
+            self.clip_ratio.append(gathered_stat.nanmean().item())
     
     def clear(self):
         """Clear all metrics"""
@@ -2408,18 +2445,18 @@ class DefaultTrainingOrchestrator(TrainingOrchestrator):
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.num_iterations = num_iterations
     
-    def should_generate_new_batch(self, step: int, buffered_inputs: Any) -> bool:
+    def should_generate_new_batch(self, step: int, buffered_inputs: Optional[List[TrainingInputs]]) -> bool:
         generate_every = self.gradient_accumulation_steps * self.num_iterations
         return step % generate_every == 0 or buffered_inputs is None
     
-    def plan_generation_phase(self, step: int, async_generator: Any) -> GenerationPhase:
+    def plan_generation_phase(self, step: int, async_generator: AsyncBatchGenerator) -> GenerationPhase:
         generate_every = self.gradient_accumulation_steps * self.num_iterations
         batch_id_to_retrieve = step // generate_every
         target_batch_id = batch_id_to_retrieve + async_generator.num_batches_ahead
         
         return GenerationPhase(
             should_generate=True,
-            batch_id_to_retrieve=batch_id_to_retrieve,
+            # batch_id_to_retrieve=batch_id_to_retrieve,
             target_batch_id=target_batch_id,
             batches_to_submit=list(range(batch_id_to_retrieve, target_batch_id + 1))
         )
@@ -2444,7 +2481,7 @@ class DefaultBatchProcessingStrategy(BatchProcessingStrategy):
     
     def process_batch_result(self, 
                            trainer: 'GRPOTrainer',
-                           batch_result: Any,
+                           batch_result: BatchResult,
                            process_slice: slice) -> ProcessedTensorData:
         return trainer._process_batch_result_impl(batch_result, process_slice)
 
@@ -2554,24 +2591,3 @@ def split_training_inputs(inputs: TrainingInputs, num_chunks: int) -> List[Train
         ))
     
     return chunks
-
-def shuffle_tensor_dict(tensor_dict: dict[str, Optional[torch.Tensor]]) -> dict[str, Optional[torch.Tensor]]:
-    """
-    Shuffles a dictionary of tensors along the first dimension in unison.
-
-    Example:
-        >>> x = torch.arange(6).reshape(3, 2)
-        >>> y = torch.arange(3).reshape(3, 1)
-        >>> tensor_dict = {"x": x, "y": y}
-        >>> shuffle_tensor_dict(tensor_dict)
-        {'x': tensor([[2, 3],
-                      [0, 1],
-                      [4, 5]]),
-         'y': tensor([[1],
-                      [0],
-                      [2]])}
-    """
-    first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
-    batch_size = first_tensor.shape[0]
-    permutation = torch.randperm(batch_size)
-    return {key: tensor[permutation] if tensor is not None else None for key, tensor in tensor_dict.items()}
