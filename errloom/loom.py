@@ -57,6 +57,9 @@ class Loom(ABC):
                  show_rollout_errors: bool = False,
                  session: Optional['Session'] = None,
                  dump_rollouts: Optional[str | bool] = False):
+        # Import errlargs for dry training logic
+        from errloom import errlargs
+        
         self.trainer: Optional['GRPOTrainer'] = None
         
         # Use provided client or create default MockClient
@@ -88,7 +91,10 @@ class Loom(ABC):
         elif isinstance(model, str):
             from errloom.utils.model_utils import get_model
             self.model_name = model
-            self.model = get_model(model) if not dry else None
+            # Load model even in dry mode for dry training
+            need_model_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train" 
+                                         and hasattr(errlargs, 'dry') and errlargs.dry)
+            self.model = get_model(model) if (not dry or need_model_for_dry_training) else None
         else:
             self.model_name = None
             self.model = None
@@ -99,7 +105,10 @@ class Loom(ABC):
         elif isinstance(tokenizer, str):
             from errloom.utils.model_utils import get_tokenizer
             self.tokenizer_name = model
-            self.tokenizer = get_tokenizer(tokenizer) if not dry else None
+            # Load tokenizer even in dry mode for dry training
+            need_tokenizer_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train" 
+                                             and hasattr(errlargs, 'dry') and errlargs.dry)
+            self.tokenizer = get_tokenizer(tokenizer) if (not dry or need_tokenizer_for_dry_training) else None
         else:
             self.tokenizer_name = None
             self.tokenizer = None
@@ -128,6 +137,32 @@ class Loom(ABC):
                         model=self.model,  # type: ignore
                         tokenizer=self.tokenizer,  # type: ignore
                         args=config)
+        else:
+            # Check if we need a trainer for dry training mode
+            from errloom import errlargs
+            if hasattr(errlargs, 'command') and errlargs.command == "train" and hasattr(errlargs, 'dry') and errlargs.dry:
+                # Create trainer in dry mode for dry training
+                if self.model is not None and self.tokenizer is not None and self.model_name is not None:
+                    with LogContext("🧪 Initializing Dry GRPO...", "dry_grpo_init", logger=self.logger):
+                        from errloom.training.grpo_trainer import GRPOTrainer
+                        from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
+                        
+                        # Choose config based on testing flags
+                        if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+                            config = grpo_cpu_test_defaults(name=self.model_name)
+                        elif hasattr(errlargs, 'micro_test') and errlargs.micro_test:
+                            config = grpo_micro_test_defaults(name=self.model_name)
+                        elif hasattr(errlargs, 'local_test') and errlargs.local_test:
+                            config = grpo_local_test_defaults(name=self.model_name)
+                        else:
+                            config = grpo_defaults(name=self.model_name)
+                        
+                        self.trainer = GRPOTrainer(
+                                loom=self,  # Pass self as the loom argument
+                                model=self.model,  # type: ignore
+                                tokenizer=self.tokenizer,  # type: ignore
+                                args=config,
+                                dry=True)  # Pass dry=True to trainer
 
         valid_data = self.data or self.data_train and self.data_bench
         if not valid_data:

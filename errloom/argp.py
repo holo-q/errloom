@@ -61,6 +61,10 @@ def colorize_command(command: str) -> str:
             # Special handling for command placeholder
             colored_text = "<" + colorize_command_name("command").replace("[/]", "") + ">"
             colored_parts.append(colored_text)
+        elif part == "<session_name>":
+            # Special handling for session_name placeholder
+            colored_text = "<" + colorize_session_name("session_name").replace("[/]", "") + ">"
+            colored_parts.append(colored_text)
         elif part.startswith("<") and part.endswith(">"):
             # Generic placeholders
             colored_parts.append(colorize_placeholder(part))
@@ -79,13 +83,13 @@ def print_errloom_ascii():
     
     # Create the ASCII art as a single multiline string to avoid RichHandler alignment issues
     ascii_art = """
-[bright_yellow]╭─────────────────────────────────────────────────────────────────╮
-│  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄       ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄   ▄▄  │
+[bright_yellow]╭────────────────────────────────────────────────────────────╮
+│  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄       ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄   ▄▄   │
 │  ██████  ██  ██  ██  ██  ██      ██  ██  ██  ██  ███▄▄███  │
 │  ██████  ██████  ██████  ██      ██  ██  ██  ██  ████████  │
 │  ██▄▄▄▄  ██▄▄██  ██▄▄██  ██      ██  ██  ██  ██  ██▄██▄██  │
 │  ██████  ██  ██  ██  ██  ██████  ██████  ██████  ██▄▄▄▄██  │
-╰─────────────────────────────────────────────────────────────────╯[/]
+╰────────────────────────────────────────────────────────────╯[/]
 
 [dim]              Swiss Army Knife for RL-Enhanced Prompt Scaffolding[/]
 """
@@ -94,8 +98,8 @@ def print_errloom_ascii():
 
 
 def show_help():
-    """Show helpful guidance when no command is specified."""
-    from errloom.utils.log import log, logc
+    """Display comprehensive help for errloom commands"""
+    from errloom.utils.log import log, logc, colorize_field_label, colorize_title
     from errloom.holoware_load import get_default_loader
     from rich.rule import Rule
 
@@ -119,51 +123,81 @@ def show_help():
         log(f"[yellow]Could not list available holoware files: {e}[/]")
         log("")
 
-    log("[bold bright_yellow]Usage[/]")
-    log(f"  {colorize_command('uv run main <loom/holoware/session_name> <command>')}")
-    log(f"  {colorize_command('uv run vllm')}            [dim]# Run the vllm server for inference[/]")
+    # Header
+    log(f"[bold]{colorize_command('�� ERRLOOM USAGE')}")
+    log("[dim]Swiss army knife for RL-enhanced prompt scaffolding[/]")
+    log("")
+    
+    # Basic Usage
+    log(f"[bold cyan]Basic Usage:[/bold cyan]")
+    log(f"  {colorize_command('uv run main <holoware> <command> [n] [options]')}")
+    log(f"  {colorize_command('uv run main <loom_class> <command> [n] [options]')}")
+    log("")
+    
+    # Commands
+    log(f"[bold cyan]Commands:[/bold cyan]")
+    log(f"  {colorize_command('dry')}     [dim]# Run rollouts without training (uses MockClient by default)[/]")
+    log(f"  {colorize_command('train')}   [dim]# Run full training with rollouts and optimization[/]")
+    log(f"  {colorize_command('dump')}    [dim]# Generate and save rollouts to session directory[/]")
     log("")
 
-    log("[bold bright_yellow]Commands[/]")
-    log(f"  {colorize_command('new <name>')}    [dim]# Create a new session with a specific name (implicit if other commands used without session)[/]") # TODO
-    log(f"  {colorize_command('dry')}           [dim]# Test run without training (mock completions)[/]")
-    log(f"  {colorize_command('train')}         [dim]# Production training run[/]")
-    log(f"  {colorize_command('dump')}          [dim]# Test run with rollout saving (no training)[/]")
-    log(f"  {colorize_command('resume')}        [dim]# Resume the last training run in this session[/]") # TODO
-    log(f"  {colorize_command('vllm')}          [dim]# Run the vllm server for inference in this session[/]") # TODO
+    # Arguments
+    log(f"[bold cyan]Positional Arguments:[/bold cyan]")
+    log(f"  {colorize_field_label('holoware')}      [dim]# .hol file or shorthand (qa, tool, codemath, doublecheck, smola)[/]")
+    log(f"  {colorize_field_label('loom_class')}    [dim]# Loom class name for direct loom usage[/]")
+    log(f"  {colorize_field_label('command')}       [dim]# One of: dry, train, dump[/]")
+    log(f"  {colorize_field_label('n')}             [dim]# Number of dataset rows to process (default: 10 for train, 1 for dry/dump)[/]")
     log("")
-
-    log("[bold bright_yellow]Progressive Testing Workflow[/]")
-    log(f"  {colorize_command('uv run main prompt.hol dry')}                     [dim]# Phase 1: Test scaffolding (mock)[/]")
-    log(f"  {colorize_command('uv run main prompt.hol dump --lmstudio --n 3')}   [dim]# Phase 2: Test completions + save rollouts[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --lmstudio')}        [dim]# Phase 3: Local training[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --vllm')}            [dim]# Phase 4: Distributed training[/]")
+    
+    # Examples section
+    log(f"[bold cyan]Quick Examples:[/bold cyan]")
+    log(f"  {colorize_command('uv run main qa.hol dry')}                              [dim]# Quick dry run with 1 sample[/]")
+    log(f"  {colorize_command('uv run main tool.hol train 50')}                       [dim]# Train with 50 samples[/]")
+    log(f"  {colorize_command('uv run main codemath.hol dry 5 --debug')}              [dim]# Debug dry run with 5 samples[/]")
+    log(f"  {colorize_command('uv run main smola.hol dump 3')}                        [dim]# Generate and save 3 rollouts[/]")
     log("")
-
-    log("[bold bright_yellow]Local testing on RTX 3090 / limited resources[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --local-test --test-steps 3')}   [dim]# Local test mode (reduced memory)[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --micro-test --test-steps 2')}   [dim]# Micro test mode (minimal memory)[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --local-test --n 5')}            [dim]# Local test with more data samples[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --cpu-mode --test-steps 2')}     [dim]# Debug training logic on CPU (very slow)[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train --cpu-mode --n 3')}              [dim]# CPU mode with more samples[/]")
+    
+    # Testing Examples
+    log(f"[bold cyan]Testing Examples:[/bold cyan]")
+    log(f"  {colorize_command('uv run main prompt.hol train 1 --micro-test')}         [dim]# Minimal test mode[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train 2 --local-test')}         [dim]# Local test mode[/]")
+    log(f"  {colorize_command('uv run main prompt.hol train 1 --cpu --test-steps 2')} [dim]# CPU debug mode[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train 1 --cpu --unsafe --dry')} [dim]# Dry training mode (no backprop)[/]")
     log("")
-
-    log("[bold bright_yellow]Client[/]")
-    log(f"  {colorize_command('--client ip:port')}  [dim]# Connect to custom OpenAI-compatible server[/]")
-    log(f"  {colorize_command('--lmstudio')}        [dim]# Connect to LM Studio (localhost:1234)[/]")
-    log(f"  {colorize_command('--vllm')}            [dim]# Use VLLM distributed client[/]")
-    log(f"  {colorize_command('--openai')}          [dim]# Use OpenAI API (requires key)[/]") # TODO
-    log(f"  {colorize_command('--openrouter')}      [dim]# Use OpenRouter API (requires key)[/]") # TODO
+    
+    # Advanced Examples
+    log(f"[bold cyan]Advanced Examples:[/bold cyan]")
+    log(f"  {colorize_command('uv run main qa.hol train 100 --vllm --batch 16')}      [dim]# Distributed training[/]")
+    log(f"  {colorize_command('uv run main custom_loom train 50 --model llama-7b')}   [dim]# Custom loom with specific model[/]")
+    log(f"  {colorize_command('uv run main tool.hol train 200 --data custom_dataset')} [dim]# Training with custom dataset[/]")
     log("")
-
-    log("[bold bright_yellow]Deployment[/]")
-    log("[dim]Use these arguments to deploy the session to a remote server and run the commands on it.[/]")
-    log(f"  {colorize_command('uv run main ... train -vai')}     [dim]# Deploy to VastAI[/]")
-    log(f"  {colorize_command('uv run main ... train -vaig')}    [dim]# Open deployment GUI[/]")
-    log(f"  {colorize_command('uv run main ... train -vaish')}   [dim]# Start shell on remote[/]")
-    log(f"  {colorize_command('uv run main ... train --help')}   [dim]# Show all options[/]")
+    
+    # Client Options
+    log(f"[bold cyan]Client Options:[/bold cyan]")
+    log(f"  {colorize_command('--vllm')}         [dim]# Use VLLM for distributed training[/]")
+    log(f"  {colorize_command('--openai')}       [dim]# Use OpenAI API (requires OPENAI_API_KEY)[/]")
+    log(f"  {colorize_command('--lmstudio')}     [dim]# Use LM Studio local server[/]")
+    log(f"  {colorize_command('--client URL')}   [dim]# Custom OpenAI-compatible endpoint[/]")
     log("")
-    log("[dim]For more information, see the documentation or run [bright_cyan]--help[/][/]")
+    
+    # Testing Options
+    log(f"[bold cyan]Testing & Debug Options:[/bold cyan]")
+    log(f"  {colorize_command('--cpu')}          [dim]# Run on CPU (slow but unlimited memory)[/]")
+    log(f"  {colorize_command('--micro-test')}   [dim]# Minimal memory usage for testing[/]")
+    log(f"  {colorize_command('--local-test')}   [dim]# Optimized for local development[/]")
+    log(f"  {colorize_command('--test-steps N')} [dim]# Limit training to N steps[/]")
+    log(f"  {colorize_command('--debug')}        [dim]# Enable debug logging[/]")
+    log(f"  {colorize_command('--unsafe')}       [dim]# Disable safe mode (crashes on errors)[/]")
+    log("")
+    
+    # Deployment
+    log(f"[bold cyan]Deployment:[/bold cyan]")
+    log(f"  {colorize_command('uv run main --vastai')}                               [dim]# Deploy to VastAI[/]")
+    log(f"  {colorize_command('uv run main --vastai-gui')}                           [dim]# VastAI deployment GUI[/]")
+    log("")
+    
+    log(f"[dim]Use {colorize_command('uv run main <command> --help')} for detailed options.[/]")
+    log("")
     log(Rule(style="dim"))
 
 
@@ -180,6 +214,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     # Positional arguments
     parser.add_argument("loom_or_ware", nargs="?", help="Loom class name or holoware file (.hol)")
     parser.add_argument("command", nargs="?", choices=["dry", "train", "dump"], help="Command to execute")
+    parser.add_argument("n", nargs="?", type=int, default=10, help="How many dataset rows to process with the loom")
 
     loom_config = parser.add_argument_group('Loom Configuration')
     loom_config.add_argument("--ware", type=str, default=None, help="The name or path of an holoware to train.")
@@ -202,7 +237,6 @@ def get_base_parser() -> argparse.ArgumentParser:
     runtime_group.add_argument('--unsafe', action='store_true', help='Disable safe invocation mode for rollouts (exceptions will crash the process)')
 
     train_group = parser.add_argument_group('Training Configuration')
-    train_group.add_argument("--n", type=int, default=10, help="How many dataset rows to process with the loom.")
     train_group.add_argument("--batch", type=int, default=8, help="How many dataset rows to process with the loom.")
     train_group.add_argument("--train-warmup", type=int, default=0, help="")
     train_group.add_argument("--train-rollouts", type=int, default=300, help="")
@@ -210,13 +244,14 @@ def get_base_parser() -> argparse.ArgumentParser:
     train_group.add_argument("--batch-sz", type=int, default=0, help="")
     train_group.add_argument("--batch-accum", type=int, default=0, help="")
     train_group.add_argument("--train-stop", type=str, default=0.1, help="Specify a Stopper class which defines rules for stopping training, such as reward plateaus. Can call holoware to RL on this.")
+    train_group.add_argument("--dry", action='store_true', help="Enable dry training mode: run training motions with MockClient but skip backprop")
 
     # Local testing options
     test_group = parser.add_argument_group('Local Testing Configuration')
     test_group.add_argument('--local-test', action='store_true', help='Enable local testing mode (smaller batches, shorter sequences)')
     test_group.add_argument('--micro-test', action='store_true', help='Enable micro testing mode (minimal memory usage)')
     test_group.add_argument('--test-steps', type=int, default=5, help='Number of training steps for testing')
-    test_group.add_argument('--cpu-mode', action='store_true', help='Run training on CPU (very slow but no GPU memory limits, good for debugging training locally)')
+    test_group.add_argument('--cpu', action='store_true', help='Run training on CPU (very slow but no GPU memory limits, good for debugging training locally)')
 
     log_group = parser.add_argument_group('Logging Configuration')
     log_group.add_argument('--debug', action='store_true', help='Enable debug logging (equivalent to --log-level debug)')
@@ -275,22 +310,36 @@ errlargs = args[0]
 if errlargs.command == "dry":
     errlargs.dry = True
     errlargs.dump = False
-    # Default --n to 1 for dry runs
-    if errlargs.n == 10:  # Only override if n is still the default value
+    # Default n to 1 for dry runs if not explicitly set
+    if errlargs.n is None or errlargs.n == 10:  # Default value
         errlargs.n = 1
 elif errlargs.command == "dump":
     errlargs.dry = True
     errlargs.dump = True
-    # Default --n to 1 for dump runs
-    if errlargs.n == 10:  # Only override if n is still the default value
+    # Default n to 1 for dump runs if not explicitly set
+    if errlargs.n is None or errlargs.n == 10:  # Default value
         errlargs.n = 1
 elif errlargs.command == "train":
-    errlargs.dry = False
+    # Allow explicit --dry flag during training to override
+    if not hasattr(errlargs, 'dry') or not errlargs.dry:
+        errlargs.dry = False
     errlargs.dump = False
+    # Keep default n value of 10 for train
+    if errlargs.n is None:
+        errlargs.n = 10
 else:
     # No command specified
     errlargs.dry = None
     errlargs.dump = None
+    # Set default n if not specified
+    if errlargs.n is None:
+        errlargs.n = 10
+
+# Handle --cpu instead of --cpu-mode
+if hasattr(errlargs, 'cpu') and errlargs.cpu:
+    errlargs.cpu_mode = True
+else:
+    errlargs.cpu_mode = False
 
 # Validate that ware and loom are not both set
 if errlargs.ware is not None and errlargs.loom is not None:

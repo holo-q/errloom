@@ -570,10 +570,16 @@ class GRPOTrainer(Trainer):
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: Optional[OptimizerConfig] = None,
         peft_config: Optional[PeftConfig] = None,
-        algorithm: Optional[RLAlgorithm] = None
+        algorithm: Optional[RLAlgorithm] = None,
+        dry: bool = False
     ):
         # Initialize the logger with proper hierarchy
         self.logger = log.getLogger(f'errloom.training.{self.__class__.__name__}')
+        
+        # Store dry mode flag
+        self.dry = dry
+        if self.dry:
+            self.logger.info(f"[yellow]🧪 DRY MODE: Training motions enabled, backprop disabled[/]")
         
         # Initialize RL algorithm (default to GRPO for backward compatibility)
         if algorithm is None:
@@ -717,40 +723,49 @@ class GRPOTrainer(Trainer):
         maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
         self._textual_logs = TextualLogs(maxlen=maxlen)
 
-        # OpenAI client for Environment generation (using vLLM server)
-        host = args.vllm_server_host
-        port = args.vllm_server_port
-        vllm_base_url = f"http://{host}:{port}/v1"
-        import httpx
-        self.oai_client = openai.OpenAI(
-            base_url=vllm_base_url,
-            api_key="EMPTY",
-            http_client=httpx.Client(
-                limits=httpx.Limits(max_connections=args.max_concurrent),
-                timeout=args.async_generation_timeout)
-        )
+        # Skip VLLM client setup in dry mode
+        if not self.dry:
+            # OpenAI client for Environment generation (using vLLM server)
+            host = args.vllm_server_host
+            port = args.vllm_server_port
+            vllm_base_url = f"http://{host}:{port}/v1"
+            import httpx
+            self.oai_client = openai.OpenAI(
+                base_url=vllm_base_url,
+                api_key="EMPTY",
+                http_client=httpx.Client(
+                    limits=httpx.Limits(max_connections=args.max_concurrent),
+                    timeout=args.async_generation_timeout)
+            )
 
-        # vLLM client for weight syncing only; only import if used
-        from errloom.interop.vllm_client import VLLMClient
-        self.vllm_client = VLLMClient(
-            host=host,
-            port=port,
-            connection_timeout=args.vllm_server_timeout
-        )
-        # Only initialize communicator on the main process
-        # Other processes will only use the client for non-NCCL operations
-        if self.accelerator.is_main_process and not getattr(args, 'disable_nccl_init', False):
-            with LogContext("🔗 Initializing vLLM Communicator...", "vllm_comm", logger=self.logger):
-                self.logger.info(f"[cyan]Connecting to vLLM server at {host}:{port}[/]")
-                self.vllm_client.init_communicator()
-                self.logger.info(f"[green]✓[/] vLLM communicator ready")
-        else:
-            if getattr(args, 'disable_nccl_init', False):
-                self.logger.info(f"[yellow]⚠[/] NCCL communicator disabled for local testing")
+            # vLLM client for weight syncing only; only import if used
+            from errloom.interop.vllm_client import VLLMClient
+            self.vllm_client = VLLMClient(
+                host=host,
+                port=port,
+                connection_timeout=args.vllm_server_timeout
+            )
+            # Only initialize communicator on the main process
+            # Other processes will only use the client for non-NCCL operations
+            if self.accelerator.is_main_process and not getattr(args, 'disable_nccl_init', False):
+                with LogContext("🔗 Initializing vLLM Communicator...", "vllm_comm", logger=self.logger):
+                    self.logger.info(f"[cyan]Connecting to vLLM server at {host}:{port}[/]")
+                    self.vllm_client.init_communicator()
+                    self.logger.info(f"[green]✓[/] vLLM communicator ready")
             else:
-                self.logger.info(f"[dim]Non-main process, skipping NCCL init[/]")
+                if getattr(args, 'disable_nccl_init', False):
+                    self.logger.info(f"[yellow]⚠[/] NCCL communicator disabled for local testing")
+                else:
+                    self.logger.info(f"[dim]Non-main process, skipping NCCL init[/]")
 
-        self._last_loaded_step = 0  # Initialize to 0 since vLLM already has initial weights
+            self._last_loaded_step = 0  # Initialize to 0 since vLLM already has initial weights
+        else:
+            # In dry mode, create dummy clients
+            self.logger.info(f"[yellow]🧪 DRY MODE: Skipping vLLM client initialization[/]")
+            self.oai_client = None
+            self.vllm_client = None
+            self._last_loaded_step = 0
+            
         self.model_accepts_loss_kwargs = False
         # Weight updates to vLLM happen only when generating new completions
         # Frequency: every (gradient_accumulation_steps * num_iterations) training steps
@@ -931,6 +946,11 @@ class GRPOTrainer(Trainer):
         return torch.cat(all_logps, dim=0)
 
     def _move_model_to_vllm(self):
+        # Skip vLLM weight sync in dry mode
+        if self.dry:
+            self.logger.debug(f"[yellow]🧪 DRY MODE: Skipping vLLM weight sync[/]")
+            return
+            
         # For DeepSpeed ZeRO-3 we need to gather all parameters before operations
         deepspeed_plugin = self.accelerator.state.deepspeed_plugin
         zero_stage_3 = deepspeed_plugin is not None and deepspeed_plugin.zero_stage == 3
@@ -1425,6 +1445,14 @@ class GRPOTrainer(Trainer):
         mode = "train" if model.training else "eval" 
         self.logger.push_debug("Policy")
 
+        # In dry mode, return dummy loss without gradients
+        if self.dry:
+            self.logger.debug(f"[yellow]🧪 DRY MODE: Skipping loss computation, returning dummy loss[/]")
+            # Create a dummy loss that requires gradients but doesn't compute anything meaningful
+            dummy_loss = torch.tensor(0.0, device=inputs.input_ids.device, requires_grad=True)
+            self.logger.pop()
+            return dummy_loss
+
         # Extract inputs from dataclass
         input_ids = inputs.input_ids
         attention_mask = inputs.attention_mask
@@ -1825,7 +1853,8 @@ def create_grpo_trainer(
     tokenizer: PreTrainedTokenizerBase,
     callbacks: Optional[list[TrainerCallback]] = None,
     optimizers: Optional[OptimizerConfig] = None,
-    peft_config: Optional[PeftConfig] = None
+    peft_config: Optional[PeftConfig] = None,
+    dry: bool = False
 ) -> GRPOTrainer:
     """Factory function to create a GRPO trainer"""
     algorithm = GRPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GRPOAlgorithm'))
@@ -1837,7 +1866,8 @@ def create_grpo_trainer(
         callbacks=callbacks,
         optimizers=optimizers,
         peft_config=peft_config,
-        algorithm=algorithm
+        algorithm=algorithm,
+        dry=dry
     )
 
 def create_gspo_trainer(
@@ -1847,7 +1877,8 @@ def create_gspo_trainer(
     tokenizer: PreTrainedTokenizerBase,
     callbacks: Optional[list[TrainerCallback]] = None,
     optimizers: Optional[OptimizerConfig] = None,
-    peft_config: Optional[PeftConfig] = None
+    peft_config: Optional[PeftConfig] = None,
+    dry: bool = False
 ) -> GRPOTrainer:
     """Factory function to create a GSPO trainer"""
     algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
@@ -1859,7 +1890,8 @@ def create_gspo_trainer(
         callbacks=callbacks,
         optimizers=optimizers,
         peft_config=peft_config,
-        algorithm=algorithm
+        algorithm=algorithm,
+        dry=dry
     )
 
 class GSPOTrainer(GRPOTrainer):
@@ -1873,7 +1905,8 @@ class GSPOTrainer(GRPOTrainer):
         tokenizer: PreTrainedTokenizerBase,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: Optional[OptimizerConfig] = None,
-        peft_config: Optional[PeftConfig] = None
+        peft_config: Optional[PeftConfig] = None,
+        dry: bool = False
     ):
         """Initialize GSPO trainer with GSPO algorithm"""
         algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
@@ -1885,7 +1918,8 @@ class GSPOTrainer(GRPOTrainer):
             callbacks=callbacks,
             optimizers=optimizers,
             peft_config=peft_config,
-            algorithm=algorithm
+            algorithm=algorithm,
+            dry=dry
         )
 
 @dataclass
