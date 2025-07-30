@@ -123,11 +123,11 @@ class Loom(ABC):
                 from errloom import errlargs
                 
                 # Choose config based on testing flags
-                if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+                if errlargs.cpu:
                     config = grpo_cpu_test_defaults(name=self.model_name)
-                elif hasattr(errlargs, 'micro_test') and errlargs.micro_test:
+                elif errlargs.micro_test:
                     config = grpo_micro_test_defaults(name=self.model_name)
-                elif hasattr(errlargs, 'local_test') and errlargs.local_test:
+                elif errlargs.local_test:
                     config = grpo_local_test_defaults(name=self.model_name)
                 else:
                     config = grpo_defaults(name=self.model_name)
@@ -148,11 +148,11 @@ class Loom(ABC):
                         from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
                         
                         # Choose config based on testing flags
-                        if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+                        if errlargs.cpu:
                             config = grpo_cpu_test_defaults(name=self.model_name)
-                        elif hasattr(errlargs, 'micro_test') and errlargs.micro_test:
+                        elif errlargs.micro_test:
                             config = grpo_micro_test_defaults(name=self.model_name)
-                        elif hasattr(errlargs, 'local_test') and errlargs.local_test:
+                        elif errlargs.local_test:
                             config = grpo_local_test_defaults(name=self.model_name)
                         else:
                             config = grpo_defaults(name=self.model_name)

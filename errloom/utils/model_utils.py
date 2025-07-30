@@ -72,7 +72,7 @@ def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[
         # Check if CPU mode is explicitly requested via errlargs
         try:
             from errloom import errlargs
-            if hasattr(errlargs, 'cpu_mode') and errlargs.cpu_mode:
+            if errlargs.cpu:
                 is_cpu = True
         except ImportError:
             pass

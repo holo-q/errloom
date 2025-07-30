@@ -19,6 +19,7 @@ import numpy as np
 from rich.rule import Rule
 
 from errloom import defaults, discovery, Loom
+from errloom import argp
 from errloom.aliases import Data
 from errloom.argp import errlargs, create_client_from_args, show_help
 from errloom.comm import CommModel
@@ -87,6 +88,11 @@ def main(default_title: Optional[str] = None,
         show_help()
         return
 
+    # Handle cat command early - no need for loom initialization
+    if command_arg == "cat":
+        _handle_cat_command(loom_or_ware_arg, default_holoware, type(default_loom) if default_loom else None)
+        return
+
     # Handle loom_or_ware argument context detection
     if loom_or_ware_arg:
         # Detect if it's a holoware file (.hol extension) or loom class
@@ -117,7 +123,7 @@ def main(default_title: Optional[str] = None,
 
     # ----------------------------------------
     logc()
-    print_errloom_banner()
+    argp.print_errloom_banner()
     log("╔══════════════════════════════════════════════════════════════════════════════════╗")
     log("║                                                                                  ║")
     log(f"║                        {colorize_title('🚀 TRAINING SESSION 🚀')}                                 ║")
@@ -204,6 +210,7 @@ def main(default_title: Optional[str] = None,
             log("Starting training...")
             loom.trainer.train()
             log(Rule(colorize_completion("🏆 TRAINING COMPLETED")))
+
         else:
             # For dry/dump, just generate rollouts
             loom.weave(errlargs.n)
@@ -268,6 +275,127 @@ def _print_version_info():
         log(f"{colorize_field_label('          ')} {' '.join(versions[8:])}")
 
 
+def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | None, default_loom: type | None):
+    """Handle the cat command to display holoware code or loom class source."""
+    from errloom.utils.log import colorize_holoware, colorize_loom, colorize_error, colorize_success
+    from rich.rule import Rule
+    from rich.syntax import Syntax
+    import inspect
+    import os
+    
+    logc()
+    log(Rule("[bold cyan]📄 Displaying Source Code", style="cyan"))
+    log("")
+    
+    try:
+        # Determine what we're displaying
+        if loom_or_ware_arg and (loom_or_ware_arg.endswith('.hol') or loom_or_ware_arg in ['qa', 'tool', 'codemath', 'doublecheck', 'smola']):
+            # It's a holoware file
+            holoware_name = loom_or_ware_arg if loom_or_ware_arg.endswith('.hol') else f"{loom_or_ware_arg}.hol"
+            _display_holoware_source(holoware_name)
+        elif default_holoware:
+            # Use the default holoware
+            _display_holoware_source(default_holoware)
+        elif loom_or_ware_arg and not loom_or_ware_arg.endswith('.hol'):
+            # It's likely a loom class
+            _display_loom_class_source(loom_or_ware_arg)
+        elif default_loom and default_loom != HolowareLoom:
+            # Use the default loom class
+            loom_class_name = default_loom.__name__ if hasattr(default_loom, '__name__') else str(default_loom)
+            _display_loom_class_source(loom_class_name)
+        else:
+            log(colorize_error("❌ No holoware or loom class specified"))
+            log("[dim]Please specify a .hol file or loom class name[/]")
+            return
+            
+    except Exception as e:
+        log(colorize_error(f"❌ Error displaying source: {e}"))
+        log("[dim]Check that the file or class exists[/]")
+    
+    log(Rule(style="dim"))
+
+
+def _display_holoware_source(holoware_name: str):
+    """Display the source code of a holoware file."""
+    from errloom.utils.log import colorize_holoware, colorize_error, colorize_success
+    from errloom.holoware_load import get_default_loader
+    from rich.syntax import Syntax
+    import os
+    
+    try:
+        # Try to load the holoware to get its path
+        loader = get_default_loader()
+        holoware_path = loader.find_holoware_path(holoware_name)
+        
+        if not holoware_path:
+            log(colorize_error(f"❌ Holoware file not found: {holoware_name}"))
+            log("[dim]Searched in: " + ", ".join(loader.search_paths) + "[/]")
+            return
+        
+        # Read and display the file content
+        with open(holoware_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        log(f"{colorize_holoware('📄 Holoware:')} {holoware_name}")
+        log(f"[dim]Path: {holoware_path}[/]")
+        log("")
+        
+        # Use syntax highlighting for .hol files
+        syntax = Syntax(content, "text", theme="monokai", line_numbers=True)
+        log(syntax)
+        
+        log("")
+        log(colorize_success("✅ Holoware source displayed"))
+        
+    except Exception as e:
+        log(colorize_error(f"❌ Error reading holoware file: {e}"))
+
+
+def _display_loom_class_source(loom_class_name: str):
+    """Display the source code of a loom class."""
+    from errloom.utils.log import colorize_loom, colorize_error, colorize_success
+    from errloom.discovery import get_class
+    from rich.syntax import Syntax
+    import inspect
+    import os
+    
+    try:
+        # Get the loom class
+        loom_class = get_class(loom_class_name)
+        if not loom_class:
+            log(colorize_error(f"❌ Loom class not found: {loom_class_name}"))
+            # Show available classes
+            from errloom.discovery import get_all_classes
+            available_classes = list(get_all_classes().keys())
+            if available_classes:
+                log(f"[dim]Available classes: {', '.join(sorted(available_classes))}[/]")
+            return
+        
+        # Get the source file
+        source_file = inspect.getfile(loom_class)
+        if not source_file or not os.path.exists(source_file):
+            log(colorize_error(f"❌ Source file not found for class: {loom_class_name}"))
+            return
+        
+        # Read and display the file content
+        with open(source_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        log(f"{colorize_loom('🔧 Loom Class:')} {loom_class_name}")
+        log(f"[dim]File: {source_file}[/]")
+        log("")
+        
+        # Use syntax highlighting for Python files
+        syntax = Syntax(content, "python", theme="monokai", line_numbers=True)
+        log(syntax)
+        
+        log("")
+        log(colorize_success("✅ Loom class source displayed"))
+        
+    except Exception as e:
+        log(colorize_error(f"❌ Error reading loom class source: {e}"))
+
+
 def _handle_deployment():
     """Handle deployment/remote operations."""
     logc()
@@ -289,25 +417,6 @@ def _handle_deployment():
         log("[dim]Check the logs for more details.[/]")
 
     log(Rule(style="dim"))
-
-
-def print_errloom_banner():
-    """Print the beautiful Errloom ASCII art banner - Retro Computing Style."""
-    
-    # Create the ASCII art as a single multiline string to avoid RichHandler alignment issues
-    ascii_art = """
-[bright_yellow]╭─────────────────────────────────────────────────────────────────╮
-│  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄       ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄   ▄▄  │
-│  ██████  ██  ██  ██  ██  ██      ██  ██  ██  ██  ███▄▄███  │
-│  ██████  ██████  ██████  ██      ██  ██  ██  ██  ████████  │
-│  ██▄▄▄▄  ██▄▄██  ██▄▄██  ██      ██  ██  ██  ██  ██▄██▄██  │
-│  ██████  ██  ██  ██  ██  ██████  ██████  ██████  ██▄▄▄▄██  │
-╰─────────────────────────────────────────────────────────────────╯[/]
-
-[dim]              Swiss Army Knife for RL-Enhanced Prompt Scaffolding[/]
-"""
-    
-    log(ascii_art.strip())
 
 
 def run():

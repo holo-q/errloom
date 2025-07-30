@@ -77,7 +77,7 @@ def colorize_command(command: str) -> str:
     return " ".join(colored_parts)
 
 
-def print_errloom_ascii():
+def print_errloom_banner():
     """Print the beautiful Errloom ASCII art - Retro Computing Style."""
     from errloom.utils.log import log
     
@@ -91,7 +91,7 @@ def print_errloom_ascii():
 │  ██████  ██  ██  ██  ██  ██████  ██████  ██████  ██▄▄▄▄██  │
 ╰────────────────────────────────────────────────────────────╯[/]
 
-[dim]              Swiss Army Knife for RL-Enhanced Prompt Scaffolding[/]
+[italic dim]To build an intelligence fractal decompression zip bomb...[/]
 """
     
     log(ascii_art.strip())
@@ -104,7 +104,8 @@ def show_help():
     from rich.rule import Rule
 
     logc()
-    print_errloom_ascii()
+    print_errloom_banner()
+    log("")
     log(Rule("[bold cyan]Holoware Training", style="cyan"))
     log("")
 
@@ -122,11 +123,6 @@ def show_help():
     except Exception as e:
         log(f"[yellow]Could not list available holoware files: {e}[/]")
         log("")
-
-    # Header
-    log(f"[bold]{colorize_command('�� ERRLOOM USAGE')}")
-    log("[dim]Swiss army knife for RL-enhanced prompt scaffolding[/]")
-    log("")
     
     # Basic Usage
     log(f"[bold cyan]Basic Usage:[/bold cyan]")
@@ -138,7 +134,8 @@ def show_help():
     log(f"[bold cyan]Commands:[/bold cyan]")
     log(f"  {colorize_command('dry')}     [dim]# Run rollouts without training (uses MockClient by default)[/]")
     log(f"  {colorize_command('train')}   [dim]# Run full training with rollouts and optimization[/]")
-    log(f"  {colorize_command('dump')}    [dim]# Generate and save rollouts to session directory[/]")
+    log(f"  {colorize_command('dump')}    [dim]# Generate and save rollouts to project directory[/]")
+    log(f"  {colorize_command('cat')}     [dim]# Display holoware code or loom class source[/]")
     log("")
 
     # Arguments
@@ -155,6 +152,8 @@ def show_help():
     log(f"  {colorize_command('uv run main tool.hol train 50')}                       [dim]# Train with 50 samples[/]")
     log(f"  {colorize_command('uv run main codemath.hol dry 5 --debug')}              [dim]# Debug dry run with 5 samples[/]")
     log(f"  {colorize_command('uv run main smola.hol dump 3')}                        [dim]# Generate and save 3 rollouts[/]")
+    log(f"  {colorize_command('uv run main qa.hol cat')}                              [dim]# Display holoware code[/]")
+    log(f"  {colorize_command('uv run main HolowareLoom cat')}                        [dim]# Display loom class source[/]")
     log("")
     
     # Testing Examples
@@ -162,7 +161,7 @@ def show_help():
     log(f"  {colorize_command('uv run main prompt.hol train 1 --micro-test')}         [dim]# Minimal test mode[/]")
     log(f"  {colorize_command('uv run main prompt.hol train 2 --local-test')}         [dim]# Local test mode[/]")
     log(f"  {colorize_command('uv run main prompt.hol train 1 --cpu --test-steps 2')} [dim]# CPU debug mode[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train 1 --cpu --unsafe --dry')} [dim]# Dry training mode (no backprop)[/]")
+    log(f"  {colorize_command('uv run main compressor.hol train 1 --cpu --dry')}      [dim]# Dry training mode (no backprop)[/]")
     log("")
     
     # Advanced Examples
@@ -213,7 +212,7 @@ def get_base_parser() -> argparse.ArgumentParser:
 
     # Positional arguments
     parser.add_argument("loom_or_ware", nargs="?", help="Loom class name or holoware file (.hol)")
-    parser.add_argument("command", nargs="?", choices=["dry", "train", "dump"], help="Command to execute")
+    parser.add_argument("command", nargs="?", choices=["dry", "train", "dump", "cat"], help="Command to execute")
     parser.add_argument("n", nargs="?", type=int, default=10, help="How many dataset rows to process with the loom")
 
     loom_config = parser.add_argument_group('Loom Configuration')
@@ -223,7 +222,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     loom_config.add_argument("--model", type=str, default=defaults.DEFAULT_MODEL, help="The name or path to the model to train.")
     loom_config.add_argument('--temp', type=float, default=0.7, help='Sampling temperature for model responses')
     loom_config.add_argument('--max-ctx', type=int, default=None, help='Maximum number of tokens for model responses')
-    loom_config.add_argument('--save', action='store_true', help='Generate rollouts into an output directory of the session.')
+    loom_config.add_argument('--save', action='store_true', help='Generate rollouts into an output directory of the project.')
 
     # Client configuration
     client_group = parser.add_argument_group('Client Configuration')
@@ -335,12 +334,6 @@ else:
     if errlargs.n is None:
         errlargs.n = 10
 
-# Handle --cpu instead of --cpu-mode
-if hasattr(errlargs, 'cpu') and errlargs.cpu:
-    errlargs.cpu_mode = True
-else:
-    errlargs.cpu_mode = False
-
 # Validate that ware and loom are not both set
 if errlargs.ware is not None and errlargs.loom is not None:
     raise ValueError("Cannot specify both --ware and --loom. Please choose one.")
@@ -362,6 +355,9 @@ is_vastai = errlargs.vastai or \
             errlargs.vastai_vllm
 
 is_vastai_continue = errlargs.vastai or errlargs.vastai_quick
+is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test
+if is_dev:
+    errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
 
 def get_errloom_session(load=True, *, nosubdir=False):
     """

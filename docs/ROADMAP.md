@@ -28,6 +28,6 @@ To see the logging standard we're aiming for.
 Then try 
 
 errloom  🍣 main 🏎️ 💨 ×5🐍 v3.13.5 
-❮ uv run main compressor.hol train --cpu_mode --test_steps 1 --n 1
+❮ uv run main compressor.hol train --cpu --test_steps 1 --n 1
 
 you will see that the logging is not quite to the same aesthetic. It's more 'spiky'
