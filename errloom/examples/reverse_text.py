@@ -60,7 +60,7 @@ args.eval_steps = 10
 args.max_steps = 100
 
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

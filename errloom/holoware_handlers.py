@@ -25,7 +25,7 @@ class HolowareHandlers:
 
     @classmethod
     def ContextResetSpan(cls, phore:Holophore, span:ContextResetSpan):
-        phore.contexts.append(Context())
+        phore.new_context()
         phore.ego = 'system'
 
     @classmethod

@@ -15,10 +15,8 @@ from errloom.utils.openai_chat import MessageList, MessageTuple
 
 class FragmentType(Enum):
     """Type of text fragment for training purposes."""
-    PROMPT = "prompt"          # Input text, typically masked
-    COMPLETION = "completion"  # Generated text, typically reinforced  
-    REINFORCED = "reinforced"  # Text to reinforce (unmasked)
-    MASKED = "masked"          # Text to mask (ignored in loss)
+    FROZEN = "frozen"          # Input text, typically masked
+    REINFORCE = "reinforced"  # Text to reinforce (unmasked)
 
 @dataclass
 class TextFragment:
@@ -34,63 +32,67 @@ class TextFragment:
 class Context:
     """
     Represents a conversation context with text fragments and training metadata.
+    TODO instead of _bake every time we should invalidate, make the baked fields private, and expose them with properties that cause bake if invalidated
     """
     text: str = ""
-    _messages: MessageList = field(default_factory=list)
     fragments: List[TextFragment] = field(default_factory=list)
     mode: Literal["chat", "completion"] = "chat"
+
+    _messages: MessageList = field(default_factory=list)
 
     def add_fragment(self, content: str, fragment_type: FragmentType, role: Optional[str] = None, **metadata):
         """Add a text fragment with training metadata."""
         fragment = TextFragment(
             content=content,
-            fragment_type=fragment_type, 
+            fragment_type=fragment_type,
             role=role,
             metadata=metadata
         )
         self.fragments.append(fragment)
-        
+
         # Update legacy structures based on mode
         if self.mode == "chat" and role:
             self._update_messages_from_fragments()
         else:
             self._update_text_from_fragments()
 
+    # TODO we need to redo this API to be always explicit about what is frozen and what isn't. No backwards compatibility, we just build the perfect API here and let errors domino propagate
+
     def add_text(self, text: str):
         """Legacy method - adds as masked prompt by default."""
         if self._messages and self._messages[-1].get('role') == 'assistant':
             # Continuing assistant message
-            self.add_fragment(text, FragmentType.COMPLETION, role='assistant')
+            self.add_fragment(text, FragmentType.REINFORCE, role='assistant')
         else:
-            self.add_fragment(text, FragmentType.MASKED)
+            self.add_fragment(text, FragmentType.FROZEN)
 
     def add_message(self, ego: str, text: str):
         """Legacy method - adds based on role defaults."""
-        fragment_type = FragmentType.COMPLETION if ego == 'assistant' else FragmentType.MASKED
+        fragment_type = FragmentType.REINFORCE if ego == 'assistant' else FragmentType.FROZEN
         self.add_fragment(text, fragment_type, role=ego)
 
     def add_prompt(self, content: str, role: Optional[str] = None):
         """Add prompt text (typically masked)."""
-        self.add_fragment(content, FragmentType.PROMPT, role=role)
+        self.add_fragment(content, FragmentType.FROZEN, role=role)
 
     def add_completion(self, content: str, role: Optional[str] = None):
         """Add completion text (typically reinforced)."""
-        self.add_fragment(content, FragmentType.COMPLETION, role=role or 'assistant')
+        self.add_fragment(content, FragmentType.REINFORCE, role=role or 'assistant')
 
     def add_reinforced(self, content: str, role: Optional[str] = None):
         """Add text to reinforce (unmasked in training)."""
-        self.add_fragment(content, FragmentType.REINFORCED, role=role)
+        self.add_fragment(content, FragmentType.REINFORCE, role=role)
 
     def add_masked(self, content: str, role: Optional[str] = None):
         """Add text to mask (ignored in training)."""
-        self.add_fragment(content, FragmentType.MASKED, role=role)
+        self.add_fragment(content, FragmentType.FROZEN, role=role)
 
     def _update_messages_from_fragments(self):
         """Update _messages from fragments for chat mode."""
         self._messages.clear()
         current_role = None
         current_content = ""
-        
+
         for fragment in self.fragments:
             if fragment.role != current_role:
                 # Role change - finish previous message
@@ -101,7 +103,7 @@ class Context:
             else:
                 # Same role - accumulate content
                 current_content += fragment.content
-        
+
         # Add final message
         if current_role and current_content:
             self._messages.append({'role': current_role, 'content': current_content})
@@ -113,15 +115,15 @@ class Context:
     def get_training_data(self) -> Dict[str, List[Any]]:
         """
         Extract training data with fine-grained fragment control.
-        
+
         Returns:
             Dict with fragment_contents, fragment_types, fragment_roles, masks
         """
         return {
             'fragment_contents': [f.content for f in self.fragments],
-            'fragment_types': [f.fragment_type.value for f in self.fragments], 
+            'fragment_types': [f.fragment_type.value for f in self.fragments],
             'fragment_roles': [f.role for f in self.fragments],
-            'masks': [f.fragment_type in [FragmentType.REINFORCED, FragmentType.COMPLETION] for f in self.fragments]
+            'masks': [f.fragment_type in [FragmentType.REINFORCE, FragmentType.REINFORCE] for f in self.fragments]
         }
 
     @property
@@ -134,13 +136,13 @@ class Context:
     def to_openai_messages(self) -> List[Dict[str, str]]:
         """
         Convert context messages to OpenAI API format.
-        
+
         Returns:
             List of message dicts compatible with OpenAI chat completions API.
         """
         if self.mode != "chat":
             raise ValueError("OpenAI messages only available in chat mode")
-        
+
         api_messages = []
         for msg in self._messages:
             if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
@@ -153,13 +155,13 @@ class Context:
     def to_completion_text(self) -> str:
         """
         Convert context to plain text format for completion API.
-        
+
         Returns:
             Concatenated text content, suitable for completions API.
         """
         if self.mode == "completion":
             return self.text
-        
+
         # For chat mode, concatenate message contents
         text_parts = []
         for msg in self._messages:
@@ -180,11 +182,11 @@ class Context:
     def from_openai_messages(openai_messages: List[Dict[str, str]], text: str = "") -> 'Context':
         """
         Create a Context from OpenAI API format messages.
-        
+
         Args:
             openai_messages: List of OpenAI format message dicts
             text: Optional text field to set
-            
+
         Returns:
             New Context instance
         """
@@ -197,16 +199,16 @@ class Context:
     def extract_fence(self, wrapper_tag: Optional[str], role: str = 'assistant') -> Optional[str]:
         """
         Extract content from a dynamic wrapper tag, e.g., <compress>...</compress>
-        
+
         Args:
             wrapper_tag: The tag name to extract content from
             role: Role to search within (default: 'assistant')
-            
+
         Returns:
             Extracted content or None if not found
         """
         import re
-        
+
         if not wrapper_tag:
             # Return last message content if no tag specified
             for msg in reversed(self._messages):
@@ -229,23 +231,23 @@ class Context:
     def extract_json(self, role: str = 'assistant') -> Optional[str]:
         """
         Extract JSON from context messages.
-        
+
         Args:
             role: Role to search within (default: 'assistant')
-            
+
         Returns:
             Extracted JSON string or None if not found
         """
         import re
         from errloom.utils import log
-        
+
         # Find the last message from the specified role
         content = None
         for msg in reversed(self._messages):
             if msg.get("role") == role:
                 content = msg.get("content", "")
                 break
-        
+
         if not content:
             return None
 
@@ -253,12 +255,12 @@ class Context:
         block_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
         if block_match:
             return block_match.group(1).strip()
-        
+
         # Look for standalone JSON object
         match = re.search(r'\{[^{}]*(?:\{[^{}]*}[^{}]*)*}', content, re.DOTALL)
         if match:
             return match.group(0)
-        
+
         log.getLogger(__name__).warning("No JSON found in context")
         return None
 
@@ -266,10 +268,10 @@ class Context:
     def extract_rollout_data(rollout: 'Rollout') -> Dict[str, Any]:
         """
         Extract standardized data from a rollout for dataset creation.
-        
+
         Args:
             rollout: The rollout to extract data from
-            
+
         Returns:
             Dictionary containing the extracted data fields
         """
@@ -278,7 +280,7 @@ class Context:
         if rollout.samples:
             last_sample = rollout.samples[-1]
             completion = last_sample.get('content', '') if isinstance(last_sample, dict) else str(last_sample)
-            
+
         return {
             'prompt': rollout.row.get('prompt', ''),
             'completion': completion,
@@ -288,17 +290,17 @@ class Context:
         }
 
     @staticmethod
-    def extract_rollouts_to_dataset(rollouts: List['Rollout'], 
+    def extract_rollouts_to_dataset(rollouts: List['Rollout'],
                                    state_columns: List[str] = [],
                                    extra_columns: List[str] = []) -> Dict[str, List[Any]]:
         """
         Extract data from a list of rollouts to create a dataset dictionary.
-        
+
         Args:
             rollouts: List of rollouts to extract data from
             state_columns: Additional columns to extract from rollout.extra
             extra_columns: Additional columns to extract from rollout.extra
-            
+
         Returns:
             Dictionary with lists of values for each column
         """
@@ -309,35 +311,35 @@ class Context:
             'answer': [],
             'gravity': []
         }
-        
+
         # Add task column if any rollout has non-default task
         has_custom_task = any(rollout.task != "default" for rollout in rollouts)
         if has_custom_task:
             data_dict['task'] = []
-            
+
         # Initialize additional columns
         all_extra_cols = set(state_columns + extra_columns)
         for col in all_extra_cols:
             data_dict[col] = []
-            
+
         # Extract data from each rollout
         for rollout in rollouts:
             rollout_data = Context.extract_rollout_data(rollout)
-            
+
             # Add base fields
             data_dict['prompt'].append(rollout_data['prompt'])
             data_dict['completion'].append(rollout_data['completion'])
             data_dict['answer'].append(rollout_data['answer'])
             data_dict['gravity'].append(rollout_data['gravity'])
-            
+
             # Add task if needed
             if has_custom_task:
                 data_dict['task'].append(rollout_data['task'])
-                
+
             # Add extra columns
             for col in all_extra_cols:
                 data_dict[col].append(rollout.extra.get(col, None))
-                
+
         return data_dict
 
     @property
@@ -441,7 +443,7 @@ class Rollout:
     sampling_args: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
     task: str = 'default'
-    
+
     # Legacy compatibility fields (auto-computed from fragments)
     mask: list[bool] = field(default_factory=list, init=False)
     samples: list[Dict[str, str]] = field(default_factory=list, init=False)
@@ -464,56 +466,53 @@ class Rollout:
     def add_text(self, text: str):
         """Legacy method - delegates to active context."""
         self.active_context.add_text(text)
-        self._update_legacy_fields()
+        self._bake()
 
     def add_message(self, ego: str, text: str):
         """Legacy method - delegates to active context."""
         self.active_context.add_message(ego, text)
-        self._update_legacy_fields()
+        self._bake()
 
     # New fragment-based API
     def add_prompt(self, content: str, role: Optional[str] = None):
         """Add prompt text (typically masked)."""
         self.active_context.add_prompt(content, role)
-        self._update_legacy_fields()
+        self._bake()
 
     def add_completion(self, content: str, role: Optional[str] = None):
         """Add completion text (typically reinforced)."""
         self.active_context.add_completion(content, role)
-        self._update_legacy_fields()
+        self._bake()
 
     def add_reinforced(self, content: str, role: Optional[str] = None):
         """Add text to reinforce (unmasked in training)."""
         self.active_context.add_reinforced(content, role)
-        self._update_legacy_fields()
+        self._bake()
 
     def add_masked(self, content: str, role: Optional[str] = None):
         """Add text to mask (ignored in training)."""
         self.active_context.add_masked(content, role)
-        self._update_legacy_fields()
+        self._bake()
 
     def set_mode(self, mode: Literal["chat", "completion"]):
         """Set the mode for all contexts."""
         for context in self.contexts:
             context.set_mode(mode)
-        self._update_legacy_fields()
+        self._bake()
 
-    def _update_legacy_fields(self):
-        """Update legacy mask/samples fields from fragment data."""
+    def _bake(self):
+        """Bake mask/samples fields from fragment data."""
         if not self.contexts:
             return
-            
+
         # Get training data from active context
         training_data = self.active_context.get_training_data()
-        
-        # Update legacy fields for backward compatibility
+
         self.mask = training_data['masks']
-        
-        # Build samples from fragments with roles
         self.samples = []
         contents = training_data['fragment_contents']
         roles = training_data['fragment_roles']
-        
+
         for content, role in zip(contents, roles):
             if role:  # Only add fragments with roles as samples
                 self.samples.append({'role': role, 'content': content})
@@ -572,7 +571,7 @@ class Rollout:
     def to_openai_messages(self) -> List[Dict[str, str]]:
         """
         Get OpenAI API format messages from the current context.
-        
+
         Returns:
             List of message dicts compatible with OpenAI chat completions API.
         """
@@ -581,7 +580,7 @@ class Rollout:
     def to_completion_text(self) -> str:
         """
         Get completion text from the current context.
-        
+
         Returns:
             Text suitable for OpenAI completions API.
         """
@@ -591,12 +590,12 @@ class Rollout:
     def from_openai_messages(openai_messages: List[Dict[str, str]], row: Dict[str, Any], **kwargs) -> 'Rollout':
         """
         Create a Rollout from OpenAI API format messages.
-        
+
         Args:
             openai_messages: List of OpenAI format message dicts
             row: Initial row data for the rollout
             **kwargs: Additional rollout parameters
-            
+
         Returns:
             New Rollout instance with a context populated from the messages
         """
@@ -608,11 +607,11 @@ class Rollout:
     def extract_fence(self, wrapper_tag: Optional[str], role: str = "assistant") -> Optional[str]:
         """
         Extract content from a dynamic wrapper tag across all contexts.
-        
+
         Args:
             wrapper_tag: The tag name to extract content from
             role: Role to search within (default: 'assistant')
-            
+
         Returns:
             Extracted content or None if not found
         """
@@ -625,10 +624,10 @@ class Rollout:
     def extract_json(self, role: str = "assistant") -> Optional[str]:
         """
         Extract JSON from the current context.
-        
+
         Args:
             role: Role to search within (default: 'assistant')
-            
+
         Returns:
             Extracted JSON string or None if not found
         """
@@ -679,16 +678,16 @@ class Tapestry:
     def to_dataset(self, state_columns: List[str] = [], extra_columns: List[str] = []) -> Dict[str, List[Any]]:
         """
         Convert the tapestry to a dataset dictionary.
-        
+
         Args:
             state_columns: Additional columns to extract from rollout.extra
             extra_columns: Additional columns to extract from rollout.extra
-            
+
         Returns:
             Dictionary with lists of values for each column
         """
         return Context.extract_rollouts_to_dataset(
-            self.rollouts, 
-            state_columns=state_columns, 
+            self.rollouts,
+            state_columns=state_columns,
             extra_columns=extra_columns
         )

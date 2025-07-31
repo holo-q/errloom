@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import sys
 import threading
 from datetime import datetime
@@ -49,7 +50,7 @@ def _set_trace_indent(value):
 def get_color_for_time(seconds: float) -> str:
     """Get a Rich color style based on elapsed time for visual feedback."""
     from rich.style import Style
-    
+
     # Define our gradient keypoints (time in seconds, hue)
     keypoints = [
         (0, 120),  # Green (very fast)
@@ -83,7 +84,7 @@ def get_color_for_time(seconds: float) -> str:
 def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: bool = False, args: Optional[tuple] = None, kwargs: Optional[dict] = None):
     """
     Context manager for timing code execution with optional threshold filtering.
-    
+
     Args:
         name: Name of the operation being traced
         threshold: Minimum time threshold to print (in seconds)
@@ -99,7 +100,7 @@ def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: b
     start_time = perf_counter()
     current_indent = _get_trace_indent()
     _set_trace_indent(current_indent + 1)
-    
+
     # Build the display name with arguments if requested
     display_name = name
     if show_args and (args or kwargs):
@@ -110,13 +111,13 @@ def tracer(name: str, threshold: float | int = 0.0, *, force=False, show_args: b
             arg_strs.extend([f"{k}={value_to_print_str(v)}" for k, v in kwargs.items()])
         if arg_strs:
             display_name = f"{name}({', '.join(arg_strs)})"
-    
+
     try:
         yield lambda: perf_counter() - start_time
     finally:
         _set_trace_indent(current_indent)
         elapsed_time = perf_counter() - start_time
-        
+
         if threshold is not None and elapsed_time < threshold:
             return
 
@@ -145,7 +146,7 @@ def trace_decorator_noargs(func: Callable) -> Callable:
 def trace_function(name: Optional[str] = None, threshold: float = 0.0, *, force=False):
     """
     Decorator factory for tracing functions with custom name and threshold.
-    
+
     Args:
         name: Custom name for the trace (defaults to function name)
         threshold: Minimum time threshold to print
@@ -239,19 +240,18 @@ class EnhancedLogger(logging.Logger):
     def push_critical(self, a1: int | str = 1, a2: Optional[str] = None) -> None:
         """Push with critical level logging."""
         return push(a1, a2, log_func=self.critical)
-    
+
     def get_current_context(self) -> list:
         """Get a copy of the current thread's indent stack for passing to child threads."""
         return get_current_context()
-    
+
     def set_context(self, context: list) -> None:
         """Set the thread-local indent stack to a specific context."""
         set_indent_stack(context)
 
 # MAIN SETUP
 # ----------------------------------------
-
-cl = Console()
+cl = Console(width=240)
 rich.traceback.install(
     show_locals=False,  # You have False - but True is great for debugging
     word_wrap=True,  # ✓ You already have this
@@ -329,11 +329,11 @@ def setup_logging(
     # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
         handler = CustomRichHandler(
-            rich_tracebacks=True, 
-            show_path=False, 
-            console=cl, 
-            markup=True, 
-            print_path=print_path, 
+            rich_tracebacks=True,
+            show_path=False,
+            console=cl,
+            markup=True,
+            print_path=print_path,
             highlight=highlight,
             persistence_file=persistence_file,
             print_thread_name=print_thread_name
@@ -460,38 +460,38 @@ _COLOR_SCHEME = {
     'target': '[bright_green]',
     'model': '[white]',
     'client': '[bright_magenta]',
-    
+
     # Status indicators
     'error': '[bold red]',
     'success': '[bold green]',
     'warning': '[yellow]',
     'info': '[cyan]',
     'debug': '[dim]',
-    
+
     # UI elements
     'title': '[bold bright_blue]',
     'path': '[bright_cyan]',
     'field_label': '[bold cyan]',
     'rule_title': '[bold cyan]',
-    
+
     # Mode indicators
     'mode_dry': '[yellow]',
     'mode_production': '[green]',
     'mode_dump': '[blue]',
-    
+
     # Progress and data
     'completion': '[bold green]',
     'progress': '[magenta]',
     'data': '[bright_yellow]',
     'deployment': '[bold cyan]',
-    
+
     # Holoware-specific
     'loom': '[bright_blue]',
     'holoware': '[bright_green]',
     'session_name': '[white]',
     'placeholder': '[bright_magenta]',
     'command_name': '[bright_cyan]',
-    
+
     # Symbols
     'check_mark': '[green]✓[/]',
     'cross_mark': '[red]✗[/]',
@@ -641,7 +641,7 @@ def log_stacktrace_to_file_only(logger, exception: Exception, context: str = "")
     """
     Log a full stacktrace to file only, not to console.
     This is useful for debugging while keeping console output clean.
-    
+
     Args:
         logger: Logger instance to use
         exception: The exception that occurred
@@ -649,15 +649,15 @@ def log_stacktrace_to_file_only(logger, exception: Exception, context: str = "")
     """
     import traceback
     from datetime import datetime
-    
+
     # Get the full stacktrace
     stacktrace = traceback.format_exc()
-    
+
     # Create a detailed error message
     error_msg = f"EXCEPTION{': ' + context if context else ''}\n"
     error_msg += f"Exception: {type(exception).__name__}: {str(exception)}\n"
     error_msg += f"Stacktrace:\n{stacktrace}"
-    
+
     # Find file handlers from the original logger and write directly to them
     for handler in logger.handlers:
         if isinstance(handler, logging.FileHandler):
@@ -706,7 +706,7 @@ def _get_indent_stack():
     if not hasattr(_thread_local, 'indent_stack'):
         # Start fresh - context should be passed explicitly
         _thread_local.indent_stack = []
-    
+
     return _thread_local.indent_stack
 
 def set_indent_stack(context):
@@ -737,7 +737,7 @@ class ContextAwareThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
             finally:
                 # Context will be overwritten by the next task, so no cleanup is needed.
                 pass
-        
+
         # Submit the wrapped function to the actual executor.
         return super().submit(fn_with_context, *args, **kwargs)
 

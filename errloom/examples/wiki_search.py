@@ -249,7 +249,7 @@ training_args.max_completion_length=4096
 training_args.max_steps=500
 training_args.save_steps=100
 
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

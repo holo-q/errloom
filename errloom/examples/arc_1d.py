@@ -1,6 +1,6 @@
 from errloom.looms.reasoninggym_loom import ReasoningGymLoom
 from errloom.training import grpo_defaults
-from errloom.training.grpo_trainer import GRPOTrainer
+from errloom.training.rl_trainer import RLTrainer
 from errloom.utils.model_utils import get_model_and_tokenizer
 
 """
@@ -33,7 +33,7 @@ training_args.max_context_size=1024
 training_args.max_completion_length=4096
 training_args.max_steps=500
 
-trainer = GRPOTrainer(
+trainer = RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

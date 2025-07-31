@@ -35,8 +35,15 @@ class Holophore:
         self.span_bindings = {}
         self.errors = 0
         self._newtext = ""
-        self.ego = "system"
+        self._ego = "system"
         self.active_holowares:list['Holoware'] = list()
+
+    @property
+    def ego(self):
+        return self._ego
+
+    def change_ego(self, ego):
+        self._ego = ego
 
     def get_class(self, classname:str):
         Class = self.env.get(classname)
@@ -55,8 +62,13 @@ class Holophore:
     def new_context(self):
         self._rollout.new_context()
 
+    def ensure_context(self):
+        if self.context is None:
+            self.new_context()
+
     def add_text(self, text: str):
-        ctx = self.active_context
+        self.ensure_context()
+        ctx = self.context
         if len(ctx.messages) == 0 or self.ego != ctx.messages[-1]['role']:
             ctx.add_message(self.ego, text)
         else:
@@ -64,17 +76,19 @@ class Holophore:
         self._newtext += text
 
     def add_message(self, ego: str, text: str):
-        self.active_context.add_message(ego, text)
+        self.ensure_context()
+        self.context.add_message(ego, text)
         self._newtext += text
 
     # New fragment-based API for fine-grained training control
     def add_prompt(self, content: str, role: Optional[str] = None):
         """Add prompt text (typically masked)."""
+        self.ensure_context()
         self._rollout.add_prompt(content, role)
         self._newtext += content
 
     def add_completion(self, content: str, role: Optional[str] = None):
-        """Add completion text (typically reinforced).""" 
+        """Add completion text (typically reinforced)."""
         self._rollout.add_completion(content, role)
         self._newtext += content
 
@@ -129,7 +143,7 @@ class Holophore:
         return self._rollout.contexts
 
     @property
-    def active_context(self):
+    def context(self):
         """Get the currently active context."""
         return self._rollout.active_context
 

@@ -259,14 +259,9 @@ class Holoware:
 
         logger.pop()
 
-        # --- Context Management ---
-        # Ensure there's an initial context if the holoware starts with content
-        if self.spans and not isinstance(self.spans[0], ContextResetSpan):
-            phore.new_context()
-
         # --- Lifecycle: Main ---
-        logger.push_debug("(2)") # main
-        for span in self.spans:
+        logger.push_debug("(2)")
+        for i,span in enumerate(self.spans):
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
                     phore.add_text(span.text)
@@ -282,19 +277,23 @@ class Holoware:
 
             SpanClassName = type(span).__name__
             # Create a rich-formatted log message with color
-            logger.debug(f"[{span.get_color()}]<|{span}|>[/]")
-            logger.push()
+            logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
+            logger.push('.' * (len(str(i)) + 2))
             if SpanClassName in HolowareHandlers.__dict__:
                 getattr(HolowareHandlers, SpanClassName)(phore, span)
             else:
                 logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
-            if phore._newtext:
+            rendered_text = bool(phore._newtext)
+            if rendered_text:
                 logger.debug(Text(phore._newtext, style="dim italic")) # TODO if we could find a 'oduble dim' color that would be better
                 phore._newtext = ""
             else:
-                logger.debug(Text("<no text>", style="dim italic"))
+                # logger.debug(Text("<no text>", style="dim italic"))
+                pass
             logger.pop()
+            if rendered_text:
+                logger.debug("")
 
         if phore.errors > 0:
             raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")

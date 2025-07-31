@@ -49,10 +49,10 @@ class ToolExecutor:
         Executes a tool based on the model's output.
         This is triggered by a <|ToolExecutor turn|> tag.
         """
-        if not holophore.contexts or not holophore.active_context.messages:
+        if not holophore.contexts or not holophore.context.messages:
             return "Error: No messages to process."
 
-        last_message = holophore.active_context.messages[-1]
+        last_message = holophore.context.messages[-1]
         if last_message['role'] != 'assistant':
             return "Error: Last message is not from assistant."
 

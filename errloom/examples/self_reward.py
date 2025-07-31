@@ -13,5 +13,5 @@ vf_loom = vf.SingleTurnLoom(
     attractor=attractor
 )
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
-trainer = vf.GRPOTrainer(loom=vf_loom, model=model, tokenizer=tokenizer, args=errloom.defaults.grpo_defaults(name="self_reward"))
+trainer = vf.RLTrainer(loom=vf_loom, model=model, tokenizer=tokenizer, args=errloom.defaults.grpo_defaults(name="self_reward"))
 trainer.train()

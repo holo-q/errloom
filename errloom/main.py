@@ -25,10 +25,10 @@ from errloom.argp import errlargs, create_client_from_args, show_help
 from errloom.comm import CommModel
 from errloom.holoware_loom import HolowareLoom
 from errloom.session import Session
-from errloom.utils.log import (log, logc, LogContext, logger_main, colorize_session, 
-                              colorize_target, colorize_model, colorize_client, colorize_error, 
-                              colorize_success, colorize_warning, colorize_field_label, 
-                              colorize_title, colorize_mode_dry, colorize_mode_production, 
+from errloom.utils.log import (log, logc, LogContext, logger_main, colorize_session,
+                              colorize_target, colorize_model, colorize_client, colorize_error,
+                              colorize_success, colorize_warning, colorize_field_label,
+                              colorize_title, colorize_mode_dry, colorize_mode_production,
                               colorize_mode_dump, colorize_completion, colorize_rule_title,
                               colorize_deployment, logl)
 
@@ -135,16 +135,16 @@ def main(default_title: Optional[str] = None,
     try:
         client = create_client_from_args(errlargs)
         client_type = type(client).__name__
-        
-        
+
+
         # Session info header
         name = default_holoware or LoomClass.__name__
         log(f"{colorize_field_label('📋 Session:')} {colorize_session(title)}")
         log(f"{colorize_field_label('🎯 Target:')} {colorize_target(name)}")
-        log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}") 
+        log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}")
         log(f"{colorize_field_label('🔌 Client:')} {colorize_client(client_type)}")
         log("")
-        
+
         # Mode-specific messaging
         if errlargs.dry and client_type != "MockClient":
             log(colorize_mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
@@ -154,11 +154,11 @@ def main(default_title: Optional[str] = None,
             log(colorize_mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
         else:
             log(f"[dim]🔄 ACTIVE MODE: Using {client_type} for completions[/]")
-        
+
         log("")
         log(Rule(colorize_rule_title(f"Initializing {loom_name}"), style="cyan"))
         # ----------------------------------------
-        
+
         if loom is None:
             if isinstance(LoomClass, type) and issubclass(LoomClass, HolowareLoom):
                 # Check if we have a holoware from positional or --ware
@@ -201,7 +201,7 @@ def main(default_title: Optional[str] = None,
 
     try:
         assert loom is not None
-        
+
         if errlargs.command == "train":
             # For training, use the GRPO trainer
             if loom.trainer is None:
@@ -240,16 +240,16 @@ def _print_version_info():
     import importlib.metadata
     import platform
     import sys
-    
+
     # Key packages to check
     packages = [
         "torch", "transformers", "accelerate", "trl", "datasets",
         "flash-attn", "vllm", "liger-kernel", "openai", "rich"
     ]
-    
+
     log(f"{colorize_field_label('🐍 Python:')} {platform.python_version()}")
     log(f"{colorize_field_label('💻 Platform:')} {platform.system()} {platform.release()}")
-    
+
     versions = []
     for pkg in packages:
         try:
@@ -259,14 +259,14 @@ def _print_version_info():
                 pkg_name = "flash_attn"
             elif pkg == "liger-kernel":
                 pkg_name = "liger_kernel"
-            
+
             version = importlib.metadata.version(pkg_name)
             versions.append(f"{pkg}=={version}")
         except importlib.metadata.PackageNotFoundError:
             versions.append(f"{pkg}==not installed")
         except Exception:
             versions.append(f"{pkg}==unknown")
-    
+
     # Print in columns for better readability
     log(f"{colorize_field_label('📦 Packages:')} {' '.join(versions[:4])}")
     if len(versions) > 4:
@@ -282,11 +282,11 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
     from rich.syntax import Syntax
     import inspect
     import os
-    
+
     logc()
     log(Rule("[bold cyan]📄 Displaying Source Code", style="cyan"))
     log("")
-    
+
     try:
         # Determine what we're displaying
         if loom_or_ware_arg and (loom_or_ware_arg.endswith('.hol') or loom_or_ware_arg in ['qa', 'tool', 'codemath', 'doublecheck', 'smola']):
@@ -307,11 +307,11 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
             log(colorize_error("❌ No holoware or loom class specified"))
             log("[dim]Please specify a .hol file or loom class name[/]")
             return
-            
+
     except Exception as e:
         log(colorize_error(f"❌ Error displaying source: {e}"))
         log("[dim]Check that the file or class exists[/]")
-    
+
     log(Rule(style="dim"))
 
 
@@ -321,32 +321,32 @@ def _display_holoware_source(holoware_name: str):
     from errloom.holoware_load import get_default_loader
     from rich.syntax import Syntax
     import os
-    
+
     try:
         # Try to load the holoware to get its path
         loader = get_default_loader()
         holoware_path = loader.find_holoware_path(holoware_name)
-        
+
         if not holoware_path:
             log(colorize_error(f"❌ Holoware file not found: {holoware_name}"))
             log("[dim]Searched in: " + ", ".join(loader.search_paths) + "[/]")
             return
-        
+
         # Read and display the file content
         with open(holoware_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         log(f"{colorize_holoware('📄 Holoware:')} {holoware_name}")
         log(f"[dim]Path: {holoware_path}[/]")
         log("")
-        
+
         # Use syntax highlighting for .hol files
         syntax = Syntax(content, "text", theme="monokai", line_numbers=True)
         log(syntax)
-        
+
         log("")
         log(colorize_success("✅ Holoware source displayed"))
-        
+
     except Exception as e:
         log(colorize_error(f"❌ Error reading holoware file: {e}"))
 
@@ -358,7 +358,7 @@ def _display_loom_class_source(loom_class_name: str):
     from rich.syntax import Syntax
     import inspect
     import os
-    
+
     try:
         # Get the loom class
         loom_class = get_class(loom_class_name)
@@ -370,28 +370,28 @@ def _display_loom_class_source(loom_class_name: str):
             if available_classes:
                 log(f"[dim]Available classes: {', '.join(sorted(available_classes))}[/]")
             return
-        
+
         # Get the source file
         source_file = inspect.getfile(loom_class)
         if not source_file or not os.path.exists(source_file):
             log(colorize_error(f"❌ Source file not found for class: {loom_class_name}"))
             return
-        
+
         # Read and display the file content
         with open(source_file, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         log(f"{colorize_loom('🔧 Loom Class:')} {loom_class_name}")
         log(f"[dim]File: {source_file}[/]")
         log("")
-        
+
         # Use syntax highlighting for Python files
         syntax = Syntax(content, "python", theme="monokai", line_numbers=True)
         log(syntax)
-        
+
         log("")
         log(colorize_success("✅ Loom class source displayed"))
-        
+
     except Exception as e:
         log(colorize_error(f"❌ Error reading loom class source: {e}"))
 
@@ -431,8 +431,12 @@ def run():
     except Exception as e:
         logger_main.error(f"Error: {e}")
         logger_main.error(traceback.format_exc())
-            
+
         log("")
         log(Rule(colorize_error("Environment"), style="red"))
         _print_version_info()
         log("")
+
+
+if __name__ == "__main__":
+    run()

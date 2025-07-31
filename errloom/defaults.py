@@ -2,10 +2,10 @@ import typing
 
 if typing.TYPE_CHECKING:
     from peft import LoraConfig
-    from errloom.training.grpo_config import GRPOConfig
+    from errloom.training.rl_config import RLConfig
 
 
-# --- CONSTANTS 
+# --- CONSTANTS
 DATASET_MAX_CONCURRENT = 32
 
 
@@ -13,10 +13,10 @@ DATASET_MAX_CONCURRENT = 32
 DEFAULT_MODEL = "Qwen/Qwen3-4B"  # "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_MAX_CONCURRENT = 512
 
-def grpo_defaults(name: str) -> 'GRPOConfig':
-    from errloom.training.grpo_config import GRPOConfig
+def grpo_defaults(name: str) -> 'RLConfig':
+    from errloom.training.rl_config import RLConfig
     from errloom import errlargs
-    return GRPOConfig(
+    return RLConfig(
         run_name=name,
         learning_rate=1e-6,
         lr_scheduler_type="constant_with_warmup",
@@ -42,15 +42,15 @@ def grpo_defaults(name: str) -> 'GRPOConfig':
         output_dir=f"runs/{name}"
     )
 
-def grpo_local_test_defaults(name: str) -> 'GRPOConfig':
+def grpo_local_test_defaults(name: str) -> 'RLConfig':
     """Optimized config for local testing on smaller GPUs (like RTX 3090)"""
-    from errloom.training.grpo_config import GRPOConfig
+    from errloom.training.rl_config import RLConfig
     from errloom import errlargs
-    
+
     # Use test steps if provided, otherwise default to 5
     max_steps = errlargs.test_steps if hasattr(errlargs, 'test_steps') else 5
-    
-    return GRPOConfig(
+
+    return RLConfig(
         run_name=f"{name}-local-test",
         learning_rate=1e-6,
         lr_scheduler_type="constant_with_warmup",
@@ -59,7 +59,7 @@ def grpo_local_test_defaults(name: str) -> 'GRPOConfig':
         max_steps=max_steps,
         bf16=True,
         max_grad_norm=0.001,
-        num_accum=1,  # Minimal accumulation 
+        num_accum=1,  # Minimal accumulation
         max_context_size=512,  # Much shorter context
         max_completion_length=256,  # Much shorter completion
         per_device_train_batch_size=2,  # Very small batch
@@ -76,15 +76,15 @@ def grpo_local_test_defaults(name: str) -> 'GRPOConfig':
         dataloader_num_workers=0,  # Reduce memory overhead
     )
 
-def grpo_micro_test_defaults(name: str) -> 'GRPOConfig':
+def grpo_micro_test_defaults(name: str) -> 'RLConfig':
     """Ultra minimal config for micro testing (absolute minimum memory)"""
-    from errloom.training.grpo_config import GRPOConfig
+    from errloom.training.rl_config import RLConfig
     from errloom import errlargs
-    
+
     # Use test steps if provided, otherwise default to 2
     max_steps = errlargs.test_steps if hasattr(errlargs, 'test_steps') else 2
-    
-    return GRPOConfig(
+
+    return RLConfig(
         run_name=f"{name}-micro-test",
         learning_rate=1e-6,
         lr_scheduler_type="constant",
@@ -110,15 +110,15 @@ def grpo_micro_test_defaults(name: str) -> 'GRPOConfig':
         dataloader_num_workers=0,
     )
 
-def grpo_cpu_test_defaults(name: str) -> 'GRPOConfig':
+def grpo_cpu_test_defaults(name: str) -> 'RLConfig':
     """CPU mode config for debugging training logic without GPU"""
-    from errloom.training.grpo_config import GRPOConfig
+    from errloom.training.rl_config import RLConfig
     from errloom import errlargs
-    
+
     # Use test steps if provided, otherwise default to 2 for CPU
     max_steps = errlargs.test_steps if hasattr(errlargs, 'test_steps') else 2
-    
-    return GRPOConfig(
+
+    return RLConfig(
         run_name=f"{name}-cpu-test",
         learning_rate=1e-6,
         lr_scheduler_type="constant",

@@ -17,7 +17,7 @@ vf_loom = DoubleCheckLoom(
 )
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
 args = errloom.defaults.grpo_defaults(name="doublecheck-{}".format(model_name.split("/")[-1].lower()))
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

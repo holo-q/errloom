@@ -69,7 +69,7 @@ training_args.per_device_train_batch_size=8
 training_args.num_rows=8
 training_args.gradient_accumulation_steps=2
 
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

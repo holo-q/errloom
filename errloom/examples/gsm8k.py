@@ -57,7 +57,7 @@ training_args.save_strategy="steps"
 training_args.save_steps=10
 training_args.save_total_limit=10
 
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

@@ -55,7 +55,7 @@ model, tokenizer = vf.get_model_and_tokenizer(model_name)
 run_name = "math-smola-grpo_" + model_name.split("/")[-1].lower()
 
 args = errloom.defaults.grpo_defaults(name=run_name)
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

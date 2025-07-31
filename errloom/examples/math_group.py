@@ -66,7 +66,7 @@ training_args.max_context_size=512
 training_args.max_completion_length=2048
 training_args.max_steps=100
 
-trainer = vf.GRPOTrainer(
+trainer = vf.RLTrainer(
     model=model,
     tokenizer=tokenizer,
     loom=vf_loom,

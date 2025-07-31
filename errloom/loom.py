@@ -59,9 +59,9 @@ class Loom(ABC):
                  dump_rollouts: Optional[str | bool] = False):
         # Import errlargs for dry training logic
         from errloom import errlargs
-        
-        self.trainer: Optional['GRPOTrainer'] = None
-        
+
+        self.trainer: Optional['RLTrainer'] = None
+
         # Use provided client or create default MockClient
         if client is not None:
             self.client = client
@@ -92,7 +92,7 @@ class Loom(ABC):
             from errloom.utils.model_utils import get_model
             self.model_name = model
             # Load model even in dry mode for dry training
-            need_model_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train" 
+            need_model_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
                                          and hasattr(errlargs, 'dry') and errlargs.dry)
             self.model = get_model(model) if (not dry or need_model_for_dry_training) else None
         else:
@@ -106,7 +106,7 @@ class Loom(ABC):
             from errloom.utils.model_utils import get_tokenizer
             self.tokenizer_name = model
             # Load tokenizer even in dry mode for dry training
-            need_tokenizer_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train" 
+            need_tokenizer_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
                                              and hasattr(errlargs, 'dry') and errlargs.dry)
             self.tokenizer = get_tokenizer(tokenizer) if (not dry or need_tokenizer_for_dry_training) else None
         else:
@@ -118,10 +118,10 @@ class Loom(ABC):
             assert self.tokenizer is not None
             assert self.model_name is not None
             with LogContext("👟 Initializing GRPO...", "GRPO init", logger=self.logger):
-                from errloom.training.grpo_trainer import GRPOTrainer
+                from errloom.training.rl_trainer import RLTrainer
                 from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
                 from errloom import errlargs
-                
+
                 # Choose config based on testing flags
                 if errlargs.cpu:
                     config = grpo_cpu_test_defaults(name=self.model_name)
@@ -131,8 +131,8 @@ class Loom(ABC):
                     config = grpo_local_test_defaults(name=self.model_name)
                 else:
                     config = grpo_defaults(name=self.model_name)
-                
-                self.trainer = GRPOTrainer(
+
+                self.trainer = RLTrainer(
                         loom=self,  # Pass self as the loom argument
                         model=self.model,  # type: ignore
                         tokenizer=self.tokenizer,  # type: ignore
@@ -144,9 +144,9 @@ class Loom(ABC):
                 # Create trainer in dry mode for dry training
                 if self.model is not None and self.tokenizer is not None and self.model_name is not None:
                     with LogContext("🧪 Initializing Dry GRPO...", "dry_grpo_init", logger=self.logger):
-                        from errloom.training.grpo_trainer import GRPOTrainer
+                        from errloom.training.rl_trainer import RLTrainer
                         from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
-                        
+
                         # Choose config based on testing flags
                         if errlargs.cpu:
                             config = grpo_cpu_test_defaults(name=self.model_name)
@@ -156,8 +156,8 @@ class Loom(ABC):
                             config = grpo_local_test_defaults(name=self.model_name)
                         else:
                             config = grpo_defaults(name=self.model_name)
-                        
-                        self.trainer = GRPOTrainer(
+
+                        self.trainer = RLTrainer(
                                 loom=self,  # Pass self as the loom argument
                                 model=self.model,  # type: ignore
                                 tokenizer=self.tokenizer,  # type: ignore
@@ -337,15 +337,15 @@ class Loom(ABC):
         """
         Save rollouts to the session directory as flat text files suitable for training.
         If a rollout has multiple contexts, split it into multiple files with proper indexing.
-        
+
         Args:
             tapestry: The tapestry containing rollouts to dump
         """
         if not self.session or not self.dump_rollouts:
             return
-            
+
         from datetime import datetime
-        
+
         # Determine subdirectory name
         if isinstance(self.dump_rollouts, str):
             subdir_name = self.dump_rollouts
@@ -353,13 +353,13 @@ class Loom(ABC):
             # Use timestamp as default subdirectory name
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             subdir_name = f"rollouts_{timestamp}"
-        
+
         # Create rollouts directory in session
         rollouts_dir = self.session.dirpath / subdir_name
         rollouts_dir.mkdir(exist_ok=True, parents=True)
-        
+
         total_files = 0
-        
+
         # Process each rollout
         for rollout_idx, rollout in enumerate(tapestry.rollouts):
             if not rollout.contexts:
@@ -372,15 +372,15 @@ class Loom(ABC):
                         f.write(content)
                     total_files += 1
                 continue
-            
+
             # Handle multiple contexts by splitting into separate files
             for context_idx, context in enumerate(rollout.contexts):
                 content_parts = []
-                
+
                 # Extract text content from context
                 if context.text:
                     content_parts.append(context.text)
-                
+
                 # Extract messages as conversation format
                 if context.messages:
                     for msg in context.messages:
@@ -388,28 +388,28 @@ class Loom(ABC):
                         content = msg.get('content', '')
                         if content.strip():
                             content_parts.append(f"{role}: {content}")
-                
+
                 # Add samples for this rollout (only once, on the last context)
                 if context_idx == len(rollout.contexts) - 1 and rollout.samples:
                     for sample in rollout.samples:
                         if sample.strip():
                             content_parts.append(f"assistant: {sample}")
-                
+
                 # Write content if we have any
                 if content_parts:
                     content = "\n\n".join(content_parts)
-                    
+
                     if len(rollout.contexts) == 1:
                         # Single context - use simple naming
                         file_path = rollouts_dir / f"rollout_{rollout_idx:04d}.txt"
                     else:
                         # Multiple contexts - include context index
                         file_path = rollouts_dir / f"rollout_{rollout_idx:04d}_ctx_{context_idx:02d}.txt"
-                    
+
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(content)
                     total_files += 1
-        
+
         # Create a metadata file with training information
         metadata_file = rollouts_dir / "metadata.txt"
         metadata_content = f"""# Training Data Metadata
@@ -428,10 +428,10 @@ Max concurrent: {tapestry.max_concurrent}
 # - Format: "role: content"
 # - Roles: system, user, assistant, etc.
 """
-        
+
         with open(metadata_file, 'w', encoding='utf-8') as f:
             f.write(metadata_content)
-        
+
         self.logger.info(f"[green]✓[/] Dumped {len(tapestry.rollouts)} rollouts as {total_files} text files to {rollouts_dir}")
 
     def get_train_data(self, n: int = -1, seed: int = 0) -> Data | None:
@@ -541,7 +541,7 @@ Max concurrent: {tapestry.max_concurrent}
             if not hasattr(rollout, 'samples'):
                 rollout.samples = []
             rollout.samples.append({'role': 'assistant', 'content': ret})
-        
+
         return ret
 
     def make_dataset(self,

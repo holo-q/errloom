@@ -44,6 +44,8 @@ scripts/
 tests/
 notebooks/
 hol/schizo.hol
+hol/agent-holoq.hol
+hol/agent-elesis.hol
 
 # Imported
 src/.party/
