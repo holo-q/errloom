@@ -8,8 +8,9 @@ from packaging import version
 from transformers import TrainingArguments # type: ignore
 
 
+# TODO this used to be GRPOConfig, we need to verify if there are parameters that are unique to the GRPOAlgorithm only
 @dataclass
-class GRPOConfig(TrainingArguments):
+class RLConfig(TrainingArguments):
     r"""
     Configuration class for the [`GRPOTrainer`].
 
@@ -22,7 +23,7 @@ class GRPOConfig(TrainingArguments):
     """
 
     if version.parse(transformers.__version__) <= version.parse("4.50.3"):
-        from transformers.training_args import _VALID_DICT_FIELDS # type: ignore    
+        from transformers.training_args import _VALID_DICT_FIELDS # type: ignore
 
         _VALID_DICT_FIELDS.append("model_init_kwargs")
     else:
@@ -138,13 +139,13 @@ class GRPOConfig(TrainingArguments):
         default=0.0,
         metadata={
             "help": "Presence penalty (default 0.0)"
-        }, 
+        },
     )
     frequency_penalty: float = field(
         default=0.0,
         metadata={
             "help": "Frequency penalty (default 0.0)"
-        }, 
+        },
     )
     max_num_processes: int = field(
         default=8,
