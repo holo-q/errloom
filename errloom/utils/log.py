@@ -301,7 +301,8 @@ def setup_logging(
     enable_file_logging: bool = True,
     log_filename: Optional[str] = None,
     persistence_file: Optional[str] = None,
-    print_thread_name: bool = False
+    print_thread_name: bool = False,
+    reset_log_columns: bool = False
 ) -> str:
     """
     Setup basic logging configuration for the errloom package.
@@ -314,6 +315,7 @@ def setup_logging(
         log_filename: Optional custom log filename. If None, auto-generates one.
         persistence_file: Optional path for logging persistence file. If None, uses default.
         print_thread_name: Whether to print thread names in console output.
+        reset_log_columns: Whether to reset the persisted column width.
 
     Returns:
         Path to the log file if file logging is enabled, empty string otherwise.
@@ -336,7 +338,8 @@ def setup_logging(
             print_path=print_path,
             highlight=highlight,
             persistence_file=persistence_file,
-            print_thread_name=print_thread_name
+            print_thread_name=print_thread_name,
+            reset_columns=reset_log_columns
         )
         logger.addHandler(handler)
 
@@ -410,6 +413,14 @@ def setup_logging(
         handler.addFilter(NoiseFilter())
 
     return log_file_path
+
+def save_session_width_to_persistence():
+    """Save the current session's max width +10% to persistence."""
+    logger = logging.getLogger()
+    for handler in logger.handlers:
+        if isinstance(handler, CustomRichHandler):
+            handler.save_session_width_to_persistence()
+            break
 
 def getLogger(name: Optional[str] = None) -> EnhancedLogger:
     """
@@ -847,7 +858,7 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, print_thread_name=False, **kwargs):
+    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, print_thread_name=False, reset_columns=False, **kwargs):
         super().__init__(*kargs, **kwargs)
         self.print_path = print_path
         self.highlight = highlight
@@ -855,9 +866,16 @@ class CustomRichHandler(RichHandler):
 
         import json
         self.persistence_file = persistence_file or ".persistence/logging.json"
+        
+        # Session tracking - track the longest width for this session
+        self.session_max_width = path_width
 
         saved_path_width = path_width
-        if os.path.exists(self.persistence_file):
+        if reset_columns:
+            # Reset to default width
+            saved_path_width = path_width
+            self._save_persistence_data({'max_path_width': path_width})
+        elif os.path.exists(self.persistence_file):
             try:
                 with open(self.persistence_file, 'r') as f:
                     data = json.load(f)
@@ -868,6 +886,23 @@ class CustomRichHandler(RichHandler):
 
         self.path_width = saved_path_width
 
+    def _save_persistence_data(self, data: dict):
+        """Save data to the persistence file."""
+        try:
+            os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
+            with open(self.persistence_file, 'w') as f:
+                import json
+                json.dump(data, f)
+        except IOError:
+            pass  # Don't crash on logging persistence error
+
+    def save_session_width_to_persistence(self):
+        """Save the session's maximum width +10% to persistence."""
+        if self.session_max_width > 0:
+            # Add 10% padding to the session max width
+            padded_width = int(self.session_max_width * 1.1)
+            self._save_persistence_data({'max_path_width': padded_width})
+            logger.debug(f"Saved session max width {self.session_max_width} (+10% = {padded_width}) to persistence")
 
     def render_message(self, record: logging.LogRecord, message: str):
         """
@@ -926,15 +961,14 @@ class CustomRichHandler(RichHandler):
 
         # PERSISTENCE
         # ----------------------------------------
+        # Track session max width separately from persistent width
+        if path_w > self.session_max_width:
+            self.session_max_width = path_w
+            
+        # Update persistent width for immediate use
         if path_w > self.path_width:
             self.path_width = path_w
-            os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
-            try:
-                with open(self.persistence_file, 'w') as f:
-                    import json
-                    json.dump({'max_path_width': self.path_width}, f)
-                    logger.info(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
-            except IOError:
-                pass  # Don't crash on logging persistence error
+            self._save_persistence_data({'max_path_width': self.path_width})
+            logger.info(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
 
         return Text.from_markup(full)

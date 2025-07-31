@@ -259,6 +259,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     log_group.add_argument('--trace', action='store_true', help='Enable function execution tracing with timing information')
     log_group.add_argument('--print-thread-names', action='store_true', help='Print thread names in log output')
     log_group.add_argument('--show-rollout-errors', action='store_true', help='Show rollout errors in console output (default: errors logged to file only)')
+    log_group.add_argument('--reset-log-columns', action='store_true', help='Reset the persisted column width for logging')
 
     remote_group = parser.add_argument_group('Remote Configuration')
     remote_group.add_argument("--remote", action='store_true', help="Specifies whether we are running on a remote.")

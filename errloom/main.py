@@ -223,6 +223,10 @@ def main(default_title: Optional[str] = None,
     except Exception as e:
         log(Rule(colorize_error("❌ Training Crashed")))
         raise
+    finally:
+        # Save session width to persistence before exiting
+        from errloom.utils.log import save_session_width_to_persistence
+        save_session_width_to_persistence()
 
 
 def _is_deployment_mode() -> bool:
@@ -436,6 +440,10 @@ def run():
         log(Rule(colorize_error("Environment"), style="red"))
         _print_version_info()
         log("")
+    finally:
+        # Save session width to persistence before exiting
+        from errloom.utils.log import save_session_width_to_persistence
+        save_session_width_to_persistence()
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
     print_path=True,
     persistence_file=persistence_file,
-    print_thread_name=errlargs.print_thread_names)
+    print_thread_name=errlargs.print_thread_names,
+    reset_log_columns=errlargs.reset_log_columns)
 
 discovery.crawl_package(
     'errloom',
