@@ -58,8 +58,8 @@ class Attractor:
         self._rule_weights.append(weight)
 
     def __holo_init__(self, holophore:Holophore, span:ClassSpan)->'Attractor':
-        # TODO you know the drill
-        pass
+        # No special init yet; return self to satisfy type contract
+        return self
 
     def __holo__(self, holophore:Holophore, span:ClassSpan):
         # The span contains var_args and var_kwargs that can be used to configure the attractor
@@ -77,16 +77,29 @@ class Attractor:
             ...
         ``
         """
-        assert len(roll.samples) >= 1
+        # Build completion from last assistant message in the rollout context.
+        try:
+            msgs = roll.to_api_chat()
+        except Exception as e:
+            self.logger.error(f"Rollout to_api_chat() failed: {e}")
+            return 0.0
+
+        completion_msg = ""
+        for m in reversed(msgs):
+            if m.get("role") == "assistant":
+                completion_msg = m.get("content", "") or ""
+                break
 
         common = dict(
             rollout=roll,
-            completion=roll.samples[0],
+            completion=completion_msg,
             prompt=roll.row.get('prompt', None),
             answer=roll.row.get('answer', None),
             task=roll.row.get('task', None),
         )
-        merged = {**common, **roll.extra} # TODO what is the meaning of this:   , **kwargs}    ?
+
+        # Remove dependency on roll.extra entirely
+        merged = dict(common)
 
         sig = inspect.signature(func)
         if any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):

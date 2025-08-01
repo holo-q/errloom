@@ -24,7 +24,7 @@ class TextFragment:
     A fragment of text with training metadata.
     """
     content: str
-    ego: str
+    ego: Optional[str]
     fragment_type: FragmentType
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -74,31 +74,58 @@ class Context:
 
     def to_api_messages(self) -> APIChat:
         """
-        Convert context messages to OpenAI API format.
-
-        Returns:
-            List of message dicts compatible with OpenAI chat completions API.
+        Convert context fragments to OpenAI API chat messages by aggregating
+        consecutive fragments with the same normalized role.
         """
-        messages = []
-        # TODO based on fragments
-        # for msg in self._messages:
-        #     if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-        #         messages.append({
-        #             'role':    msg['role'],
-        #             'content': msg['content']
-        #         })
+        def _normalize_role(raw: Optional[str], is_first: bool) -> str:
+            if raw in ("system", "user", "assistant"):
+                return raw
+            # Unknowns map to user; None maps to system only if first fragment
+            if raw is None and is_first:
+                return "system"
+            return "user"
+
+        messages: APIChat = []
+        current_role: Optional[str] = None
+        current_content: list[str] = []
+
+        for idx, frag in enumerate(self.fragments):
+            role = _normalize_role(frag.ego, is_first=(idx == 0))
+            if current_role is None:
+                current_role = role
+                current_content = [frag.content]
+            elif role == current_role:
+                current_content.append(frag.content)
+            else:
+                # flush
+                content_str = "".join(current_content)
+                if content_str:
+                    messages.append({"role": current_role, "content": content_str})
+                current_role = role
+                current_content = [frag.content]
+
+        # flush tail
+        if current_role is not None:
+            content_str = "".join(current_content)
+            if content_str:
+                messages.append({"role": current_role, "content": content_str})
+
         return messages
 
     def to_api_string(self) -> str:
         """
-        Convert context to plain text format for completion API,
-        involving the standard context format tags e.g. <|im_start|>, <|im_end|>, etc.
-
-        Returns:
-            Concatenated text content, suitable for completions API.
+        Convert context to plain text format for completion API using legacy
+        delimiter blocks:
+          <|im_start|>role
+          content
+          <|im_end|>
         """
-        ret = ""
-        raise NotImplementedError # TODO we concatenate everything, with the standard format
+        blocks: list[str] = []
+        for msg in self.to_api_messages():
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            blocks.append(f"<|im_start|>{role}\n{content}\n<|im_end|>")
+        return "\n".join(blocks)
 
     # def _update_messages_from_fragments(self):
     #     """Update _messages from fragments for chat mode."""
@@ -217,29 +244,56 @@ class Context:
     @staticmethod
     def from_api_chat(api_context: APIChat, text: str = "", masking=AutoMask.FREEZE_ALL) -> 'Context':
         """
-        Create a Context from OpenAI API format messages.
-
-        Args:
-            api_context: List of OpenAI format message dicts
-            text: Optional text field to set
-
-        Returns:
-            New Context instance
+        Create a Context from OpenAI API format messages, applying AutoMask.
         """
+        def mask_for(role: Optional[str]) -> FragmentType:
+            if masking == AutoMask.FREEZE_ALL:
+                return FragmentType.FROZEN
+            if masking == AutoMask.REINFORCE_ALL:
+                return FragmentType.REINFORCE
+            if masking == AutoMask.REINFORCE_USER:
+                return FragmentType.REINFORCE if role == "user" else FragmentType.FROZEN
+            if masking == AutoMask.REINFORCE_ASSISTANT:
+                return FragmentType.REINFORCE if role == "assistant" else FragmentType.FROZEN
+            return FragmentType.FROZEN
+
         context = Context(text=text)
-        # TODO correctly do this
         for msg in api_context:
-            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                context.add_frozen(msg['role'], msg['content']) # TODO frozen/reinforce based on automask
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if content is None:
+                content = ""
+            ftype = mask_for(role)
+            context.add_fragment(content=content, fragment_type=ftype, role=role)
         return context
 
     @staticmethod
-    def from_text(text: str):
+    def from_text(text: str, masking: AutoMask = AutoMask.FREEZE_ALL) -> 'Context':
         """
-        Create a context by parsing a rendered conversation as a raw string,
-        based on the standard format with <|im_start|> and <|im_end|>
+        Parse a conversation string using legacy delimiters into a Context.
+        Format per block:
+          <|im_start|>role
+          content
+          <|im_end|>
         """
-        raise NotImplementedError # TODO
+        pattern = re.compile(
+            r"<\|im_start\|\>(?P<role>[^\n\r]+)[\r]?\n(?P<content>.*?)[\r]?\n<\|im_end\|\>",
+            re.DOTALL,
+        )
+        matches = list(pattern.finditer(text))
+        if not matches:
+            raise ValueError("from_text: no delimited messages found")
+
+        ctx = Context()
+        # Reuse from_api_chat masking by constructing APIChat then converting
+        api_msgs: APIChat = []
+        for m in matches:
+            role = m.group("role").strip()
+            content = m.group("content")
+            api_msgs.append({"role": role, "content": content})
+        return Context.from_api_chat(api_msgs, masking=masking)
 
     @property
     def text_rich(self):
@@ -385,25 +439,6 @@ class Rollout:
     #         if role:  # Only add fragments with roles as samples
     #             self.samples.append({'role': role, 'content': content})
 
-    def to_api_chat(self) -> APIChat:
-        """Get samples as properly formatted message objects for OpenAI-style chat inference."""
-        ret = []
-        for i, msg in enumerate(self.contexts):
-            raise NotImplementedError  # TODO
-            # if isinstance(msg, dict):
-            #     ret.append(dict(msg))  # Return clean copies
-            # else:
-            #     # Handle malformed samples gracefully
-            #     import logging
-            #     logger = logging.getLogger(__name__)
-            #     logger.warning(f"Sample {i} is not a dict: {type(msg)} = {msg!r}")
-            #     # Try to convert to proper format
-            #     if isinstance(msg, str):
-            #         ret.append({'role': 'assistant', 'content': msg})
-            #     else:
-            #         # Skip malformed entries
-            #         logger.error(f"Skipping malformed sample {i}: {msg!r}")
-        return ret
 
     # def get_sample_strings(self) -> List[str]:
     #     """Get samples as strings for backward compatibility."""
@@ -551,32 +586,38 @@ class Tapestry:
                                     state_columns: List[str] = [],
                                     extra_columns: List[str] = []) -> Dict[str, List[Any]]:
         """
-        Extract data from a list of rollouts to create a dataset dictionary.
-
-        Args:
-            state_columns: Additional columns to extract from rollout.extra
-            extra_columns: Additional columns to extract from rollout.extra
-
-        Returns:
-            Dictionary with lists of values for each column
+        Extract minimal dataset fields from rollouts.
+        - prompt: concatenation of all non-assistant messages as "role: content" separated by blank lines
+        - completion: content of the last assistant message if any, else ""
+        - answer: alias of completion
+        - gravity: rollout.gravity
         """
-        # Initialize base data structure
-        data_dict = {
+        data_dict: Dict[str, List[Any]] = {
             'prompt':     [],
             'completion': [],
             'answer':     [],
             'gravity':    []
         }
 
-        # Initialize columns
-        # all_extra_cols = set(state_columns + extra_columns)
-        # for col in all_extra_cols:
-        #     data_dict[col] = []
-        # TODO
-
-        # Extract data from each rollout
         for rollout in self.rollouts:
-            # rollout_data = extract_rollout_data(rollout)
-            raise NotImplementedError  # TODO we need to understand how we actually want to use this functionality and how we want to build the datasets
+            msgs = rollout.to_api_chat()
+            # Build prompt from non-assistant messages
+            prompt_parts: list[str] = []
+            last_assistant: str = ""
+            for m in msgs:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if role == "assistant":
+                    last_assistant = content  # overwrite to last assistant
+                else:
+                    prompt_parts.append(f"{role}: {content}")
+            prompt = "\n\n".join(prompt_parts)
+            completion = last_assistant
+            answer = last_assistant
+
+            data_dict['prompt'].append(prompt)
+            data_dict['completion'].append(completion)
+            data_dict['answer'].append(answer)
+            data_dict['gravity'].append(getattr(rollout, "gravity", 0.0))
 
         return data_dict
