@@ -23,11 +23,11 @@ classifiers = [
 dependencies = [
     "rich",
     "prompt_toolkit",
-    "torch==2.7.1",
     "requests>=2.32.3",
     "openai>=1.81.0",
+    "torch==2.7.1",
+    "transformers",
     "datasets>=3.6.0",
-    "testslide",
     "opensimplex",
     "opencv-python-headless",
     "msgspec",
@@ -50,8 +50,7 @@ all = [
     "nltk"
 ]
 
-train = [ 
-    "transformers",
+train = [
     "vllm==0.10.0",
     "flash-attn==2.8.2",
     "accelerate",
