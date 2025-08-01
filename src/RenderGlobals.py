@@ -1,5 +1,5 @@
 from src.renderer import Renderer
-from src.rendervars import RenderVars
+from errloom.utils.signal_block import RenderVars
 from errloom.session import Session
 from src.hud import HUD
 

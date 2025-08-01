@@ -8,15 +8,15 @@ from yachalk import chalk
 
 from src.lib import loglib
 from src.lib.loglib import printkw
-from src import convert
-from src.convert import save_png
+from errloom.utils import convert
+from errloom.utils.convert import save_png
 
 log = logging.getLogger("HUD")
 
 rows_tmp = []
 
 if typing.TYPE_CHECKING:
-    from src.rendervars import RenderVars
+    from errloom.utils.signal_block import RenderVars
 
 
 class HUD:

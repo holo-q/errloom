@@ -45,12 +45,12 @@ from yachalk import chalk
 
 from jargs import args
 from errloom import paths
-from src.convert import TImage, get_cv2
+from errloom.utils.convert import TImage, get_cv2
 from src.hud import HUD
 from src.lib import loglib
 from src.lib.corelib import invoke_safe
 from src.lib.loglib import trace_decorator, tracer
-from src.rendervars import RenderVars
+from errloom.utils.signal_block import RenderVars
 from errloom.session import Session
 
 
