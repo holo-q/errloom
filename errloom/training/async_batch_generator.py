@@ -12,7 +12,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from errloom.loom import Loom
 from errloom.tapestry import Rollout, Tapestry
-from errloom.utils import log
+from errloom.lib import log
 
 logger = log.getLogger(__name__)
 
@@ -401,7 +401,7 @@ class AsyncBatchGenerator:
 
         for rollout in loom_results.rollouts:
             # Use new method to get sample messages
-            completions.append(rollout.get_sample_messages())
+            completions.append(rollout.to_api_chat())
             # Extract prompt from rollout context
             if hasattr(rollout.context, 'messages') and rollout.context.messages:
                 prompts.append(rollout.context.messages)
@@ -501,7 +501,7 @@ def process_chat_format(
         messages = list(messages)
 
     # Get completion messages from samples - they're automatically maintained by rollout
-    completion = rollout.get_sample_messages()
+    completion = rollout.to_api_chat()
 
     # tokenize just the prompt
     prompt_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -580,7 +580,7 @@ class ChatFormatStrategy(TokenizationStrategy):
             messages = list(messages)
 
         # Get completion messages from samples
-        completion = rollout.get_sample_messages()
+        completion = rollout.to_api_chat()
 
         # Tokenize just the prompt
         prompt_text = config.tokenizer_class.apply_chat_template(

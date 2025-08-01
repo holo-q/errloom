@@ -13,8 +13,8 @@ from openai.types.chat import ChatCompletion
 from errloom.aliases import Data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.tapestry import Rollout, Tapestry
-from errloom.utils import log
-from errloom.utils.log import ContextAwareThreadPoolExecutor, indent_decorator, LogContext
+from errloom.lib import log
+from errloom.lib.log import ContextAwareThreadPoolExecutor, indent_decorator, LogContext
 from errloom.utils.model_utils import load_data
 
 if typing.TYPE_CHECKING:
@@ -221,7 +221,7 @@ class Loom(ABC):
                 return self.rollout(state)
             except Exception as e:
                 # Log full stacktrace to file only
-                from errloom.utils.log import log_stacktrace_to_file_only
+                from errloom.lib.log import log_stacktrace_to_file_only
                 import logging
                 log_stacktrace_to_file_only(logging.getLogger(), e, f"rollout {id(state)}")
 
@@ -514,12 +514,12 @@ Max concurrent: {tapestry.max_concurrent}
             res: ChatCompletion
             if self.message_type == 'chat':
                 # Use Rollout method to get OpenAI format messages
-                messages = rollout.to_openai_messages()
+                messages = rollout.to_api_chat()
                 res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)  # type: ignore
                 ret = self._handle_api_response(res, self.message_type)
             elif self.message_type == 'completion':
                 # Use Rollout method to get completion text
-                prompt = rollout.to_completion_text()
+                prompt = rollout.to_text()
                 from openai.types.completion import Completion
                 completion_res: Completion = client.completions.create(model=model, prompt=prompt, **sanitized_args)
                 ret = self._handle_api_response(completion_res, self.message_type)

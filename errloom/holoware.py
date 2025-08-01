@@ -40,8 +40,7 @@ from typing import Optional
 
 from rich.text import Text
 
-from errloom.utils import log
-from errloom.utils.log import ellipse
+from errloom.lib import log
 
 logger = log.getLogger(__name__)
 
@@ -264,14 +263,18 @@ class Holoware:
         for i, span in enumerate(self.spans):
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
-                    phore.add_text(span.text)
+                    # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection
+                    # It locks in the baseline "depth" which will never give a good latent space exploration
+                    # We need a span that implements its own mechanism where the text is not always the same
+                    # This way the entropy is forever fresh
+                    phore.add_masked(span.text)
                 elif isinstance(span, ObjSpan):
                     for var_id in span.var_ids:
                         if var_id in phore.env:
                             value = phore.env[var_id]
-                            phore.add_text(f"<obj id={var_id}>")
-                            phore.add_text(str(value))
-                            phore.add_text("</obj>")
+                            phore.add_masked(f"<obj id={var_id}>")
+                            phore.add_masked(str(value))
+                            phore.add_masked("</obj>")
                             break
                 continue
 

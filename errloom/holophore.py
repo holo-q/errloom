@@ -1,10 +1,9 @@
 import inspect
 import typing
-from typing import Optional
 
 from errloom.holoware import Span
 from errloom.tapestry import Rollout
-from errloom.utils import log
+from errloom.lib import log
 
 
 if typing.TYPE_CHECKING:
@@ -41,7 +40,7 @@ class Holophore:
     def get_class(self, classname:str):
         Class = self.env.get(classname)
         if not Class:
-            from errloom.discovery import get_class
+            from errloom.lib.discovery import get_class
             Class = get_class(classname)
         return Class
 
@@ -59,30 +58,14 @@ class Holophore:
         if self.context is None:
             self.new_context()
 
-    def add_text(self, text: str):
-        self.ensure_context()
-        ctx = self.context
-        if len(ctx.messages) == 0 or self.ego != ctx.messages[-1]['role']:
-            ctx.add_message(self.ego, text)
-        else:
-            ctx.add_text(text)
-        self._newtext += text
-
-    def add_message(self, ego: str, text: str):
-        self.ensure_context()
-        self.context.add_message(ego, text)
-        self._newtext += text
-
-    def add_prompt(self, content: str):
-        """Add prompt text (typically masked)."""
-        self.ensure_context()
-        self._rollout.add_prompt(self.role, content)
-        self._newtext += content
-
-    def add_completion(self, content: str):
-        """Add completion text (typically reinforced)."""
-        self._rollout.add_completion(self.role, content)
-        self._newtext += content
+    # def add_text(self, text: str):
+    #     self.ensure_context()
+    #     ctx = self.context
+    #     if len(ctx.fragments) == 0 or self.ego != ctx.fragments[-1].ego:
+    #         ctx.add_message(self.ego, text)
+    #     else:
+    #         ctx.add_text(text)
+    #     self._newtext += text
 
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
@@ -91,12 +74,8 @@ class Holophore:
 
     def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
-        self._rollout.add_masked(self.role, content)
+        self._rollout.add_frozen(self.role, content)
         self._newtext += content
-
-    def set_mode(self, mode):
-        """Set the context mode (chat/completion)."""
-        self._rollout.set_mode(mode)
 
     # @indent
     # def flush(self):
@@ -149,12 +128,6 @@ class Holophore:
         """For backward compatibility - returns the original rollout object."""
         return self._rollout
 
-    def invoke__holo__(self, phore:'Holophore', span:Span) -> str:
-        inst = phore.span_bindings.get(span.uuid, None)
-        assert inst
-        result = phore.invoke(inst, '__holo__', *phore.get_holofunc_args(span), optional=False)
-        return result or ""
-
     def invoke(self, target, funcname, args, kwargs, optional=True, filter_missing_arguments=True):
         """
         Walks the MRO of a class or instance to find and call a __holo__ method
@@ -196,6 +169,25 @@ class Holophore:
 
         return None
 
+    def invoke__holo__(self, phore:'Holophore', span:Span) -> str:
+        """
+        Invoke the __holo__ trigger function on a span's bound object instance.
+        E.g. for the ClassSpans this is the instantiated class they refer.
+        This allows any class to be instantiated by the holoware and integrated during rollout.
+        It may be better to create a wrapper sometimes.
+
+        Args:
+            phore:
+            span:
+
+        Returns:
+
+        """
+        obj = phore.span_bindings.get(span.uuid, None)
+        assert obj
+        result = phore.invoke(obj, '__holo__', *phore.get_holofunc_args(span), optional=False)
+        return result or ""
+
     def get_holofunc_args(self, span: Span):
         return [self, span], {}
 
@@ -208,5 +200,5 @@ class Holophore:
         yield "contexts", len(self.contexts)
 
     def __repr__(self) -> str:
-        from errloom.utils.log import PrintedText
+        from errloom.lib.log import PrintedText
         return str(PrintedText(self))

@@ -4,21 +4,15 @@
 * support 'uv run main <loom/holoware> new <session_name>'
 * support 'uv run main <loom/holoware> vllm' which runs vllm_server cli, just like the vllm launch script in @pyproject.toml
 * support 'uv run main <loom/holoware> resume'
-* support '--openrouter'
 
 
 @main.py
 * prompt the user for their keys when using --openai, --openrouter, etc. and store them into ~/.erloom (see @paths.py for app standards) as securely as possible
 
-@log.py @argp.py
-* add an argument to reset the persisted column width
-* track the longest column width for this session separately and add a function to save it to persistence +10%, and call the function at the end of execution in @main.py in the most reliable way possible. this makes the persistence contextually local rather than infinitely spanning
-
 # TODOS
 
 * will added many new environments https://github.com/willccbb/verifiers/tree/main/environments lets rip them off into holowares to see how our api handles stuff
 *  
-
 
 # TODO: Logging alignment
 

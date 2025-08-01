@@ -8,7 +8,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import FormattedTextControl, Window, ConditionalMargin, ScrollbarMargin
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 
-from src.deploy.DeployTUI import _T
+from errloom.deploy import _T
 
 
 class _BaseList(Generic[_T]):

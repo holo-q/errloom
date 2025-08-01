@@ -1,12 +1,11 @@
-import logging
 import shlex
 import textwrap
 from typing import Dict, Optional, Tuple
 
 from rich.panel import Panel
 
-from errloom.utils.log import indent_decorator
-from errloom.utils import log
+from errloom.lib.log import indent_decorator
+from .lib import log
 from .holoware import (
     ClassSpan,
     ContextResetSpan,

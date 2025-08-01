@@ -8,14 +8,14 @@ from prompt_toolkit.layout import Dimension, Float, HSplit, Layout, VSplit
 from prompt_toolkit.layout.containers import ConditionalContainer, FloatContainer
 from prompt_toolkit.widgets import Box, Frame, Label, TextArea
 
-from src.deploy.deploy_utils import forget, invalidate, make_header_text
-from src.deploy.remote import LoomRemote
-from src.deploy.ssh import SSHState
-from src.deploy.tui.app_button import AppButton
-from src.deploy.tui.log_display import LogDisplay
-from src.deploy.tui.spacer import Spacer
-from src.deploy.tui.ui_vars import app, kb, rman, vast, Window
-from src.deploy.vast_instance import VastInstance
+from errloom.deploy.deploy_utils import forget, invalidate, make_header_text
+from errloom.deploy.remote import LoomRemote
+from errloom.ssh import SSHState
+from errloom.tui.app_button import AppButton
+from errloom.tui.log_display import LogDisplay
+from errloom.tui.spacer import Spacer
+from errloom.tui.ui_vars import app, kb, rman, vast, Window
+from errloom.deploy.vast_instance import VastInstance
 
 log = logging.getLogger("TUI")
 

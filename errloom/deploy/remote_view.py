@@ -1,11 +1,11 @@
 import typing
 from dataclasses import dataclass
 
-from src.deploy.execution_state import ExecutionState
+from errloom.deploy.execution_state import ExecutionState
 
 if typing.TYPE_CHECKING:
-    from src.deploy.ssh import SSHState
-    from src.deploy.remote import LoomRemote
+    from errloom.ssh import SSHState
+    from errloom.deploy.remote import LoomRemote
 
 
 @dataclass

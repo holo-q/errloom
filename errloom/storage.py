@@ -10,7 +10,7 @@ import dill
 import msgspec
 
 from src import paths
-from src.deploy.vast_instance import VastInstance
+from errloom.deploy import VastInstance
 from src.paths import root
 
 

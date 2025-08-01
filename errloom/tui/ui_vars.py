@@ -2,7 +2,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.styles import Style
 
-from src.deploy.app import App
+from errloom.deploy.app import App
 
 kb: KeyBindings = KeyBindings()
 style: Style = Style.from_dict({

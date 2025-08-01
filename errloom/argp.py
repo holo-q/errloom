@@ -1,6 +1,5 @@
 import argparse
 import sys
-import typing
 from typing import Tuple
 from errloom import defaults
 from errloom.holoware_loom import HolowareLoom
@@ -19,8 +18,8 @@ def colorize_command(command: str) -> str:
     Returns:
         Rich markup string with appropriate colors applied
     """
-    from errloom.utils.log import (colorize_loom, colorize_holoware, colorize_session_name,
-                                   colorize_placeholder, colorize_command_name)
+    from errloom.lib.log import (colorize_loom, colorize_holoware, colorize_session_name,
+                                 colorize_placeholder, colorize_command_name)
 
     # Split command into parts
     parts = command.split()
@@ -79,7 +78,7 @@ def colorize_command(command: str) -> str:
 
 def print_errloom_banner():
     """Print the beautiful Errloom ASCII art - Retro Computing Style."""
-    from errloom.utils.log import log
+    from errloom.lib.log import log
 
     # Create the ASCII art as a single multiline string to avoid RichHandler alignment issues
     ascii_art = """
@@ -99,7 +98,7 @@ def print_errloom_banner():
 
 def show_help():
     """Display comprehensive help for errloom commands"""
-    from errloom.utils.log import log, logc, colorize_field_label, colorize_title
+    from errloom.lib.log import log, logc, colorize_field_label
     from errloom.holoware_load import get_default_loader
     from rich.rule import Rule
 
@@ -493,7 +492,7 @@ def create_client_from_args(args, dry_run=None):
 
 # Initialize tracing if enabled
 if errlargs.trace:
-    from errloom.utils.log import set_trace_enabled
+    from errloom.lib.log import set_trace_enabled
     set_trace_enabled(True)
 
 # sys.argv = [sys.argv[0]] # eat up arguments

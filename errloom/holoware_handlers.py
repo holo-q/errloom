@@ -2,12 +2,16 @@ import logging
 
 from errloom.holophore import Holophore
 from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, SampleSpan
-from errloom.tapestry import Context
 
 logger = logging.getLogger(__name__)
 
+
 # noinspection PyUnusedLocal
 class HolowareHandlers:
+    """
+    Function that match the spans and get invoked when encountered during holoware execution.
+    """
+
     @classmethod
     def SampleSpan(cls, phore:Holophore, span:SampleSpan):
         sample = phore.sample(phore.rollout)
@@ -21,7 +25,8 @@ class HolowareHandlers:
         else:
             text = sample
 
-        phore.add_text(text)
+        # Add text that will be optimized and reinforced into the weights
+        phore.add_reinforced(text)
 
     @classmethod
     def ContextResetSpan(cls, phore:Holophore, span:ContextResetSpan):
@@ -38,23 +43,25 @@ class HolowareHandlers:
         ClassName = span.class_name
         Class = phore.env.get(ClassName)
         if not Class:
-            from errloom.discovery import get_class
+            from errloom.lib.discovery import get_class
             Class = get_class(ClassName)
 
         if not Class:
-            raise f"Class '{ClassName}' not found in environment or registry."
+            raise Exception(f"Class '{ClassName}' not found in environment or registry.") # TODO a more appropriate exception
 
         if span.uuid not in phore.span_bindings:
             pass
 
         if span.body:
-            span.body(phore)
+            span.body.__call__(phore)
 
-        injection = phore.invoke__holo__(phore, span)
-        if injection:
+        insertion = phore.invoke__holo__(phore, span)
+        if insertion:
             # Ensure injection is a string - convert Holophore to string if needed
-            if hasattr(injection, '__str__'):
-                injection_str = str(injection)
+            if hasattr(insertion, '__str__'):
+                s = str(insertion)
             else:
-                injection_str = injection
-            phore.add_text(injection_str)
+                s = insertion
+
+            # TODO we may wanna make this a configurable option
+            phore.add_masked(s)

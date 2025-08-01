@@ -18,12 +18,13 @@ import numpy as np
 # Rich imports for beautiful output
 from rich.rule import Rule
 
-from errloom import argp, defaults, discovery, Loom
+from errloom import argp, defaults, Loom
+from errloom.lib import discovery
 from errloom.aliases import Data
 from errloom.argp import create_client_from_args, errlargs, show_help
 from errloom.holoware_loom import HolowareLoom
 from errloom.session import Session
-from errloom.utils.log import (colorize_client, colorize_completion, colorize_deployment, colorize_error, colorize_field_label, colorize_mode_dry, colorize_mode_dump, colorize_mode_production, colorize_model, colorize_rule_title, colorize_session, colorize_target, colorize_title, log, logc, logger_main)
+from errloom.lib.log import (colorize_client, colorize_completion, colorize_deployment, colorize_error, colorize_field_label, colorize_mode_dry, colorize_mode_dump, colorize_mode_production, colorize_model, colorize_rule_title, colorize_session, colorize_target, colorize_title, log, logc, logger_main)
 
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
@@ -57,7 +58,7 @@ def setup_async():
 def main(default_title: Optional[str] = None,
          default_model: str = errlargs.model,
          default_data: str | Data = errlargs.data or "agentlans/wikipedia-paragraphs",
-         default_loom: type | Loom = discovery.get_class(errlargs.loom) or HolowareLoom, # TODO can we specify to the type checker that it's a Loom type in particular, not just any type?
+         default_loom: type | Loom = discovery.get_class(errlargs.loom) or HolowareLoom,  # TODO can we specify to the type checker that it's a Loom type in particular, not just any type?
          default_holoware: Optional[str] = errlargs.ware,
          default_session: Optional[Session] = None):
 
@@ -219,7 +220,7 @@ def main(default_title: Optional[str] = None,
         raise
     finally:
         # Save session width to persistence before exiting
-        from errloom.utils.log import save_session_width_to_persistence
+        from errloom.lib.log import save_session_width_to_persistence
         save_session_width_to_persistence()
 
 
@@ -274,7 +275,7 @@ def _print_version_info():
 
 def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | None, default_loom: type | None):
     """Handle the cat command to display holoware code or loom class source."""
-    from errloom.utils.log import colorize_error
+    from errloom.lib.log import colorize_error
     from rich.rule import Rule
 
     logc()
@@ -311,7 +312,7 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
 
 def _display_holoware_source(holoware_name: str):
     """Display the source code of a holoware file."""
-    from errloom.utils.log import colorize_holoware, colorize_error, colorize_success
+    from errloom.lib.log import colorize_holoware, colorize_error, colorize_success
     from errloom.holoware_load import get_default_loader
     from rich.syntax import Syntax
 
@@ -346,8 +347,8 @@ def _display_holoware_source(holoware_name: str):
 
 def _display_loom_class_source(loom_class_name: str):
     """Display the source code of a loom class."""
-    from errloom.utils.log import colorize_loom, colorize_error, colorize_success
-    from errloom.discovery import get_class
+    from errloom.lib.log import colorize_loom, colorize_error, colorize_success
+    from errloom.lib.discovery import get_class
     from rich.syntax import Syntax
     import inspect
     import os
@@ -358,7 +359,7 @@ def _display_loom_class_source(loom_class_name: str):
         if not loom_class:
             log(colorize_error(f"❌ Loom class not found: {loom_class_name}"))
             # Show available classes
-            from errloom.discovery import get_all_classes
+            from errloom.lib.discovery import get_all_classes
             available_classes = list(get_all_classes().keys())
             if available_classes:
                 log(f"[dim]Available classes: {', '.join(sorted(available_classes))}[/]")
@@ -431,7 +432,7 @@ def run():
         log("")
     finally:
         # Save session width to persistence before exiting
-        from errloom.utils.log import save_session_width_to_persistence
+        from errloom.lib.log import save_session_width_to_persistence
         save_session_width_to_persistence()
 
 

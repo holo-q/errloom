@@ -244,7 +244,7 @@ def download_vast_script():
 
 
 def invalidate():
-    from src.deploy.ui_vars import app
+    from errloom.deploy import app
     app.invalidate()
 
 

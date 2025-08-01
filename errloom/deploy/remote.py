@@ -9,41 +9,40 @@ from desktop_notifier import DesktopNotifier
 
 from errloom.session import Session
 from src import paths
-from src.deploy import vast_manager
-import src.deploy.deploy_constants as const
-from src.deploy.deploy_constants import ERRLOOM_MAIN_PY
-from src.deploy.deploy_utils import (
+from errloom.deploy import vast_manager
+import errloom.deploy.deploy_constants as const
+from errloom.deploy.deploy_constants import ERRLOOM_MAIN_PY
+from errloom.deploy.deploy_utils import (
     forget,
-    get_git_remote_urls,
     invalidate,
     make_header_text,
     open_terminal,
 )
-from src.deploy.deployment_step import DeploymentStep
-from src.deploy.remote_view import RemoteView
-from src.deploy.ssh import SSH, SSHState
-from src.deploy.vast_instance import VastInstance
+from errloom.deploy.deployment_step import DeploymentStep
+from errloom.deploy.remote_view import RemoteView
+from errloom.ssh import SSH, SSHState
+from errloom.deploy.vast_instance import VastInstance
 import userconf
 
 
 class ErrloomRemote_SyncMan:
     """Placeholder class for session synchronization management."""
-    
+
     def __init__(self, remote):
         self.remote = remote
-    
+
     async def start(self):
         """Start session synchronization."""
         pass
-    
+
     async def stop(self):
         """Stop session synchronization."""
         pass
-    
+
     async def kill(self):
         """Kill synchronization process."""
         pass
-    
+
     async def is_running(self):
         """Check if synchronization is running."""
         return False
@@ -51,26 +50,26 @@ class ErrloomRemote_SyncMan:
 
 class ErrloomRemote_VLLMMan:
     """Placeholder class for VLLM server management."""
-    
+
     def __init__(self, remote):
         self.remote = remote
-    
+
     async def start(self, force_restart=False):
         """Start VLLM server."""
         pass
-    
+
     async def stop(self):
         """Stop VLLM server."""
         pass
-    
+
     async def kill(self):
         """Kill VLLM server process."""
         pass
-    
+
     async def is_running(self):
         """Check if VLLM server is running."""
         return False
-    
+
     @staticmethod
     def get_server_url(instance):
         """Get the VLLM server URL."""
@@ -275,7 +274,7 @@ class ErrloomRemote:
         return f"{ssh_path} -t -p {self.port} root@{self.ip} '{tmux_sequence} && bash'"
 
     def refresh_instance_status(self):
-        from src.deploy import vast_manager
+        from errloom.deploy import vast_manager
 
         info = vast_manager.instance.fetch_instance(self.instance.id)  # TODO
         self.instance = info
@@ -376,7 +375,7 @@ class ErrloomRemote:
         return status
 
     async def is_ready(self) -> bool:
-        from src.deploy import vast_manager
+        from errloom.deploy import vast_manager
 
         try:
             instances = await vast_manager.instance.fetch_instances()
@@ -432,11 +431,11 @@ Detected installation step: {step.name} ({step.value} / {DeploymentStep.DONE.val
         # Get tokens from userconf with fallbacks
         hf_token = getattr(userconf, 'hf_token', '')
         wandb_token = getattr(userconf, 'wandb_token', '')
-        
+
         # Setup Hugging Face token
         await self.ssh.run(f"mkdir -p ~/.huggingface")
         await self.ssh.run(f"echo '{hf_token}' > {self.dst_hf_token.as_posix()}")
-        
+
         # Setup W&B token
         netrc_entry = f"machine api.wandb.ai\n  login user\n  password {wandb_token}\n"
         await self.ssh.run(f"echo '{netrc_entry}' > {self.dst_wandb_token.as_posix()}")

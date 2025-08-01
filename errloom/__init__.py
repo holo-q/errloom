@@ -3,11 +3,11 @@ __version__ = "0.1.0"
 
 from errloom.argp import errlargs
 from errloom.comm import CommModel
-from errloom import discovery
+from errloom.lib import discovery
 from errloom.attractor import Attractor
 from errloom.holoware import Span
 from errloom.loom import Loom
-from errloom.utils.log import log, setup_logging
+from errloom.lib.log import log, setup_logging
 from src.paths import userdir
 
 # Set up persistence file path

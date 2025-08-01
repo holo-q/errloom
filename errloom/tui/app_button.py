@@ -6,11 +6,11 @@ from prompt_toolkit.application import get_app
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings, KeyPress, KeyPressEvent
 from prompt_toolkit.keys import Keys
-from prompt_toolkit.layout import Container, BufferControl, Window
+from prompt_toolkit.layout import Container, Window
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.widgets import Button, Label
 
-from src.deploy.deploy_utils import forget, invalidate
+from errloom.deploy.deploy_utils import forget, invalidate
 
 
 # from src.deploy.ui_vars import *

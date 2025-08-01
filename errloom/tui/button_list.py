@@ -30,8 +30,8 @@ import logging
 
 from prompt_toolkit.styles import Style
 
-from src.deploy.tui.draw_canvas import DrawCanvas
-from src.deploy.deploy_utils import forget
+from errloom.tui.draw_canvas import DrawCanvas
+from errloom.deploy.deploy_utils import forget
 
 STYLE_SEPARATOR = "class:separator"
 STYLE_HEADER = "class:header"

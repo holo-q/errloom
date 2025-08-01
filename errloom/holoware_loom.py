@@ -1,18 +1,14 @@
-import logging
 from copy import deepcopy
 from typing import Optional
 
-from rich import box
 from rich.table import Table
 from rich.box import Box
 
 from errloom import holoware_load
-from errloom.aliases import Data
 from errloom.holophore import Holophore
 from errloom.loom import Loom
 from errloom.tapestry import Rollout
-from errloom.utils.log import PrintedText
-from errloom.utils import log
+from errloom.lib.log import PrintedText
 
 # logger = logging.getLogger(__name__)
 

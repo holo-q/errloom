@@ -1,7 +1,7 @@
-from src.deploy import vast_manager
-from src.deploy.tui.button_list import ButtonList
-from src.deploy.remote_view import RemoteView
-from src.deploy.vast_instance import VastInstanceView
+from errloom.deploy import vast_manager
+from errloom.tui.button_list import ButtonList
+from errloom.deploy.remote_view import RemoteView
+from errloom.deploy.vast_instance import VastInstanceView
 
 
 from prompt_toolkit.application import get_app

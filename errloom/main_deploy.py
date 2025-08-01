@@ -2,15 +2,15 @@ import asyncio
 import logging
 from typing import Optional
 
-from src.deploy import ErrloomRemote_VLLMMan
-from src.deploy.vast_offer import VastOffer
+from errloom.deploy import ErrloomRemote_VLLMMan
+from errloom.deploy import VastOffer
 from errloom import argp
 from src import storage
-from src.deploy import vast_manager
-from src.deploy.deploy_utils import make_header_text
-from src.deploy.deployment_step import DeploymentStep
-from src.deploy.remote import ErrloomRemote
-from src.deploy.vast_instance import VastInstanceView
+from errloom.deploy import vast_manager
+from errloom.deploy import make_header_text
+from errloom.deploy import DeploymentStep
+from errloom.deploy import ErrloomRemote
+from errloom.deploy import VastInstanceView
 from src.gui.utils import async_thread
 from src.lib import loglib
 from errloom.session import Session
@@ -54,9 +54,9 @@ def launch_vllm_webui(instance: ErrloomRemote):
 async def create_remote(session):
     from prompt_toolkit.layout import HSplit, Layout
     from prompt_toolkit.application import Application
-    from src.deploy.deploy_utils import forget
+    from errloom.deploy import forget
     from prompt_toolkit.key_binding import KeyBindings
-    from src.deploy.offer_list import OfferList
+    from errloom.deploy import OfferList
 
     logger.info("(errloom:main) cmd_create_instance: entry")
 
@@ -117,8 +117,8 @@ async def choose_instance(session):
     from prompt_toolkit.layout import HSplit, Layout
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
-    from src.deploy.deploy_utils import forget
-    from src.deploy.instance_list import InstanceList
+    from errloom.deploy import forget
+    from errloom.deploy import InstanceList
 
     logger.info("(errloom:main) choose_instance: entry")
 
@@ -255,11 +255,11 @@ async def main():
 
     hf_token = getattr(userconf, 'hf_token', '')
     wandb_token = getattr(userconf, 'wandb_token', '')
-    
+
     # Setup Hugging Face token
     await remote.ssh.run(f"mkdir -p ~/.huggingface")
     await remote.ssh.run(f"echo '{hf_token}' > {remote.dst_hf_token.as_posix()}")
-    
+
     # Setup W&B token
     netrc_entry = f"machine api.wandb.ai\n  login user\n  password {wandb_token}\n"
     await remote.ssh.run(f"echo '{netrc_entry}' > {remote.dst_wandb_token.as_posix()}")

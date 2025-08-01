@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from errloom.session_entry import SessionEntry
-from errloom.utils.untested_error import UntestedError
+from errloom.lib.untested_error import UntestedError
 
 # from src.classes import folder_paths
 # from src.gui.session_entry import SessionEntry

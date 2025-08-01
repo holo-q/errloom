@@ -13,17 +13,16 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, NewType, Optional, Set, Tuple
+from typing import NewType, Optional
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
-import errloom.argp
 from errloom.storage import Storage
-from errloom.utils.log import tracer
+from errloom.lib.log import tracer
 from src import convert, paths
-from src.paths import (get_leadnum, get_leadnum_zpad, get_max_leadnum, get_min_leadnum, is_leadnum_zpadded, leadnum_zpad, parse_frame_string, Pathlike)
+from src.paths import (is_leadnum_zpadded, leadnum_zpad, Pathlike)
 
 
 logger = logging.getLogger('session')
