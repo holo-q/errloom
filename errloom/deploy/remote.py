@@ -8,8 +8,8 @@ import asyncssh
 from desktop_notifier import DesktopNotifier
 
 from errloom.session import Session
-from src import paths
-from errloom.deploy import vast_manager
+from errloom import paths
+from errloom.interop import vast_manager
 import errloom.deploy.deploy_constants as const
 from errloom.deploy.deploy_constants import ERRLOOM_MAIN_PY
 from errloom.deploy.deploy_utils import (
@@ -21,7 +21,7 @@ from errloom.deploy.deploy_utils import (
 from errloom.deploy.deployment_step import DeploymentStep
 from errloom.deploy.remote_view import RemoteView
 from errloom.ssh import SSH, SSHState
-from errloom.deploy.vast_instance import VastInstance
+from errloom.interop.vast_instance import VastInstance
 import userconf
 
 

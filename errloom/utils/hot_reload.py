@@ -2,11 +2,10 @@ import importlib
 import logging
 import sys
 import time
-import types
 from pathlib import Path
-from typing import List, Dict, Tuple, Callable, Optional
+from typing import List, Dict, Tuple, Callable
 
-from src import paths
+from errloom import paths
 from src.lib import loglib
 
 log = logging.getLogger('hotreload')

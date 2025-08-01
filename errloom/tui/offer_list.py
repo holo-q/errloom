@@ -1,4 +1,4 @@
-from errloom.deploy import vast_manager
+from errloom.interop import vast_manager
 from errloom.tui.button_list import ButtonList
 from prompt_toolkit.application import get_app
 

@@ -6,7 +6,7 @@ from errloom.deploy import ErrloomRemote_VLLMMan
 from errloom.deploy import VastOffer
 from errloom import argp
 from src import storage
-from errloom.deploy import vast_manager
+from errloom.interop import vast_manager
 from errloom.deploy import make_header_text
 from errloom.deploy import DeploymentStep
 from errloom.deploy import ErrloomRemote

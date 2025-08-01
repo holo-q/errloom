@@ -5,9 +5,9 @@ from typing import Dict, Optional
 
 import aiohttp
 
-from errloom.deploy import vast_manager
+from errloom.interop import vast_manager
 from errloom.deploy.remote import LoomRemote
-from errloom.deploy.vast_instance import VastInstance
+from errloom.interop.vast_instance import VastInstance
 
 log = logging.getLogger('rman')
 

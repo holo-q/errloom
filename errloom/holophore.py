@@ -69,12 +69,12 @@ class Holophore:
 
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
-        self._rollout.add_reinforced(self.role, content)
+        self._rollout.add_reinforced(self.ego, content)
         self._newtext += content
 
     def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
-        self._rollout.add_frozen(self.role, content)
+        self._rollout.add_frozen(self.ego, content)
         self._newtext += content
 
     # @indent

@@ -21,8 +21,9 @@ from tqdm import tqdm
 
 from errloom.storage import Storage
 from errloom.lib.log import tracer
-from src import convert, paths
-from src.paths import (is_leadnum_zpadded, leadnum_zpad, Pathlike)
+from src import convert
+from errloom import paths
+from errloom.paths import (is_leadnum_zpadded, leadnum_zpad, Pathlike)
 
 
 logger = logging.getLogger('session')

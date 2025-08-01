@@ -392,13 +392,14 @@ def _display_loom_class_source(loom_class_name: str):
 
 def _handle_deployment():
     """Handle deployment/remote operations."""
+    from errloom import main_deploy
+    import asyncio
+
     logc()
     log(Rule(colorize_deployment("Errloom - Remote Deployment"), style="cyan"))
     log("")
 
     try:
-        import asyncio
-        from errloom import main_deploy
 
         log("[dim]Starting deployment process...[/]")
         asyncio.run(main_deploy.main())

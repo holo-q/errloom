@@ -15,10 +15,10 @@
 
 ### Standalone & Deploy
 
-Install errloom to your system using pip:
+Run from uvx
 
 ```
-pip install errloom --break-system-packages
+uvx --from git+https://github.com/holo-q/errloom main
 ```
 
 We then write a .hol holoware:

@@ -12,7 +12,7 @@ from prompt_toolkit.filters import to_filter, utils, Filter, FilterOrBool
 from prompt_toolkit.layout import Window, ConditionalContainer, Float, Container
 from prompt_toolkit.widgets import TextArea
 
-from src import paths
+from errloom import paths
 
 logger = logging.getLogger(__name__)
 

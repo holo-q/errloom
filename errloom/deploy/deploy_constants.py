@@ -1,4 +1,4 @@
-from src import paths
+from errloom import paths
 
 # Constants
 VAST_PYTHON_BIN = '/opt/conda/bin/python3'

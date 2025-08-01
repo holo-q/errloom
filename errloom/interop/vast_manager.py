@@ -12,10 +12,10 @@ import aiohttp
 
 import errloom.deploy.deploy_constants as const
 import userconf
-from src import paths
+from errloom import paths
 from errloom.deploy.remote import LoomRemote
-from errloom.deploy.vast_instance import VastInstance
-from errloom.deploy.vast_offer import VastOffer
+from errloom.interop.vast_instance import VastInstance
+from errloom.interop.vast_offer import VastOffer
 
 log = logging.getLogger('vast')
 

@@ -1,15 +1,14 @@
 import logging
 import typing
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
 from yachalk import chalk
 
 from src.lib import loglib
 from src.lib.loglib import printkw
-from src import convert, paths
+from src import convert
 from src.convert import save_png
 
 log = logging.getLogger("HUD")

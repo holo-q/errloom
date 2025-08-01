@@ -8,7 +8,7 @@ from errloom.attractor import Attractor
 from errloom.holoware import Span
 from errloom.loom import Loom
 from errloom.lib.log import log, setup_logging
-from src.paths import userdir
+from errloom.paths import userdir
 
 # Set up persistence file path
 persistence_file = str(userdir / "persistence.json")

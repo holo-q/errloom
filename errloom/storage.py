@@ -9,9 +9,9 @@ from pathlib import Path
 import dill
 import msgspec
 
-from src import paths
-from errloom.deploy import VastInstance
-from src.paths import root
+from errloom import paths
+from errloom.interop.vast_instance import VastInstance
+from errloom.paths import root
 
 
 log = logging.getLogger("Storage")

@@ -15,7 +15,7 @@ from errloom.tui.app_button import AppButton
 from errloom.tui.log_display import LogDisplay
 from errloom.tui.spacer import Spacer
 from errloom.tui.ui_vars import app, kb, rman, vast, Window
-from errloom.deploy.vast_instance import VastInstance
+from errloom.interop.vast_instance import VastInstance
 
 log = logging.getLogger("TUI")
 

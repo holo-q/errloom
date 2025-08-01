@@ -39,14 +39,12 @@ import sys
 import time
 import traceback
 import types
-from typing import Optional, Union
+from typing import Optional
 
-import numpy as np
-from PIL import Image
 from yachalk import chalk
 
 from jargs import args
-from src import paths
+from errloom import paths
 from src.convert import TImage, get_cv2
 from src.hud import HUD
 from src.lib import loglib

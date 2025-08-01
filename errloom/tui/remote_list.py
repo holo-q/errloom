@@ -1,4 +1,4 @@
-from errloom.deploy import vast_manager
+from errloom.interop import vast_manager
 from errloom.tui.button_list import ButtonList
 from errloom.deploy.remote import LoomRemote
 from errloom.deploy.remote_view import RemoteView

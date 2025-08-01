@@ -17,7 +17,7 @@ import asyncssh
 from asyncssh import SSHClientConnection
 
 from errloom.deploy.deploy_utils import invalidate, make_header_text
-from src.paths import Pathlike
+from errloom.paths import Pathlike
 
 
 asyncssh.set_debug_level(3)
