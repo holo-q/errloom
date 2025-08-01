@@ -1,6 +1,6 @@
 <!-- # Errloom: Reinforcement Learning with LLMs in Verifiable Environments -->
 
-## 1. Overview
+## Overview
 
 ![](docs/logo.png)
 
@@ -11,20 +11,104 @@
 **Errloom** is the schizo prompt theorist's swiss army knife for context engineering and reinforcement learning brought together as one in the unified Holoware language (.hol) of prompt engineering. It is a framework for training LLMs with reinforcement learning with verifiable reward (attractors & gravitation rules). It provides a powerful suite of tools and abstractions for orchestrating large language models, with a focus on deconstructing complex, recursive, and agentic workflows into simple, composable, and reusable atoms strug together in .hol recipes. It can be used as a library or standlone CLI, and supports deploying to cloud compute. It aims to demoncratize reinforcement learning experimentation and usher a new era of prompt engineering.
 
 
-##  2. Usage
+## Usage
 
-### Standalone & Deploy
-
-Run from uvx
+1. **Run:** Running Errloom is achieved in one command with [uv](link-to-uv), the modern python environment management system:
 
 ```
-uvx --from git+https://github.com/holo-q/errloom main
+~
+❮ uvx --from git+https://github.com/holo-q/errloom main
+
+
+[08/01/25 16:54:51] INFO     ╭────────────────────────────────────────────────────────────╮                                                                                                                                                     
+                             │  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄       ▄▄▄▄▄▄  ▄▄▄▄▄▄  ▄▄   ▄▄   │                                                                                                                                                     
+                             │  ██████  ██  ██  ██  ██  ██      ██  ██  ██  ██  ███▄▄███  │                                                                                                                                                     
+                             │  ██████  ██████  ██████  ██      ██  ██  ██  ██  ████████  │                                                                                                                                                     
+                             │  ██▄▄▄▄  ██▄▄██  ██▄▄██  ██      ██  ██  ██  ██  ██▄██▄██  │                                                                                                                                                     
+                             │  ██████  ██  ██  ██  ██  ██████  ██████  ██████  ██▄▄▄▄██  │                                                                                                                                                     
+                             ╰────────────────────────────────────────────────────────────╯                                                                                                                                                     
+                                                                                                                                                                                                                                                
+                             To build an intelligence fractal decompression zip bomb...                                                                                                                                                         
+                    INFO                                                                                                                                                                                                                        
+                    INFO     ───────────────────────────────────────────────────── Home Screen ──────────────────────────────────────────────────────                                                                                           
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Available holowares:                                                                                                                                                                                               
+                    INFO       agent-elesis.hol                                                                                                                                                                                                 
+                    INFO       agent-holoq.hol                                                                                                                                                                                                  
+                    INFO       codemath.hol                                                                                                                                                                                                     
+                    INFO       compressor.hol                                                                                                                                                                                                   
+                    INFO       doublecheck.hol                                                                                                                                                                                                  
+                    INFO       qa.hol                                                                                                                                                                                                           
+                    INFO       schizo.hol                                                                                                                                                                                                       
+                    INFO       smola.hol                                                                                                                                                                                                        
+                    INFO       tool.hol                                                                                                                                                                                                         
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Basic Usage:                                                                                                                                                                                                       
+                    INFO       uv run main <holoware> <command>                                                                                                                                                                                 
+                    INFO       uv run main <loom_class> <command>                                                                                                                                                                               
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Commands:                                                                                                                                                                                                          
+                    INFO       dry     # Run rollouts without training (uses MockClient by default)                                                                                                                                             
+                    INFO       train   # Run full training with rollouts and optimization                                                                                                                                                       
+                    INFO       dump    # Generate and save rollouts to project directory                                                                                                                                                        
+                    INFO       cat     # Display holoware code or loom class source                                                                                                                                                             
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Positional Arguments:                                                                                                                                                                                              
+                    INFO       holoware      # .hol file or shorthand (qa, tool, codemath, doublecheck, smola)                                                                                                                                  
+                    INFO       loom_class    # Loom class name for direct loom usage                                                                                                                                                            
+                    INFO       command       # One of: dry, train, dump                                                                                                                                                                         
+                    INFO       n             # Number of dataset rows to process (default: 10 for train, 1 for dry/dump)                                                                                                                        
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Quick Examples:                                                                                                                                                                                                    
+                    INFO       uv run main qa.hol dry                              # Quick dry run with 1 sample                                                                                                                                
+                    INFO       uv run main tool.hol train 50                       # Train with 50 samples                                                                                                                                      
+                    INFO       uv run main codemath.hol dry 5 --debug              # Debug dry run with 5 samples                                                                                                                               
+                    INFO       uv run main smola.hol dump 3                        # Generate and save 3 rollouts                                                                                                                               
+                    INFO       uv run main qa.hol cat                              # Display holoware code                                                                                                                                      
+                    INFO       uv run main HolowareLoom cat                        # Display loom class source                                                                                                                                  
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Testing Examples:                                                                                                                                                                                                  
+                    INFO       uv run main prompt.hol train 1 --micro-test         # Minimal test mode                                                                                                                                          
+                    INFO       uv run main prompt.hol train 2 --local-test         # Local test mode                                                                                                                                            
+                    INFO       uv run main prompt.hol train 1 --cpu --test-steps 2 # CPU debug mode                                                                                                                                             
+                    INFO       uv run main compressor.hol train 1 --cpu --dry      # Dry training mode (no backprop)                                                                                                                            
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Advanced Examples:                                                                                                                                                                                                 
+                    INFO       uv run main qa.hol train 100 --vllm --batch 16      # Distributed training                                                                                                                                       
+                    INFO       uv run main custom_loom train 50 --model llama-7b   # Custom loom with specific model                                                                                                                            
+                    INFO       uv run main tool.hol train 200 --data custom_dataset # Training with custom dataset                                                                                                                              
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Client Options:                                                                                                                                                                                                    
+                    INFO       --vllm         # Use VLLM for distributed training                                                                                                                                                               
+                    INFO       --openai       # Use OpenAI API (requires OPENAI_API_KEY)                                                                                                                                                        
+                    INFO       --openrouter   # Use OpenRouter API (requires OPENROUTER_API_KEY)                                                                                                                                                
+                    INFO       --lmstudio     # Use LM Studio local server                                                                                                                                                                      
+                    INFO       --client URL   # Custom OpenAI-compatible endpoint                                                                                                                                                               
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Testing & Debug Options:                                                                                                                                                                                           
+                    INFO       --cpu          # Run on CPU (slow but unlimited memory)                                                                                                                                                          
+                    INFO       --micro-test   # Minimal memory usage for testing                                                                                                                                                                
+                    INFO       --local-test   # Optimized for local development                                                                                                                                                                 
+                    INFO       --test-steps N # Limit training to N steps                                                                                                                                                                       
+                    INFO       --debug        # Enable debug logging                                                                                                                                                                            
+                    INFO       --unsafe       # Disable safe mode (crashes on errors)                                                                                                                                                           
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Deployment:                                                                                                                                                                                                        
+                    INFO       uv run main --vastai                               # Deploy to VastAI                                                                                                                                            
+                    INFO       uv run main --vastai-gui                           # VastAI deployment GUI                                                                                                                                       
+                    INFO                                                                                                                                                                                                                        
+                    INFO     Use uv run main <command> --help for detailed options.                                                                                                                                                             
+                    INFO                                                                                                                                                                                                                        
+                    INFO     ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────                                                                                           
+
 ```
 
-We then write a .hol holoware:
+Following the home instructions, we discover the progressive development workflow for reinforcement learning. 
+
+2. **Write Holoware:** Reinforcement learning contexts are written in the holoware DSL language as such...
+
 
 ```hol
-# smola.hol
 <|+++|>
 <|o_o|>
 <|ToolPrompt|>
@@ -40,12 +124,19 @@ We then write a .hol holoware:
     <|ToolRule|>
 ```
 
-Finally we launch the training using vast.ai for compute:
+3. **New Philosophy:** We readily abandon the classic jargon in machine learning in favor of a more operational set of abstractions...
 
-```
-errl smola.hol -vai --train-upload
 
-TODO demonstrate some logs
+* Environment -> Loom _(text weaving machine)_
+* Set of Rollout -> Tapestry
+* Rubric -> Attractor
+* Reward -> Gravity
+
+4. **One-click Deployment:** Training on cloud compute in one command...
+
+```hol
+~
+❮ uvx --from git+https://github.com/holo-q/errloom main context.hol deploy
 ```
 
 This deploys using [your configured API keys](TODO link to relevant wiki) either in the environment or configured into errloom.
@@ -67,7 +158,7 @@ Alternatively we can do
 ```
 errl smola.hol -vaip
 
-TODO show output of the active loom being pinged
+TODO show output of the active loom being pingedc
 ```
 
 to ping and get back information about the training run still actively running.
@@ -76,12 +167,13 @@ the model will be automatically upload to huggingface to a private dataset.
 
 TODO show a training report example, image of tensorboard, wandb, etc.
 
+For detailed instructions, please refer to the [wiki](https://google.com/).
 
-## 3. Roadmap
+## Roadmap
 
-### Atropos Integration
+### Atropos + Holoware
 
-Write an holoware environment for Nous Research Atropos reinforcement learning library. (optional dependency on Atropos)
+We write an holoware environment for Nous Research Atropos reinforcement learning library. (optional dependency on Atropos)
 This will allow the experiments conducted by Errloom users to scale using their more sophisticated pipeline for
 distributed training across the globe. We envision a market of environments and holowares where users submit proposals
 that are taken by compute volunteers.

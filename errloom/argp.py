@@ -105,7 +105,7 @@ def show_help():
     logc()
     print_errloom_banner()
     log("")
-    log(Rule("[bold cyan]Holoware Training", style="cyan"))
+    log(Rule("[bold cyan]Home Screen", style="cyan"))
     log("")
 
     # Try to find available holoware
