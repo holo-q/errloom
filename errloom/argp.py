@@ -12,24 +12,24 @@ from errloom.holoware_loom import HolowareLoom
 def colorize_command(command: str) -> str:
     """
     Colorize command examples with different colors for different parts.
-    
+
     Args:
         command: The command string to colorize
-        
+
     Returns:
         Rich markup string with appropriate colors applied
     """
-    from errloom.utils.log import (colorize_loom, colorize_holoware, colorize_session_name, 
+    from errloom.utils.log import (colorize_loom, colorize_holoware, colorize_session_name,
                                    colorize_placeholder, colorize_command_name)
-    
+
     # Split command into parts
     parts = command.split()
-    
+
     if not parts:
         return command
-    
+
     colored_parts = []
-    
+
     for i, part in enumerate(parts):
         if i == 0 and part == "uv":
             colored_parts.append(f"[bright_blue]{part}[/]")
@@ -73,14 +73,14 @@ def colorize_command(command: str) -> str:
             colored_parts.append(f"[dim]{part}[/]")
         else:
             colored_parts.append(f"[white]{part}[/]")
-    
+
     return " ".join(colored_parts)
 
 
 def print_errloom_banner():
     """Print the beautiful Errloom ASCII art - Retro Computing Style."""
     from errloom.utils.log import log
-    
+
     # Create the ASCII art as a single multiline string to avoid RichHandler alignment issues
     ascii_art = """
 [bright_yellow]╭────────────────────────────────────────────────────────────╮
@@ -93,7 +93,7 @@ def print_errloom_banner():
 
 [italic dim]To build an intelligence fractal decompression zip bomb...[/]
 """
-    
+
     log(ascii_art.strip())
 
 
@@ -123,13 +123,13 @@ def show_help():
     except Exception as e:
         log(f"[yellow]Could not list available holoware files: {e}[/]")
         log("")
-    
+
     # Basic Usage
     log(f"[bold cyan]Basic Usage:[/bold cyan]")
     log(f"  {colorize_command('uv run main <holoware> <command> [n] [options]')}")
     log(f"  {colorize_command('uv run main <loom_class> <command> [n] [options]')}")
     log("")
-    
+
     # Commands
     log(f"[bold cyan]Commands:[/bold cyan]")
     log(f"  {colorize_command('dry')}     [dim]# Run rollouts without training (uses MockClient by default)[/]")
@@ -145,7 +145,7 @@ def show_help():
     log(f"  {colorize_field_label('command')}       [dim]# One of: dry, train, dump[/]")
     log(f"  {colorize_field_label('n')}             [dim]# Number of dataset rows to process (default: 10 for train, 1 for dry/dump)[/]")
     log("")
-    
+
     # Examples section
     log(f"[bold cyan]Quick Examples:[/bold cyan]")
     log(f"  {colorize_command('uv run main qa.hol dry')}                              [dim]# Quick dry run with 1 sample[/]")
@@ -155,7 +155,7 @@ def show_help():
     log(f"  {colorize_command('uv run main qa.hol cat')}                              [dim]# Display holoware code[/]")
     log(f"  {colorize_command('uv run main HolowareLoom cat')}                        [dim]# Display loom class source[/]")
     log("")
-    
+
     # Testing Examples
     log(f"[bold cyan]Testing Examples:[/bold cyan]")
     log(f"  {colorize_command('uv run main prompt.hol train 1 --micro-test')}         [dim]# Minimal test mode[/]")
@@ -163,22 +163,23 @@ def show_help():
     log(f"  {colorize_command('uv run main prompt.hol train 1 --cpu --test-steps 2')} [dim]# CPU debug mode[/]")
     log(f"  {colorize_command('uv run main compressor.hol train 1 --cpu --dry')}      [dim]# Dry training mode (no backprop)[/]")
     log("")
-    
+
     # Advanced Examples
     log(f"[bold cyan]Advanced Examples:[/bold cyan]")
     log(f"  {colorize_command('uv run main qa.hol train 100 --vllm --batch 16')}      [dim]# Distributed training[/]")
     log(f"  {colorize_command('uv run main custom_loom train 50 --model llama-7b')}   [dim]# Custom loom with specific model[/]")
     log(f"  {colorize_command('uv run main tool.hol train 200 --data custom_dataset')} [dim]# Training with custom dataset[/]")
     log("")
-    
+
     # Client Options
     log(f"[bold cyan]Client Options:[/bold cyan]")
     log(f"  {colorize_command('--vllm')}         [dim]# Use VLLM for distributed training[/]")
     log(f"  {colorize_command('--openai')}       [dim]# Use OpenAI API (requires OPENAI_API_KEY)[/]")
+    log(f"  {colorize_command('--openrouter')}   [dim]# Use OpenRouter API (requires OPENROUTER_API_KEY)[/]")
     log(f"  {colorize_command('--lmstudio')}     [dim]# Use LM Studio local server[/]")
     log(f"  {colorize_command('--client URL')}   [dim]# Custom OpenAI-compatible endpoint[/]")
     log("")
-    
+
     # Testing Options
     log(f"[bold cyan]Testing & Debug Options:[/bold cyan]")
     log(f"  {colorize_command('--cpu')}          [dim]# Run on CPU (slow but unlimited memory)[/]")
@@ -188,13 +189,13 @@ def show_help():
     log(f"  {colorize_command('--debug')}        [dim]# Enable debug logging[/]")
     log(f"  {colorize_command('--unsafe')}       [dim]# Disable safe mode (crashes on errors)[/]")
     log("")
-    
+
     # Deployment
     log(f"[bold cyan]Deployment:[/bold cyan]")
     log(f"  {colorize_command('uv run main --vastai')}                               [dim]# Deploy to VastAI[/]")
     log(f"  {colorize_command('uv run main --vastai-gui')}                           [dim]# VastAI deployment GUI[/]")
     log("")
-    
+
     log(f"[dim]Use {colorize_command('uv run main <command> --help')} for detailed options.[/]")
     log("")
     log(Rule(style="dim"))
@@ -230,6 +231,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     client_group.add_argument('--lmstudio', action='store_true', help='Use LM Studio local server (127.0.0.1:1234)')
     client_group.add_argument('--vllm', action='store_true', help='Use VLLM client for distributed training')
     client_group.add_argument('--openai', action='store_true', help='Use OpenAI API (requires OPENAI_API_KEY)')
+    client_group.add_argument('--openrouter', action='store_true', help='Use OpenRouter API (requires OPENROUTER_API_KEY)')
 
     runtime_group = parser.add_argument_group('Runtime Configuration')
     runtime_group.add_argument('--seed', type=int, default=None, help='RNG seed for reproducibility, affects dataset order and some other things.')
@@ -306,7 +308,8 @@ args = parse_known_args()
 argv_remaining = args[1]
 errlargs = args[0]
 
-# Set command-based flags
+# Automatic implication-based args
+# ----------------------------------------
 if errlargs.command == "dry":
     errlargs.dry = True
     errlargs.dump = False
@@ -335,6 +338,10 @@ else:
     if errlargs.n is None:
         errlargs.n = 10
 
+is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test or errlargs.debug or errlargs.command == 'dry'
+if is_dev:
+    errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
+
 # Validate that ware and loom are not both set
 if errlargs.ware is not None and errlargs.loom is not None:
     raise ValueError("Cannot specify both --ware and --loom. Please choose one.")
@@ -356,18 +363,15 @@ is_vastai = errlargs.vastai or \
             errlargs.vastai_vllm
 
 is_vastai_continue = errlargs.vastai or errlargs.vastai_quick
-is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test
-if is_dev:
-    errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
 
 def get_errloom_session(load=True, *, nosubdir=False):
     """
     Get the errloom session from command line arguments.
-    
+
     Args:
         load: Whether to load the session
         nosubdir: Whether to skip subdirectory handling
-        
+
     Returns:
         Session object or None
     """
@@ -380,12 +384,12 @@ def get_errloom_session(load=True, *, nosubdir=False):
             # Handle subdirectory if needed
             pass  # TODO: Add subdirectory handling if needed
         return s
-    
+
     return None
 
 def safe_list_remove(l, value):
     """Safely remove a value from a list."""
-    if not l: 
+    if not l:
         return
     try:
         l.remove(value)
@@ -409,72 +413,80 @@ def remove_deploy_args(oargs):
 def create_client_from_args(args, dry_run=None):
     """
     Create the appropriate client based on command line arguments.
-    
+
     Client flags override dry_run to allow real completions during dry training runs.
     This enables progressive testing: scaffolding -> completions -> local training -> cloud training.
-    
+
     Args:
         args: Parsed command line arguments
-        dry_run: If True, uses MockClient only when no client flags are specified. 
+        dry_run: If True, uses MockClient only when no client flags are specified.
                 If None, uses args.dry value.
-        
+
     Returns:
         OpenAI-compatible client instance
     """
     if dry_run is None:
         dry_run = getattr(args, 'dry', False)
     # Check for conflicting client options
-    client_options = [args.lmstudio, args.vllm, args.openai, bool(args.client)]
+    client_options = [args.lmstudio, args.vllm, args.openai, args.openrouter, bool(args.client)]
     if sum(client_options) > 1:
-        raise ValueError("Cannot specify multiple client types. Please choose one of: --client, --lmstudio, --vllm, --openai")
-    
+        raise ValueError("Cannot specify multiple client types. Please choose one of: --client, --lmstudio, --vllm, --openai, --openrouter")
+
     # Client flags override dry_run - use real clients for completion testing
-    
+
     # VLLM client
     if args.vllm:
         from errloom.interop.vllm_client import VLLMClient
         return VLLMClient()
-    
-    # LM Studio client  
+
+    # LM Studio client
     if args.lmstudio:
         from openai import OpenAI
         return OpenAI(
             base_url="http://localhost:1234/v1",
             api_key="lm-studio"  # LM Studio doesn't require a real API key
         )
-    
+
     # Custom client endpoint
     if args.client:
         from openai import OpenAI
         endpoint = args.client
-        
+
         # Add http:// if no protocol specified
         if not endpoint.startswith(('http://', 'https://')):
             endpoint = f"http://{endpoint}"
-        
+
         # Add /v1 if it's just ip:port
         if not endpoint.endswith('/v1') and not '/v1/' in endpoint:
             endpoint = f"{endpoint}/v1"
-            
+
         return OpenAI(
             base_url=endpoint,
             api_key="local"  # Default API key for local servers
         )
-    
+
     # OpenAI API
     if args.openai:
-        import os
         from openai import OpenAI
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required when using --openai")
+        from errloom.interop.providers import get_or_prompt_openai_api_key
+        api_key = get_or_prompt_openai_api_key()
         return OpenAI(api_key=api_key)
-    
+
+    # OpenRouter API
+    if args.openrouter:
+        from openai import OpenAI
+        from errloom.interop.providers import get_or_prompt_openrouter_api_key
+        api_key = get_or_prompt_openrouter_api_key()
+        return OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key
+        )
+
     # Default: MockClient when no client specified (respects dry_run)
     if dry_run:
         from errloom.interop.mock_client import MockClient
         return MockClient()
-    
+
     # No client specified and not dry_run - default to VLLMClient for training
     from errloom.interop.vllm_client import VLLMClient
     return VLLMClient()

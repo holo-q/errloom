@@ -1,6 +1,5 @@
 import asyncio
 import concurrent.futures
-import logging
 import typing
 from abc import ABC, abstractmethod
 from asyncio import Semaphore
@@ -12,12 +11,11 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from errloom.aliases import Data
-from errloom.utils.model_utils import load_data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
-from errloom.interop.mock_client import MockClient
-from errloom.tapestry import Rollout, Tapestry, Context
-from errloom.utils.log import ContextAwareThreadPoolExecutor, LogContext, indent_decorator
+from errloom.tapestry import Rollout, Tapestry
 from errloom.utils import log
+from errloom.utils.log import ContextAwareThreadPoolExecutor, indent_decorator, LogContext
+from errloom.utils.model_utils import load_data
 
 if typing.TYPE_CHECKING:
     import torch.nn
@@ -214,6 +212,7 @@ class Loom(ABC):
         """
         Invoke the rollout with appropriate error handling based on unsafe setting.
         """
+        # TODO we should move this to argp.invoke to make it reusable based on its own internal unsafe flag
         # Simply call the rollout method - the context inheritance is handled in unroll_row
         if self.unsafe:
             return self.rollout(state)
@@ -236,7 +235,7 @@ class Loom(ABC):
 
                 # Log a brief error message to console (truncated for readability)
                 # Only show in console if explicitly requested
-                if self.show_rollout_errors:
+                if self.show_rollout_errors or True:
                     error_msg = str(e)
                     if len(error_msg) > 100:
                         error_msg = error_msg[:97] + "..."

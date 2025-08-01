@@ -53,3 +53,4 @@ userconf.py
 
 # weird
 configs/
+.idea/**/*

@@ -24,8 +24,8 @@ class TextFragment:
     A fragment of text with training metadata.
     """
     content: str
+    role: str
     fragment_type: FragmentType
-    role: Optional[str] = None  # For chat mode: assistant, user, system, tool
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -40,7 +40,7 @@ class Context:
 
     _messages: MessageList = field(default_factory=list)
 
-    def add_fragment(self, content: str, fragment_type: FragmentType, role: Optional[str] = None, **metadata):
+    def add_fragment(self, content: str, fragment_type: FragmentType, role: Optional[str], **metadata):
         """Add a text fragment with training metadata."""
         fragment = TextFragment(
             content=content,
@@ -64,28 +64,20 @@ class Context:
             # Continuing assistant message
             self.add_fragment(text, FragmentType.REINFORCE, role='assistant')
         else:
-            self.add_fragment(text, FragmentType.FROZEN)
+            self.add_fragment(text, FragmentType.FROZEN, role=None)
 
     def add_message(self, ego: str, text: str):
-        """Legacy method - adds based on role defaults."""
+        """Legacy method - all assistant output is reinforced."""
         fragment_type = FragmentType.REINFORCE if ego == 'assistant' else FragmentType.FROZEN
         self.add_fragment(text, fragment_type, role=ego)
 
-    def add_prompt(self, content: str, role: Optional[str] = None):
-        """Add prompt text (typically masked)."""
-        self.add_fragment(content, FragmentType.FROZEN, role=role)
-
-    def add_completion(self, content: str, role: Optional[str] = None):
-        """Add completion text (typically reinforced)."""
-        self.add_fragment(content, FragmentType.REINFORCE, role=role or 'assistant')
-
-    def add_reinforced(self, content: str, role: Optional[str] = None):
-        """Add text to reinforce (unmasked in training)."""
-        self.add_fragment(content, FragmentType.REINFORCE, role=role)
-
-    def add_masked(self, content: str, role: Optional[str] = None):
+    def add_frozen(self, role: Optional[str], content: str):
         """Add text to mask (ignored in training)."""
         self.add_fragment(content, FragmentType.FROZEN, role=role)
+
+    def add_reinforced(self, role: Optional[str], content: str):
+        """Add text to reinforce (unmasked in training)."""
+        self.add_fragment(content, FragmentType.REINFORCE, role=role)
 
     def _update_messages_from_fragments(self):
         """Update _messages from fragments for chat mode."""
@@ -474,24 +466,24 @@ class Rollout:
         self._bake()
 
     # New fragment-based API
-    def add_prompt(self, content: str, role: Optional[str] = None):
+    def add_prompt(self, content: str, role: Optional[str]):
         """Add prompt text (typically masked)."""
-        self.active_context.add_prompt(content, role)
+        self.active_context.add_prompt(role, content)
         self._bake()
 
-    def add_completion(self, content: str, role: Optional[str] = None):
+    def add_completion(self, content: str, role: Optional[str]):
         """Add completion text (typically reinforced)."""
-        self.active_context.add_completion(content, role)
+        self.active_context.add_completion(role, content)
         self._bake()
 
-    def add_reinforced(self, content: str, role: Optional[str] = None):
+    def add_reinforced(self, content: str, role: Optional[str]):
         """Add text to reinforce (unmasked in training)."""
-        self.active_context.add_reinforced(content, role)
+        self.active_context.add_reinforced(role, content)
         self._bake()
 
-    def add_masked(self, content: str, role: Optional[str] = None):
+    def add_masked(self, content: str, role: Optional[str]):
         """Add text to mask (ignored in training)."""
-        self.active_context.add_masked(content, role)
+        self.active_context.add_frozen(role, content)
         self._bake()
 
     def set_mode(self, mode: Literal["chat", "completion"]):

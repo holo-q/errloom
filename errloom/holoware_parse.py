@@ -142,19 +142,19 @@ def filter_comments(content: str) -> str:
 
 
 class HolowareParser:
-    def __init__(self, code: str):
+    def __init__(self, code: str, ego=None):
         self.code = code
         self.pos = 0
         self.ware = Holoware()
-        self.ego: Optional[str] = None
+        self.ego: Optional[str] = ego
 
     def parse(self) -> "Holoware":
         logger.push_debug("PARSE")
         self.code = filter_comments(self.code)
 
-        if self.code.strip() and not self.code.lstrip().startswith('<|'):
-            self.ego = 'system'
-            self.ware.spans.append(EgoSpan(ego='system'))
+        # if self.code.strip() and not self.code.lstrip().startswith('<|'):
+        #     self.ego = 'system'
+        #     self.ware.spans.append(EgoSpan(ego='system'))
 
         while self.pos < len(self.code):
             next_span_pos = self._find_next_span_start()
@@ -293,7 +293,6 @@ class HolowareParser:
 
     @indent_decorator("BLOCK", log_func=logger.debug)
     def _parse_indented_block(self, code: str, start_pos: int) -> Tuple[Optional[Holoware], int]:
-        # log.push("PARSE_BLOCK", "")
         block_content, end_pos = self._read_indented_block_content(code, start_pos)
         if block_content is None:
             logger.debug("[block] x (no content)")
@@ -317,10 +316,9 @@ class HolowareParser:
             return None, end_pos
 
         # --- Recursive Parsing ---
-        parser = HolowareParser(dedented_block)
-        body_ware = parser.parse()
-        # log.pop()
-        return body_ware, end_pos
+        parser = HolowareParser(dedented_block, ego=self.ego)
+        body = parser.parse()
+        return body, end_pos
 
     def _read_indented_block_content(self, code: str, start_pos: int) -> Tuple[Optional[str], int]:
         """Reads an indented block of text, returning the content and new position."""

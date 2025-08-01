@@ -1,17 +1,10 @@
 import inspect
-import logging
 import typing
-from typing import Any, Optional
-
-from rich import box
-from rich.console import Group
-from rich.panel import Panel
-from rich.rule import Rule
+from typing import Optional
 
 from errloom.holoware import Span
-from errloom.tapestry import Context, Rollout
+from errloom.tapestry import Rollout
 from errloom.utils import log
-from errloom.utils.log import indent_decorator
 
 
 if typing.TYPE_CHECKING:
@@ -80,26 +73,25 @@ class Holophore:
         self.context.add_message(ego, text)
         self._newtext += text
 
-    # New fragment-based API for fine-grained training control
-    def add_prompt(self, content: str, role: Optional[str] = None):
+    def add_prompt(self, content: str):
         """Add prompt text (typically masked)."""
         self.ensure_context()
-        self._rollout.add_prompt(content, role)
+        self._rollout.add_prompt(self.role, content)
         self._newtext += content
 
-    def add_completion(self, content: str, role: Optional[str] = None):
+    def add_completion(self, content: str):
         """Add completion text (typically reinforced)."""
-        self._rollout.add_completion(content, role)
+        self._rollout.add_completion(self.role, content)
         self._newtext += content
 
-    def add_reinforced(self, content: str, role: Optional[str] = None):
+    def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
-        self._rollout.add_reinforced(content, role)
+        self._rollout.add_reinforced(self.role, content)
         self._newtext += content
 
-    def add_masked(self, content: str, role: Optional[str] = None):
+    def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
-        self._rollout.add_masked(content, role)
+        self._rollout.add_masked(self.role, content)
         self._newtext += content
 
     def set_mode(self, mode):

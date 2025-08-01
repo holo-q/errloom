@@ -10,27 +10,20 @@ The functions can also be called by another script.
 import argparse
 import asyncio
 import os
-from concurrent.futures import ThreadPoolExecutor
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import numpy as np
 # Rich imports for beautiful output
 from rich.rule import Rule
 
-from errloom import defaults, discovery, Loom
-from errloom import argp
+from errloom import argp, defaults, discovery, Loom
 from errloom.aliases import Data
-from errloom.argp import errlargs, create_client_from_args, show_help
-from errloom.comm import CommModel
+from errloom.argp import create_client_from_args, errlargs, show_help
 from errloom.holoware_loom import HolowareLoom
 from errloom.session import Session
-from errloom.utils.log import (log, logc, LogContext, logger_main, colorize_session,
-                              colorize_target, colorize_model, colorize_client, colorize_error,
-                              colorize_success, colorize_warning, colorize_field_label,
-                              colorize_title, colorize_mode_dry, colorize_mode_production,
-                              colorize_mode_dump, colorize_completion, colorize_rule_title,
-                              colorize_deployment, logl)
+from errloom.utils.log import (colorize_client, colorize_completion, colorize_deployment, colorize_error, colorize_field_label, colorize_mode_dry, colorize_mode_dump, colorize_mode_production, colorize_model, colorize_rule_title, colorize_session, colorize_target, colorize_title, log, logc, logger_main)
 
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
@@ -183,7 +176,8 @@ def main(default_title: Optional[str] = None,
                     model=model_name, tokenizer=model_name,
                     client=client,
                     data=default_data, data_split=0.5,
-                    dry=errlargs.dry, unsafe=errlargs.unsafe,
+                    dry=errlargs.dry,
+                    unsafe=errlargs.unsafe,
                     show_rollout_errors=errlargs.show_rollout_errors,
                     session=session if errlargs.dump else None,
                     dump_rollouts=errlargs.dump)
@@ -243,7 +237,6 @@ def _print_version_info():
     """Print version information for key packages."""
     import importlib.metadata
     import platform
-    import sys
 
     # Key packages to check
     packages = [
@@ -281,11 +274,8 @@ def _print_version_info():
 
 def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | None, default_loom: type | None):
     """Handle the cat command to display holoware code or loom class source."""
-    from errloom.utils.log import colorize_holoware, colorize_loom, colorize_error, colorize_success
+    from errloom.utils.log import colorize_error
     from rich.rule import Rule
-    from rich.syntax import Syntax
-    import inspect
-    import os
 
     logc()
     log(Rule("[bold cyan]📄 Displaying Source Code", style="cyan"))
@@ -324,7 +314,6 @@ def _display_holoware_source(holoware_name: str):
     from errloom.utils.log import colorize_holoware, colorize_error, colorize_success
     from errloom.holoware_load import get_default_loader
     from rich.syntax import Syntax
-    import os
 
     try:
         # Try to load the holoware to get its path
@@ -408,10 +397,10 @@ def _handle_deployment():
 
     try:
         import asyncio
-        from errloom.main_deploy import main as deploy_main
+        from errloom import main_deploy
 
         log("[dim]Starting deployment process...[/]")
-        asyncio.run(deploy_main())
+        asyncio.run(main_deploy.main())
 
     except ImportError as e:
         log(colorize_error(f"❌ Deployment failed: Missing dependency - {e}"))
