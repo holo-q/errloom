@@ -15,9 +15,9 @@ persistence_file = str(userdir / "persistence.json")
 
 setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
-    print_path=True,
     persistence_file=persistence_file,
-    print_thread_name=errlargs.print_thread_names,
+    print_paths=errlargs.print_paths,
+    print_threads=errlargs.print_threads,
     reset_log_columns=errlargs.reset_log_columns)
 
 discovery.crawl_package(

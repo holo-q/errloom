@@ -296,12 +296,12 @@ def generate_log_filename(script_name: Optional[str] = None) -> str:
 
 def setup_logging(
     level: str = "DEBUG",
-    print_path: bool = True,
+    print_paths: bool = True,
     highlight: bool = True,
     enable_file_logging: bool = True,
     log_filename: Optional[str] = None,
     persistence_file: Optional[str] = None,
-    print_thread_name: bool = False,
+    print_threads: bool = False,
     reset_log_columns: bool = False
 ) -> str:
     """
@@ -309,12 +309,12 @@ def setup_logging(
 
     Args:
         level: The logging level to use. Defaults to "DEBUG".
-        print_path: Whether to print file paths in console output.
+        print_paths: Whether to print file paths in console output.
         highlight: Whether to enable syntax highlighting in console output.
         enable_file_logging: Whether to enable logging to file.
         log_filename: Optional custom log filename. If None, auto-generates one.
         persistence_file: Optional path for logging persistence file. If None, uses default.
-        print_thread_name: Whether to print thread names in console output.
+        print_threads: Whether to print thread names in console output.
         reset_log_columns: Whether to reset the persisted column width.
 
     Returns:
@@ -335,10 +335,10 @@ def setup_logging(
             show_path=False,
             console=cl,
             markup=True,
-            print_path=print_path,
+            print_paths=print_paths,
             highlight=highlight,
             persistence_file=persistence_file,
-            print_thread_name=print_thread_name,
+            print_thread_name=print_threads,
             reset_columns=reset_log_columns
         )
         logger.addHandler(handler)
@@ -858,15 +858,15 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_path, path_width=10, highlight, persistence_file=None, print_thread_name=False, reset_columns=False, **kwargs):
+    def __init__(self, *kargs, print_paths, path_width=10, highlight, persistence_file=None, print_thread_name=False, reset_columns=False, **kwargs):
         super().__init__(*kargs, **kwargs)
-        self.print_path = print_path
         self.highlight = highlight
-        self.print_thread_name = print_thread_name
+        self.print_paths = print_paths
+        self.print_threads = print_thread_name
 
         import json
         self.persistence_file = persistence_file or ".persistence/logging.json"
-        
+
         # Session tracking - track the longest width for this session
         self.session_max_width = path_width
 
@@ -932,7 +932,7 @@ class CustomRichHandler(RichHandler):
             path = f"({filename}.{record.funcName})"
 
         # Add thread name if enabled
-        if self.print_thread_name:
+        if self.print_threads:
             import threading
             current_thread = threading.current_thread()
             thread_name = current_thread.name
@@ -945,7 +945,11 @@ class CustomRichHandler(RichHandler):
 
         idt = "".join(_get_indent_stack())
 
-        left = f"{path}{idt}"
+        if self.print_paths:
+            left = f"{path}{idt}"
+        else:
+            left = f"{idt}"
+
         text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline
         # print(f"ALIGN TO {len(left)} (lines: {len(text.splitlines())})")
 
@@ -964,7 +968,7 @@ class CustomRichHandler(RichHandler):
         # Track session max width separately from persistent width
         if path_w > self.session_max_width:
             self.session_max_width = path_w
-            
+
         # Update persistent width for immediate use
         if path_w > self.path_width:
             self.path_width = path_w
