@@ -315,7 +315,9 @@ class HolowareParser:
             return None, end_pos
 
         # --- Recursive Parsing ---
-        parser = HolowareParser(dedented_block, ego=self.ego)
+        # Start a fresh parser for the block without inheriting the outer ego.
+        # This allows the nested body to add an implicit system ego when appropriate.
+        parser = HolowareParser(dedented_block)
         body = parser.parse()
         return body, end_pos
 
