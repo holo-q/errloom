@@ -249,6 +249,31 @@ class EnhancedLogger(logging.Logger):
         """Set the thread-local indent stack to a specific context."""
         set_indent_stack(context)
 
+    # --- Convenience helpers ---
+    def info_hl(self, msg: Any, hl: bool = True, stacklevel: int = 1) -> None:
+        """info with per-record highlight override."""
+        self.info(msg, extra={"highlight": hl}, stacklevel=stacklevel + 1)
+
+    def debug_hl(self, msg: Any, hl: bool = True, stacklevel: int = 1) -> None:
+        """debug with per-record highlight override."""
+        self.debug(msg, extra={"highlight": hl}, stacklevel=stacklevel + 1)
+
+    def warning_hl(self, msg: Any, hl: bool = True, stacklevel: int = 1) -> None:
+        """warning with per-record highlight override."""
+        self.warning(msg, extra={"highlight": hl}, stacklevel=stacklevel + 1)
+
+    def error_hl(self, msg: Any, hl: bool = True, stacklevel: int = 1) -> None:
+        """error with per-record highlight override."""
+        self.error(msg, extra={"highlight": hl}, stacklevel=stacklevel + 1)
+
+    def critical_hl(self, msg: Any, hl: bool = True, stacklevel: int = 1) -> None:
+        """critical with per-record highlight override."""
+        self.critical(msg, extra={"highlight": hl}, stacklevel=stacklevel + 1)
+
+    def with_extra(self, level: int, msg: Any, extra: dict, stacklevel: int = 1) -> None:
+        """Log at arbitrary level with custom extra fields, preserving stacklevel contract."""
+        self.log(level, msg, extra=extra, stacklevel=stacklevel + 1)
+
 # MAIN SETUP
 # ----------------------------------------
 cl = Console(width=240)
@@ -413,6 +438,22 @@ def setup_logging(
         handler.addFilter(NoiseFilter())
 
     return log_file_path
+
+def disable_logger(name: Optional[str] = None) -> None:
+    """
+    Disable a logger and silence all of its handlers.
+    If name is None, disables the root logger.
+
+    This is useful in tests or focused runs to mute specific subsystems
+    like 'errloom.tapestry' without affecting the rest of the logging.
+
+    Args:
+        name: The logger name to disable. Defaults to root if None.
+    """
+    logger = logging.getLogger(name) if name else logging.getLogger()
+    logger.disabled = True
+    for handler in list(logger.handlers):
+        handler.setLevel(logging.CRITICAL + 1)
 
 def save_session_width_to_persistence():
     """Save the current session's max width +10% to persistence."""
@@ -829,6 +870,117 @@ def ellipse(text: str, max_length: int = 50) -> str:
         return text[:max_length] + '...'
     return text
 
+def to_json_text(obj, *, indent: int = 4, ensure_ascii: bool = False, max_depth: int = 6, redactions: list[str] | tuple[str, ...] = ()) -> str:
+    """
+    Convert an arbitrary Python object into a JSON-formatted string suitable for logs.
+
+    - Uses double quotes and proper escaping
+    - Supports dataclasses and simple objects by walking __dict__
+    - Limits recursion depth and detects cycles
+    - Supports attribute blacklist via dot-paths (e.g., "foo", "foo.bar")
+    - Falls back to str(obj) if serialization fails
+    """
+    import json
+    try:
+        from dataclasses import asdict, is_dataclass  # type: ignore
+    except Exception:
+        def is_dataclass(_: object) -> bool:  # type: ignore
+            return False
+        def asdict(x: object):  # type: ignore
+            return x
+
+    PRIMITIVES = (str, int, float, bool, type(None), bytes)
+
+    # Normalize blacklist into a set of dot-paths for O(1) checks
+    bl_set: set[str] = set(redactions or ())
+
+    def _is_blacklisted(path: str) -> bool:
+        # Exact path match
+        if path in bl_set:
+            return True
+        # Any parent path with wildcard semantics would be nice, but keep explicit for now
+        return False
+
+    def _safe_str(x: object) -> str:
+        try:
+            return str(x)
+        except Exception:
+            return f"<unprintable {type(x).__name__}>"
+
+    def to_jsonable(v: object, depth: int, seen: set[int], path: str = "") -> object:
+        # Depth guard
+        if depth > max_depth:
+            return f"<max_depth {max_depth} reached: {type(v).__name__}>"
+
+        # Primitives
+        if isinstance(v, PRIMITIVES):
+            if isinstance(v, bytes):
+                # limit size for bytes
+                return v.decode(errors="replace")[:2048]
+            return v
+
+        oid = id(v)
+        if oid in seen:
+            return f"<recursion {type(v).__name__} id={oid}>"
+        seen.add(oid)
+
+        # Dict-like
+        if isinstance(v, dict):
+            out = {}
+            for k, x in v.items():
+                # Ensure keys are strings
+                try:
+                    sk = k if isinstance(k, str) else _safe_str(k)
+                except Exception:
+                    sk = f"<bad_key {type(k).__name__}>"
+                subpath = f"{path}.{sk}" if path else sk
+                if _is_blacklisted(subpath):
+                    out[sk] = "<redacted>"
+                else:
+                    out[sk] = to_jsonable(x, depth + 1, seen, subpath)
+            return out
+
+        # Sequences
+        if isinstance(v, (list, tuple, set)):
+            return [to_jsonable(x, depth + 1, seen, f"{path}[{i}]") for i, x in enumerate(v)]
+
+        # Dataclass
+        try:
+            if is_dataclass(v):  # type: ignore[func-returns-value]
+                return to_jsonable(asdict(v), depth + 1, seen, path)  # type: ignore[arg-type]
+        except Exception:
+            pass
+
+        # Avoid descending into potentially huge/recursive frameworks
+        mod = getattr(v, "__module__", "") or ""
+        if mod.startswith("asyncio.") or mod.startswith("logging") or mod.startswith("rich"):
+            return _safe_str(v)
+
+        # Object with __dict__
+        d = getattr(v, "__dict__", None)
+        if isinstance(d, dict):
+            try:
+                out = {}
+                for k, x in d.items():
+                    sk = str(k)
+                    subpath = f"{path}.{sk}" if path else sk
+                    if _is_blacklisted(subpath):
+                        out[sk] = f"<redacted:{subpath}>"
+                    else:
+                        out[sk] = to_jsonable(x, depth + 1, seen, subpath)
+                return out
+            except Exception:
+                return _safe_str(v)
+
+        # Fallback to str
+        return _safe_str(v)
+
+    try:
+        payload = to_jsonable(obj, 0, set(), "")
+        return json.dumps(payload, ensure_ascii=ensure_ascii, indent=indent)
+    except Exception:
+        return _safe_str(obj)
+
 # RICH HANDLER
 # ----------------------------------------
 
@@ -940,7 +1092,7 @@ class CustomRichHandler(RichHandler):
             path = f"[{thread_name}] {path}"
 
         path = f"{path}: "
-        path_w = len(path)
+        path_w = len(path) - 6 - 3 # -6 for [bold] and 3 for [/]
         path = path.rjust(self.path_width + 2)  # + colon space
 
         idt = "".join(_get_indent_stack())
@@ -950,7 +1102,10 @@ class CustomRichHandler(RichHandler):
         else:
             left = f"{idt}"
 
-        text = PrintedText(record.msg or "", highlight=self.highlight).markup  # Bake any rich object, since we need to know it's gonna be multiline
+        # Allow per-record highlight override via extra={"highlight": True|False}
+        per_record_highlight = getattr(record, "highlight", None)
+        highlight_flag = self.highlight if per_record_highlight is None else bool(per_record_highlight)
+        text = PrintedText(record.msg or "", highlight=highlight_flag).markup  # Bake any rich object, since we need to know it's gonna be multiline
         # print(f"ALIGN TO {len(left)} (lines: {len(text.splitlines())})")
 
         # print("BEFORE:")

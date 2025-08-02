@@ -70,7 +70,6 @@ class HolowareLoom(Loom):
         env = deepcopy(roll.row)
         phore = Holophore(self, roll, env)
         phore = self.holoware(phore)
-        self.logger.info(PrintedText(phore.to_rich()))
         self.logger.pop()
         return roll
 

@@ -35,8 +35,7 @@ class HolowareHandlers:
 
     @classmethod
     def EgoSpan(cls, phore:Holophore, span:EgoSpan):
-        if phore.ego != span.ego:
-            phore.change_ego(span.ego)
+        phore.change_ego(span.ego)
 
     @classmethod
     def ClassSpan(cls, phore: Holophore, span: ClassSpan):

@@ -41,7 +41,7 @@ logs/
 # WIPs
 wip/
 old/
-scripts/
+# scripts/
 notebooks/
 hol/schizo.hol
 hol/agent-holoq.hol

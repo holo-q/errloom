@@ -13,7 +13,7 @@ The DSL uses a tag-based system with the `<|...|>` delimiter.
 - Role Tags: Define the speaker in a conversation.
   - `<|o_o|>`: Sets role to user.
   - `<|@_@|>`: Sets role to assistant.
-  - A system role is implicitly created for any text that directly follows a context reset tag.
+  - A system ego is implicitly created for any text that directly follows a context reset tag.
 
 - Data and Class Tags:
   - `<|var1|var2|>`: A placeholder for a data variable. The first variable found in the environment is used.
@@ -261,6 +261,15 @@ class Holoware:
         # --- Lifecycle: Main ---
         logger.push_debug("(2)")
         for i, span in enumerate(self.spans):
+            SpanClassName = type(span).__name__
+
+            if not isinstance(span, (TextSpan, ObjSpan)):
+                logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
+            else:
+                logger.debug(f"[{span.get_color()}]\\[{i}] <|{SpanClassName}|>[/]")
+
+            logger.push('.' * (len(str(i)) + 2))
+
             if isinstance(span, (TextSpan, ObjSpan)):
                 if isinstance(span, TextSpan):
                     # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection
@@ -276,16 +285,13 @@ class Holoware:
                             phore.add_masked(str(value))
                             phore.add_masked("</obj>")
                             break
-                continue
-
-            SpanClassName = type(span).__name__
-            # Create a rich-formatted log message with color
-            logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
-            logger.push('.' * (len(str(i)) + 2))
-            if SpanClassName in HolowareHandlers.__dict__:
-                getattr(HolowareHandlers, SpanClassName)(phore, span)
             else:
-                logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
+                # Create a rich-formatted log message with color
+                if SpanClassName in HolowareHandlers.__dict__:
+                    handler = getattr(HolowareHandlers, SpanClassName)
+                    handler(phore, span)
+                else:
+                    logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
             rendered_text = bool(phore._newtext)
             if rendered_text:
@@ -294,6 +300,7 @@ class Holoware:
             else:
                 # logger.debug(Text("<no text>", style="dim italic"))
                 pass
+
             logger.pop()
             if rendered_text:
                 logger.debug("")

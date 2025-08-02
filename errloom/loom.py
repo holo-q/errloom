@@ -14,7 +14,7 @@ from errloom.aliases import Data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.tapestry import Rollout, Tapestry
 from errloom.lib import log
-from errloom.lib.log import ContextAwareThreadPoolExecutor, indent_decorator, LogContext
+from errloom.lib.log import ContextAwareThreadPoolExecutor, PrintedText, indent_decorator, LogContext
 from errloom.utils.model_utils import load_data
 
 if typing.TYPE_CHECKING:
@@ -323,7 +323,8 @@ class Loom(ABC):
         if self.dry:
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
             for i,roll in enumerate(tapestry.rollouts):
-                self.logger.info(f"{i+1}. {roll}")
+                self.logger.info_hl(f"{i+1}. {log.to_json_text(roll, indent=2, redactions=['contexts'])}")
+                self.logger.info(PrintedText(roll.to_rich()))
 
         # Dump rollouts to session if requested
         if self.dump_rollouts and self.session:

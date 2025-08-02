@@ -12,6 +12,9 @@ from rich.panel import Panel
 from rich.rule import Rule
 
 from errloom.aliases import APIChat
+from errloom.lib import log
+
+logger = log.getLogger(__name__)
 
 class FragmentType(Enum):
     """Type of text fragment for training purposes."""
@@ -25,8 +28,14 @@ class TextFragment:
     """
     content: str
     ego: Optional[str]
-    fragment_type: FragmentType
+    type: FragmentType
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __str__(self):
+        return f"TextFragment(ego={self.ego}, content={log.ellipse(self.content, 50)})"
+
+    def __repr__(self):
+        return f"TextFragment(ego={self.ego}, content={log.ellipse(self.content, 50)})"
 
 class AutoMask(Enum):
     FREEZE_ALL = 0
@@ -43,13 +52,17 @@ class Context:
     text: str = ""
     fragments: List[TextFragment] = field(default_factory=list)
 
-    def add_fragment(self, content: str, fragment_type: FragmentType, role: Optional[str], **metadata):
+    def add_fragment(self, role: Optional[str], content: str, type: FragmentType, print_log: bool = True, **metadata):
         """Add a text fragment with training metadata."""
-        self.fragments.append(TextFragment(content=content,
-            fragment_type=fragment_type,
-            ego=role,
-            metadata=metadata
-        ))
+        self.fragments.append(
+            TextFragment(
+                content=content,
+                type=type,
+                ego=role,
+                metadata=metadata
+            ))
+        if print_log:
+            logger.debug(f"add_fragment: {role} -> {log.ellipse(content, 45)}")
 
     # def add_text(self, text: str):
     #     """Legacy method - adds as masked prompt by default."""
@@ -66,49 +79,68 @@ class Context:
 
     def add_frozen(self, role: Optional[str], content: str):
         """Add text to mask (ignored in training)."""
-        self.add_fragment(content, FragmentType.FROZEN, role=role)
+        self.add_fragment(role, content, FragmentType.FROZEN, print_log=False)
+        logger.debug(f"add_frozen: {role} -> {log.ellipse(content, 45)}")
 
     def add_reinforced(self, role: Optional[str], content: str):
         """Add text to reinforce (unmasked in training)."""
-        self.add_fragment(content, FragmentType.REINFORCE, role=role)
+        self.add_fragment(role, content, FragmentType.REINFORCE, print_log=False)
+        logger.debug(f"add_reinforced: {role} -> {log.ellipse(content, 45)}")
 
-    def to_api_messages(self) -> APIChat:
+    def to_api_messages(self, render_dry: bool = False) -> APIChat:
         """
         Convert context fragments to OpenAI API chat messages by aggregating
         consecutive fragments with the same normalized role.
+        Includes display-only sanitation to avoid role-label concatenation leaking into content.
+
+        When render_dry is True, do not drop empty/whitespace-only messages so the dry-run
+        view can show scaffolded messages that are masked during training.
         """
+
         def _normalize_role(raw: Optional[str], is_first: bool) -> str:
+            # TODO print warnings
             if raw in ("system", "user", "assistant"):
                 return raw
-            # Unknowns map to user; None maps to system only if first fragment
             if raw is None and is_first:
                 return "system"
             return "user"
 
         messages: APIChat = []
+        content: list[str] = []
         current_role: Optional[str] = None
-        current_content: list[str] = []
+
+        logger.debug(f"to_api_messages: Processing {len(self.fragments)} fragments")
 
         for idx, frag in enumerate(self.fragments):
-            role = _normalize_role(frag.ego, is_first=(idx == 0))
+            normalized_role = _normalize_role(frag.ego, is_first=(idx == 0))
+            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{log.ellipse(frag.content.replace('\\n', ' '), 45)}[/]")
+
             if current_role is None:
-                current_role = role
-                current_content = [frag.content]
-            elif role == current_role:
-                current_content.append(frag.content)
+                # First fragment
+                current_role = normalized_role
+                content = [frag.content]
+                # logger.debug(f"First fragment, setting current_role to {current_role}")
+            elif normalized_role == current_role:
+                # Same role, accumulate content
+                content.append(frag.content)
+                # logger.debug(f"Same role {current_role}, accumulating content")
             else:
-                # flush
-                content_str = "".join(current_content)
-                if content_str:
-                    messages.append({"role": current_role, "content": content_str})
-                current_role = role
-                current_content = [frag.content]
+                # Role changed, finalize previous message
+                s = "".join(content)
+                if s or render_dry:
+                    messages.append({"role": current_role, "content": s})
+                    # logger.debug(f"Role changed from {current_role} to {normalized_role}, added message with {len(s)} chars")
+                current_role = normalized_role
+                content = [frag.content]
 
         # flush tail
         if current_role is not None:
-            content_str = "".join(current_content)
-            if content_str:
-                messages.append({"role": current_role, "content": content_str})
+            s = "".join(content)
+            if s or render_dry:
+                messages.append({"role": current_role, "content": s})
+
+        for i, msg in enumerate(messages):
+            logger.debug(f"- Message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}")
 
         return messages
 
@@ -246,6 +278,7 @@ class Context:
         """
         Create a Context from OpenAI API format messages, applying AutoMask.
         """
+
         def mask_for(role: Optional[str]) -> FragmentType:
             if masking == AutoMask.FREEZE_ALL:
                 return FragmentType.FROZEN
@@ -266,7 +299,7 @@ class Context:
             if content is None:
                 content = ""
             ftype = mask_for(role)
-            context.add_fragment(content=content, fragment_type=ftype, role=role)
+            context.add_fragment(role=role, content=content, type=ftype)
         return context
 
     @staticmethod
@@ -295,10 +328,10 @@ class Context:
             api_msgs.append({"role": role, "content": content})
         return Context.from_api_chat(api_msgs, masking=masking)
 
-    @property
-    def text_rich(self):
+    def to_rich(self):
         """Rich text representation of the context, with colored roles."""
         from rich.text import Text
+        import re as _re
 
         # Define color mapping for roles
         role_colors = {
@@ -313,25 +346,35 @@ class Context:
         for msg in messages:
             role = msg.get('role', 'unknown')
             content = msg.get('content', '')
+            # Guard: ensure a known role for rendering
+            if role not in ("system", "user", "assistant"):
+                role = "user"
             color = role_colors.get(role, "white")
+
+            # Render role header
             text.append(f"{role}:", style=color)
 
             highlighted_content = Text(style="white")
             # Regex to find <tag>...</tag> and <tag id=foo>...</tag>
-            # It will match <obj ...>, <compress>, <decompress>, <think>, <json>
-            pattern = re.compile(r"(<(obj|compress|decompress|think|json|critique)\b[^>]*>.*?<\/\2>)", re.DOTALL)
+            # It will match <obj ...>, <compress>, <decompress>, <think>, <json>, <critique>
+            pattern = _re.compile(r"(<(obj|compress|decompress|think|json|critique)\b[^>]*>.*?<\/\2>)", _re.DOTALL)
 
             last_idx = 0
-            for match in pattern.finditer(content):
+            # Defensive cleanup (display-only): strip accidental role concatenations at content start
+            safe_content = content
+            if _re.match(r'^(?:system|user|assistant){2,}\b', safe_content):
+                safe_content = _re.sub(r'^(?:system|user|assistant){2,}\b', '', safe_content, count=1).lstrip()
+
+            for match in pattern.finditer(safe_content):
                 start, end = match.span()
                 # Append text before the match
-                highlighted_content.append(content[last_idx:start])
+                highlighted_content.append(safe_content[last_idx:start])
 
                 full_match_text = match.group(1)
                 tag_name = match.group(2)
 
                 # Regex to parse the tag and content
-                tag_pattern = re.compile(r"<(?P<tag_name>\w+)(?P<attributes>[^>]*)>(?P<inner_content>.*?)</\1>", re.DOTALL)
+                tag_pattern = _re.compile(r"<(?P<tag_name>\w+)(?P<attributes>[^>]*)>(?P<inner_content>.*?)</\1>", _re.DOTALL)
                 tag_match = tag_pattern.match(full_match_text)
 
                 if tag_match:
@@ -353,7 +396,7 @@ class Context:
                 last_idx = end
 
             # Append any remaining text
-            highlighted_content.append(content[last_idx:])
+            highlighted_content.append(safe_content[last_idx:])
 
             text.append(f" ")
             text.append(highlighted_content)
@@ -414,13 +457,18 @@ class Rollout:
         """Create a new context with specified mode."""
         self.contexts.append(Context())
 
-    def add_reinforced(self, content: str, role: Optional[str]):
+    def add_reinforced(self, ego: Optional[str], content: str):
         """Add text to reinforce (unmasked in training)."""
-        self.active_context.add_reinforced(role, content)
+        self.active_context.add_reinforced(ego, content)
 
-    def add_frozen(self, content: str, role: Optional[str]):
+    def add_frozen(self, ego: Optional[str], content: str):
         """Add text to mask (ignored in training)."""
-        self.active_context.add_frozen(role, content)
+        # Ensure a default role for masked content so dry-run rendering has something to show
+        if ego is None:
+            # Heuristic: if there are no fragments in this context, treat as system; else user
+            frag_count = len(self.active_context.fragments)
+            ego = "system" if frag_count == 0 else "user"
+        self.active_context.add_frozen(ego, content)
 
     # def bake_tokens(self):
     #     """Bake mask/samples fields from fragment data."""
@@ -456,7 +504,7 @@ class Rollout:
     def __repr__(self) -> str:
         from errloom.lib.log import PrintedText
         return str(PrintedText(self))
-
+    
     @property
     def context(self) -> Context:
         """Legacy property - use active_context instead."""
@@ -507,13 +555,24 @@ class Rollout:
         return self.context.extract_mdjson(role)
 
     def to_rich(self) -> Panel:
-        renderables = []
+        out = []
         for i, ctx in enumerate(self.contexts):
             if i > 0:
-                renderables.append(Rule(style="yellow"))
-            renderables.append(ctx.text_rich)
-        group = Group(*renderables)
+                out.append(Rule(style="yellow"))
 
+            # Build a display-only transcript using the API-chat path to ensure rich rendering
+            msgs = ctx.to_api_messages(render_dry=True)
+
+            # If nothing made it through (e.g. all masked/empty), provide a placeholder to avoid blank panel
+            if not msgs:
+                tmp_ctx = Context()
+                tmp_ctx.add_fragment(role="system", content="[empty context]", type=FragmentType.FROZEN)
+                out.append(tmp_ctx.to_rich())
+                continue
+
+            out.append(ctx.to_rich())
+
+        group = Group(*out)
         panel = Panel(
             group,
             title="[bold yellow]Dry Run: Full Conversation Flow[/]",

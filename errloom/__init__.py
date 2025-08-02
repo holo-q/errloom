@@ -7,18 +7,21 @@ from errloom.lib import discovery
 from errloom.attractor import Attractor
 from errloom.holoware import Span
 from errloom.loom import Loom
-from errloom.lib.log import log, setup_logging
+from errloom.lib import log
 from errloom.paths import userdir
 
 # Set up persistence file path
 persistence_file = str(userdir / "persistence.json")
 
-setup_logging(
+log.setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
+    highlight=False,
     persistence_file=persistence_file,
     print_paths=errlargs.print_paths,
     print_threads=errlargs.print_threads,
     reset_log_columns=errlargs.reset_log_columns)
+
+log.disable_logger("errloom.tapestry")
 
 discovery.crawl_package(
     'errloom',
