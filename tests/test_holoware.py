@@ -1,4 +1,4 @@
-import pytest
+from testslide import TestCase
 
 # Setup logging for tests
 # setup_logging(level="DEBUG", print_path=True)
@@ -46,23 +46,7 @@ class HoloTest:
         self.last_holo_end_args = (phore, span)
 
 
-# Pytest Fixtures
-# ----------------------------------------
-
-@pytest.fixture
-def mock_loom():
-    return MockLoom()
-
-
-@pytest.fixture
-def mock_env():
-    """Provides a mock environment with a test class."""
-    return {
-        "HoloTest": HoloTest,
-        "my_var":   "injected_value"
-    }
-
-
+# Helper function to parse and run a holoware string.
 def run_ware(code: str, loom: MockLoom, env: dict) -> Holophore:
     """Helper function to parse and run a holoware string."""
     ware = Holoware.parse(code)
@@ -74,124 +58,136 @@ def run_ware(code: str, loom: MockLoom, env: dict) -> Holophore:
 # Tests
 # ----------------------------------------
 
-def test_holoware_run_simple_text(mock_loom, mock_env):
-    code = "Hello, world!"
-    phore = run_ware(code, mock_loom, mock_env)
+class HolowareExecutionTest(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.mock_loom = MockLoom()
+        self.mock_env = {
+            "HoloTest": HoloTest,
+            "my_var": "injected_value",
+        }
 
-    assert len(phore.contexts) == 1
-    context = phore.contexts[0]
-    assert context is not None
-    assert len(context.messages) == 1
-    assert context.messages[0]['role'] == 'system'
-    assert context.messages[0]['content'] == 'Hello, world!'
+    def test_holoware_run_simple_text(self):
+        code = "Hello, world!"
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
+        self.assertEqual(len(phore.contexts), 1)
+        context = phore.contexts[0]
+        # Treat messages as list[dict] to satisfy type checker
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertIsNotNone(context)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[0]["content"], "Hello, world!")
 
-def test_holoware_run_ego_change(mock_loom, mock_env):
-    code = "<|o_o|>User message.<|@_@|>Assistant response."
-    phore = run_ware(code, mock_loom, mock_env)
+    def test_holoware_run_ego_change(self):
+        code = "<|o_o|>User message.<|@_@|>Assistant response."
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
-    assert len(phore.contexts) == 1
-    context = phore.contexts[0]
-    assert len(context.messages) == 2
-    assert context.messages[0]['role'] == 'user'
-    assert context.messages[0]['content'] == 'User message.'
-    assert context.messages[1]['role'] == 'assistant'
-    assert context.messages[1]['content'] == 'Assistant response.'
-    assert phore.ego == 'assistant'
+        self.assertEqual(len(phore.contexts), 1)
+        context = phore.contexts[0]
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertEqual(messages[0]["content"], "User message.")
+        self.assertEqual(messages[1]["role"], "assistant")
+        self.assertEqual(messages[1]["content"], "Assistant response.")
+        self.assertEqual(phore.ego, "assistant")
 
+    def test_holoware_run_obj_span(self):
+        code = "<|o_o|>Value is <|my_var|>."
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
-def test_holoware_run_obj_span(mock_loom, mock_env):
-    code = "<|o_o|>Value is <|my_var|>."
-    phore = run_ware(code, mock_loom, mock_env)
+        self.assertEqual(len(phore.contexts), 1)
+        context = phore.contexts[0]
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "user")
+        expected_content = "Value is <obj id=my_var>injected_value</obj>."
+        self.assertEqual(messages[0]["content"], expected_content)
 
-    assert len(phore.contexts) == 1
-    context = phore.contexts[0]
-    assert len(context.messages) == 1
-    assert context.messages[0]['role'] == 'user'
-    expected_content = "Value is <obj id=my_var>injected_value</obj>."
-    assert context.messages[0]['content'] == expected_content
+    def test_holoware_run_class_lifecycle(self):
+        code = "<|o_o|><|HoloTest|>"
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
+        self.assertEqual(len(phore.span_bindings), 1)
+        instance = list(phore.span_bindings.values())[0]
 
-def test_holoware_run_class_lifecycle(mock_loom, mock_env):
-    code = "<|o_o|><|HoloTest|>"
-    phore = run_ware(code, mock_loom, mock_env)
+        self.assertIsInstance(instance, HoloTest)
+        self.assertTrue(instance.init_called)
+        self.assertTrue(instance.holo_init_called)
+        self.assertTrue(instance.holo_called)
+        self.assertTrue(instance.holo_end_called)
 
-    assert len(phore.span_bindings) == 1
-    instance = list(phore.span_bindings.values())[0]
+        context = phore.contexts[0]
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Holo! kargs=[], kwargs={}", messages[0]["content"])
 
-    assert isinstance(instance, HoloTest)
-    assert instance.init_called
-    assert instance.holo_init_called
-    assert instance.holo_called
-    assert instance.holo_end_called
+    def test_holoware_run_class_with_args(self):
+        code = "<|o_o|><|HoloTest karg1 karg2 key1=val1|>"
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
-    context = phore.contexts[0]
-    assert len(context.messages) == 1
-    assert "Holo! kargs=[], kwargs={}" in context.messages[0]['content']
+        instance = list(phore.span_bindings.values())[0]
 
+        self.assertEqual(instance.init_args[0], ("karg1", "karg2"))
+        self.assertEqual(instance.init_args[1], {"key1": "val1"})
 
-def test_holoware_run_class_with_args(mock_loom, mock_env):
-    code = "<|o_o|><|HoloTest karg1 karg2 key1=val1|>"
-    phore = run_ware(code, mock_loom, mock_env)
+        self.assertIsInstance(instance.last_holo_init_args[0], Holophore)
+        self.assertIsInstance(instance.last_holo_init_args[1], ClassSpan)
 
-    instance = list(phore.span_bindings.values())[0]
+        self.assertIsInstance(instance.last_holo_args[0], Holophore)
+        self.assertIsInstance(instance.last_holo_args[1], ClassSpan)
 
-    assert instance.init_args[0] == ('karg1', 'karg2')
-    assert instance.init_args[1] == {'key1': 'val1'}
+        self.assertIsInstance(instance.last_holo_end_args[0], Holophore)
+        self.assertIsInstance(instance.last_holo_end_args[1], ClassSpan)
 
-    assert isinstance(instance.last_holo_init_args[0], Holophore)
-    assert isinstance(instance.last_holo_init_args[1], ClassSpan)
+    def test_holoware_run_sample_span(self):
+        code = "<|@_@ goal=test|>"
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
-    assert isinstance(instance.last_holo_args[0], Holophore)
-    assert isinstance(instance.last_holo_args[1], ClassSpan)
+        context = phore.contexts[0]
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "assistant")
+        self.assertEqual(messages[0]["content"], "<test>mocked_sample</test>")
 
-    assert isinstance(instance.last_holo_end_args[0], Holophore)
-    assert isinstance(instance.last_holo_end_args[1], ClassSpan)
+    def test_holoware_run_context_reset(self):
+        code = "<|o_o|>First context.<|+++|>Second context."
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
+        self.assertEqual(len(phore.contexts), 2)
+        messages0 = phore.contexts[0].messages  # type: ignore[attr-defined]
+        self.assertEqual(messages0[0]["content"], "First context.")
+        self.assertEqual(messages0[0]["role"], "user")
 
-def test_holoware_run_sample_span(mock_loom, mock_env):
-    code = "<|@_@ goal=test|>"
-    phore = run_ware(code, mock_loom, mock_env)
+        messages1 = phore.contexts[1].messages  # type: ignore[attr-defined]
+        self.assertEqual(messages1[0]["content"], "Second context.")
+        self.assertEqual(messages1[0]["role"], "system")
+        self.assertEqual(phore.ego, "system")
 
-    context = phore.contexts[0]
-    assert len(context.messages) == 1
-    assert context.messages[0]['role'] == 'assistant'
-    assert context.messages[0]['content'] == '<test>mocked_sample</test>'
+    def test_holoware_with_body(self):
+        class BodyHoloTest(HoloTest):
+            def __holo__(self, phore, span):
+                self.holo_called = True
+                self.last_holo_args = (phore, span)
+                text_span = span.body.spans[1]
+                return f"Body text: {text_span.text}"
 
-
-def test_holoware_run_context_reset(mock_loom, mock_env):
-    code = "<|o_o|>First context.<|+++|>Second context."
-    phore = run_ware(code, mock_loom, mock_env)
-
-    assert len(phore.contexts) == 2
-    assert phore.contexts[0].messages[0]['content'] == 'First context.'
-    assert phore.contexts[0].messages[0]['role'] == 'user'
-
-    assert phore.contexts[1].messages[0]['content'] == 'Second context.'
-    assert phore.contexts[1].messages[0]['role'] == 'system'
-    assert phore.ego == 'system'
-
-
-def test_holoware_with_body(mock_loom, mock_env):
-    class BodyHoloTest(HoloTest):
-        def __holo__(self, phore, span):
-            self.holo_called = True
-            self.last_holo_args = (phore, span)
-            text_span = span.body.spans[1]
-            return f"Body text: {text_span.text}"
-
-    mock_env["BodyHoloTest"] = BodyHoloTest
-    code = """<|o_o|>
+        self.mock_env["BodyHoloTest"] = BodyHoloTest
+        code = """<|o_o|>
 <|BodyHoloTest|>
     I am a body.
 """
-    phore = run_ware(code, mock_loom, mock_env)
+        phore = run_ware(code, self.mock_loom, self.mock_env)
 
-    instance = list(phore.span_bindings.values())[0]
-    assert instance.holo_called
+        instance = list(phore.span_bindings.values())[0]
+        self.assertTrue(instance.holo_called)
 
-    context = phore.contexts[0]
-    assert "Body text: I am a body." in context.messages[0]['content']
+        context = phore.contexts[0]
+        messages = context.messages  # type: ignore[attr-defined]
+        self.assertIn("Body text: I am a body.", messages[0]["content"])
+
 
 COMPRESSOR_HOL = """<|+++|>
 You are an expert in information theory and symbolic compression.
@@ -244,42 +240,50 @@ Output your assessment in this format:
 <|FidelityAttractor original decompressed|>
 """
 
-def test_holoware_run_compressor_holoware(mock_loom, mock_env):
+class CompressorHolowareExecutionTest(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.mock_loom = MockLoom()
+        # base env
+        self.mock_env = {
+            "HoloTest": HoloTest,
+            "my_var": "injected_value",
+        }
+        # suite-specific mocks
+        self.mock_env["BingoAttractor"] = HoloTest
+        self.mock_env["FidelityCritique"] = HoloTest
+        self.mock_env["FidelityAttractor"] = HoloTest
 
-    # --- Setup Mocks ---
-    mock_env["BingoAttractor"] = HoloTest
-    mock_env["FidelityCritique"] = HoloTest
-    mock_env["FidelityAttractor"] = HoloTest
+        self.mock_env["text"] = "This is the original text."
+        self.mock_env["original"] = "This is the original text."
+        self.mock_env["compressed"] = "th_is_s_th_0r1g_txt"
+        self.mock_env["decompressed"] = "This is the original text, decompressed."
 
-    mock_env["text"] = "This is the original text."
-    mock_env["original"] = "This is the original text."
-    mock_env["compressed"] = "th_is_s_th_0r1g_txt"
-    mock_env["decompressed"] = "This is the original text, decompressed."
+    def test_holoware_run_compressor_holoware(self):
+        phore = run_ware(COMPRESSOR_HOL, self.mock_loom, self.mock_env)
 
-    # --- Run and Assert ---
-    phore = run_ware(COMPRESSOR_HOL, mock_loom, mock_env)
+        # Check that all 3 contexts were created
+        self.assertEqual(len(phore.contexts), 3)
 
-    # Check that all 3 contexts were created
-    assert len(phore.contexts) == 3
+        # Check that the class instances were created and bound
+        self.assertEqual(len(phore.span_bindings), 4)
+        instance_types = [type(inst) for inst in phore.span_bindings.values()]
+        self.assertEqual(instance_types.count(HoloTest), 4)
 
-    # Check that the class instances were created and bound
-    assert len(phore.span_bindings) == 4
-    instance_types = [type(inst) for inst in phore.span_bindings.values()]
-    assert instance_types.count(HoloTest) == 4
+        # Check some content from the last context
+        last_context = phore.contexts[2]
+        last_messages = last_context.messages  # type: ignore[attr-defined]
+        self.assertGreater(len(last_messages), 3)
 
-    # Check some content from the last context
-    last_context = phore.contexts[2]
-    assert len(last_context.messages) > 3
+        # Ego(user) -> Text -> Obj -> Obj -> Class -> Text ...
+        user_turn = last_messages[1]
+        self.assertEqual(user_turn["role"], "user")
+        self.assertIn("<obj id=original>This is the original text.</obj>", user_turn["content"])
+        self.assertIn("<obj id=decompressed>This is the original text, decompressed.</obj>", user_turn["content"])
+        self.assertIn("Holo! kargs=[], kwargs={}", user_turn["content"])  # From BingoAttractor
 
-    # Ego(user) -> Text -> Obj -> Obj -> Class -> Text ...
-    user_turn = last_context.messages[1]
-    assert user_turn['role'] == 'user'
-    assert "<obj id=original>This is the original text.</obj>" in user_turn['content']
-    assert "<obj id=decompressed>This is the original text, decompressed.</obj>" in user_turn['content']
-    assert "Holo! kargs=[], kwargs={}" in user_turn['content'] # From BingoAttractor
-
-    assistant_turn = last_context.messages[2]
-    assert assistant_turn['role'] == 'assistant'
-    assert "<think>mocked_sample</think>" in assistant_turn['content']
-    assert "<json>mocked_sample</json>" in assistant_turn['content']
-    assert "Holo! kargs=['original', 'decompressed'], kwargs={}" in assistant_turn['content'] # FidelityAttractor
+        assistant_turn = last_messages[2]
+        self.assertEqual(assistant_turn["role"], "assistant")
+        self.assertIn("<think>mocked_sample</think>", assistant_turn["content"])
+        self.assertIn("<json>mocked_sample</json>", assistant_turn["content"])
+        self.assertIn("Holo! kargs=['original', 'decompressed'], kwargs={}", assistant_turn["content"])  # FidelityAttractor

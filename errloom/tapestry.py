@@ -319,14 +319,13 @@ class Context:
         if not matches:
             raise ValueError("from_text: no delimited messages found")
 
-        ctx = Context()
         # Reuse from_api_chat masking by constructing APIChat then converting
-        api_msgs: APIChat = []
+        msgs: APIChat = []
         for m in matches:
             role = m.group("role").strip()
             content = m.group("content")
-            api_msgs.append({"role": role, "content": content})
-        return Context.from_api_chat(api_msgs, masking=masking)
+            msgs.append({"role": role, "content": content})
+        return Context.from_api_chat(msgs, masking=masking)
 
     def to_rich(self):
         """Rich text representation of the context, with colored roles."""
@@ -581,7 +580,7 @@ class Rollout:
         group = Group(*out)
         panel = Panel(
             group,
-            title="[bold yellow]Dry Run: Full Conversation Flow[/]",
+            title="[bold yellow]Rollout.to_rich()[/]",
             border_style="yellow",
             box=box.ROUNDED,
             title_align="left"
