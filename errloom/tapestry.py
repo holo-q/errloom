@@ -128,7 +128,7 @@ class Context:
                 # Role changed, finalize previous message
                 s = "".join(content)
                 if s or render_dry:
-                    messages.append({"role": current_role, "content": s})
+                    messages.append({"role": current_role, "content": s.strip()})
                     # logger.debug(f"Role changed from {current_role} to {normalized_role}, added message with {len(s)} chars")
                 current_role = normalized_role
                 content = [frag.content]
@@ -351,9 +351,7 @@ class Context:
                 role = "user"
             color = role_colors.get(role, "white")
 
-            # Render role header
-            text.append(f"{role}:", style=color)
-
+            # Prepare highlighted content
             highlighted_content = Text(style="white")
             # Regex to find <tag>...</tag> and <tag id=foo>...</tag>
             # It will match <obj ...>, <compress>, <decompress>, <think>, <json>, <critique>
@@ -398,9 +396,17 @@ class Context:
             # Append any remaining text
             highlighted_content.append(safe_content[last_idx:])
 
-            text.append(f" ")
-            text.append(highlighted_content)
-            text.append(f"\n", style="white")
+            # Render role header and decide line break based on whether content has linebreaks
+            single_line = "\n" not in str(highlighted_content)
+            if single_line:
+                text.append(f"{role}: ", style=color)
+                text.append(highlighted_content)
+                text.append("\n", style="white")
+            else:
+                text.append(f"{role}:", style=color)
+                text.append("\n")
+                text.append(highlighted_content)
+                text.append("\n", style="white")
 
         return text
 
@@ -504,7 +510,7 @@ class Rollout:
     def __repr__(self) -> str:
         from errloom.lib.log import PrintedText
         return str(PrintedText(self))
-    
+
     @property
     def context(self) -> Context:
         """Legacy property - use active_context instead."""

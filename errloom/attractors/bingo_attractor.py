@@ -50,7 +50,7 @@ class BingoAttractor(Attractor):
         # The core logic for influencing the generation will go here.
         # For now, it just returns the body of the attractor.
         if span.body:
-            return span.body(holophore)
+            span.body(holophore)
 
         return None
 

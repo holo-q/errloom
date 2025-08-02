@@ -270,39 +270,23 @@ class Holoware:
 
             logger.push('.' * (len(str(i)) + 2))
 
-            if isinstance(span, (TextSpan, ObjSpan)):
-                if isinstance(span, TextSpan):
-                    # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection
-                    # It locks in the baseline "depth" which will never give a good latent space exploration
-                    # We need a span that implements its own mechanism where the text is not always the same
-                    # This way the entropy is forever fresh
-                    phore.add_masked(span.text)
-                elif isinstance(span, ObjSpan):
-                    for var_id in span.var_ids:
-                        if var_id in phore.env:
-                            value = phore.env[var_id]
-                            phore.add_masked(f"<obj id={var_id}>")
-                            phore.add_masked(str(value))
-                            phore.add_masked("</obj>")
-                            break
+            # Create a rich-formatted log message with color
+            if SpanClassName in HolowareHandlers.__dict__:
+                handler = getattr(HolowareHandlers, SpanClassName)
+                handler(phore, span)
             else:
-                # Create a rich-formatted log message with color
-                if SpanClassName in HolowareHandlers.__dict__:
-                    handler = getattr(HolowareHandlers, SpanClassName)
-                    handler(phore, span)
-                else:
-                    logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
+                logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 
-            rendered_text = bool(phore._newtext)
-            if rendered_text:
-                logger.debug(Text(phore._newtext, style="dim italic"))  # TODO if we could find a 'oduble dim' color that would be better
-                phore._newtext = ""
+            has_inserted = bool(phore.last_insertion)
+            if has_inserted:
+                logger.debug(Text(phore.last_insertion, style="dim italic"))  # TODO if we could find a 'oduble dim' color that would be better
+                phore.last_insertion = ""
             else:
                 # logger.debug(Text("<no text>", style="dim italic"))
                 pass
 
             logger.pop()
-            if rendered_text:
+            if has_inserted:
                 logger.debug("")
 
         if phore.errors > 0:

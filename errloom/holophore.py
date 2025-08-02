@@ -23,12 +23,14 @@ class Holophore:
     def __init__(self, loom, rollout: Rollout, env: dict):
         self._loom = loom
         self._rollout = rollout
+
         self.env = env
         self.span_bindings = {}
-        self.errors = 0
-        self._newtext = ""
-        self._ego = "system"
         self.active_holowares:list['Holoware'] = list()
+        self.errors = 0
+
+        self.last_insertion = ""
+        self._ego = "system"
 
     @property
     def ego(self):
@@ -70,12 +72,12 @@ class Holophore:
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
         self._rollout.add_reinforced(self.ego, content)
-        self._newtext += content
+        self.last_insertion += content
 
     def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
         self._rollout.add_frozen(self.ego, content)
-        self._newtext += content
+        self.last_insertion += content
 
     # @indent
     # def flush(self):

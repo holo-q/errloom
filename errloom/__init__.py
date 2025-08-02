@@ -15,7 +15,7 @@ persistence_file = str(userdir / "persistence.json")
 
 log.setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
-    highlight=False,
+    highlight=True,
     persistence_file=persistence_file,
     print_paths=errlargs.print_paths,
     print_threads=errlargs.print_threads,

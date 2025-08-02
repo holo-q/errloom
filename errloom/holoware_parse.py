@@ -376,13 +376,14 @@ def _build_obj(out: list[Span], base, kargs, kwargs):
 
 
 def filter_comments(content: str) -> str:
-    """Removes comments from holoware content."""
+    """
+    Removes comments from holoware content.
+    Only supports full-line comment starting with #
+    """
     lines = content.split('\n')
     processed_lines = []
     for line in lines:
-        if line.strip().startswith('#'):
-            processed_lines.append("")
-        else:
+        if not line.strip().startswith('#'):
             processed_lines.append(line)
     return "\n".join(processed_lines)
 
