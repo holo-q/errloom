@@ -450,7 +450,7 @@ def disable_logger(name: Optional[str] = None) -> None:
     Args:
         name: The logger name to disable. Defaults to root if None.
     """
-    logger = logging.getLogger(name) if name else logging.getLogger()
+    logger = getLogger(name) if name else logging.getLogger()
     logger.disabled = True
     for handler in list(logger.handlers):
         handler.setLevel(logging.CRITICAL + 1)
@@ -493,14 +493,6 @@ def getLogger(name: Optional[str] = None) -> EnhancedLogger:
         logging.setLoggerClass(old_class)
 
     return logger  # type: ignore
-
-
-
-# MAIN
-# ----------------------------------------
-
-# COLORIZE FUNCTIONS
-# ----------------------------------------
 
 # COLORIZE FUNCTIONS
 # ----------------------------------------
@@ -669,6 +661,7 @@ def colorize_arrow() -> str:
     """Standard arrow for file operations."""
     return _COLOR_SCHEME['arrow']
 
+# MAIN
 # ----------------------------------------
 
 logger_main = logging.getLogger("main")

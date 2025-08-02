@@ -80,12 +80,12 @@ class Context:
     def add_frozen(self, role: Optional[str], content: str):
         """Add text to mask (ignored in training)."""
         self.add_fragment(role, content, FragmentType.FROZEN, print_log=False)
-        logger.debug(f"add_frozen: {role} -> {log.ellipse(content, 45)}")
+        logger.debug(f"[dim]add_frozen: {role} -> {log.ellipse(content, 45)}[/]")
 
     def add_reinforced(self, role: Optional[str], content: str):
         """Add text to reinforce (unmasked in training)."""
         self.add_fragment(role, content, FragmentType.REINFORCE, print_log=False)
-        logger.debug(f"add_reinforced: {role} -> {log.ellipse(content, 45)}")
+        logger.debug(f"[dim]add_reinforced: {role} -> {log.ellipse(content, 45)}[/]")
 
     def to_api_messages(self, render_dry: bool = False) -> APIChat:
         """

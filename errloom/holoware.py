@@ -226,13 +226,13 @@ class Holoware:
         # noinspection PyUnresolvedReferences
         from errloom.holophore import Holophore  # noqa: F401
 
-        logger.push_debug(f"WARE({self.name})" if self.name else "WARE")
+        logger.push_debug(f"WARE({self.name})" if self.name else "HOLOWARE()")
 
         # --- Lifecycle: Start ---
         phore.invoke(self, "__holo_start__", [phore], {})
         phore.active_holowares.append(self)
 
-        logger.push_debug("(1)")
+        logger.push_debug("(1:start)")
         for span in self.spans:
             if isinstance(span, ClassSpan):
                 classname = span.class_name
@@ -259,7 +259,7 @@ class Holoware:
         logger.pop()
 
         # --- Lifecycle: Main ---
-        logger.push_debug("(2)")
+        logger.push_debug("(2:main)")
         for i, span in enumerate(self.spans):
             SpanClassName = type(span).__name__
 
@@ -310,9 +310,9 @@ class Holoware:
         logger.pop()
 
         # --- Lifecycle: End ---
-        logger.push_debug("(3)")
+        logger.push_debug("(3:end)")
         logger.debug("Span Bindings:")
-        logger.debug(phore.span_bindings)
+        logger.debug_hl(phore.span_bindings)
         for uid, target in phore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
                 span = phore.find_span(uid)

@@ -9,6 +9,9 @@
 @main.py
 * prompt the user for their keys when using --openai, --openrouter, etc. and store them into ~/.erloom (see @paths.py for app standards) as securely as possible
 
+@log.py
+* Update the indentation features to allow skipping the spacing separator when pushing indent so that we can push WARE and then (1) and get "WARE(1)" instead of "WARE (1)"
+
 # TODOS
 
 * will added many new environments https://github.com/willccbb/verifiers/tree/main/environments lets rip them off into holowares to see how our api handles stuff

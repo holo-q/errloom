@@ -11,7 +11,7 @@ from errloom.holoware import (
     SampleSpan,
     TextSpan,
 )
-from errloom.holoware_parse import (_build_class_span, _build_context_reset_span, _build_ego_or_sampler_span, _build_obj_span, filter_comments, HolowareParser, parse_span_tag)
+from errloom.holoware_parse import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
 from errloom.lib import log
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class ParseSpanTagTest(TestCase):
 class SpanBuildersTest(TestCase):
     def test_build_class_span(self):
         out = []
-        _build_class_span(out, "MyClass", ["arg"], {"kw": "val"})
+        _build_class(out, "MyClass", ["arg"], {"kw": "val"})
         self.assertEqual(len(out), 1)
         span = out[0]
         self.assertIsInstance(span, ClassSpan)
@@ -110,7 +110,7 @@ class SpanBuildersTest(TestCase):
 
     def test_build_ego_or_sampler_span_ego_only(self):
         out = []
-        _build_ego_or_sampler_span(out, "o_o", [], {})
+        _build_ego_or_sampler(out, "o_o", [], {})
         self.assertEqual(len(out), 1)
         span = out[0]
         self.assertIsInstance(span, EgoSpan)
@@ -118,7 +118,7 @@ class SpanBuildersTest(TestCase):
 
     def test_build_ego_or_sampler_span_with_uuid(self):
         out = []
-        _build_ego_or_sampler_span(out, "@_@:123", [], {})
+        _build_ego_or_sampler(out, "@_@:123", [], {})
         self.assertEqual(len(out), 1)
         span = out[0]
         self.assertIsInstance(span, EgoSpan)
@@ -127,7 +127,7 @@ class SpanBuildersTest(TestCase):
 
     def test_build_ego_or_sampler_span_as_sampler(self):
         out = []
-        _build_ego_or_sampler_span(out, "o_o:id", ["karg"], {"goal": "test"})
+        _build_ego_or_sampler(out, "o_o:id", ["karg"], {"goal": "test"})
         self.assertEqual(len(out), 2)
         ego_span, sampler_span = out
         self.assertIsInstance(ego_span, EgoSpan)
@@ -140,7 +140,7 @@ class SpanBuildersTest(TestCase):
 
     def test_build_context_reset_span(self):
         out = []
-        handler = _build_context_reset_span(train=True)
+        handler = _build_context(train=True)
         handler(out, "+++", [], {})
         self.assertEqual(len(out), 1)
         span = out[0]
@@ -149,7 +149,7 @@ class SpanBuildersTest(TestCase):
 
     def test_build_obj_span(self):
         out = []
-        _build_obj_span(out, "var1|var2", ["karg"], {})
+        _build_obj(out, "var1|var2", ["karg"], {})
         self.assertEqual(len(out), 1)
         span = out[0]
         self.assertIsInstance(span, ObjSpan)

@@ -27,125 +27,19 @@ def is_context_reset(base, kargs, kwargs) -> bool:
     return base in ("+++", "===", "---", "^^^", "###", "@@@", "\"\"\"", "***", "%%%")
 
 HOLOWARE_GRAMMAR: list[Dict] = [
-    {"match": is_ego_or_sampler, "handler": lambda *args: _build_ego_or_sampler_span(*args)},
-    {"match": is_context_reset, "handler": lambda *args: _build_context_reset_span(train=args[1] == "+++")(*args)},
+    {"match": is_ego_or_sampler, "handler": lambda *args: _build_ego_or_sampler(*args)},
+    {"match": is_context_reset, "handler": lambda *args: _build_context(train=args[1] == "+++")(*args)},
 ]
 
 EGO_MAP = {"o_o": "user", "@_@": "assistant", "x_x": "system"}
 
-# --- Span Builders ---
-
-def _build_class_span(out: list[Span], base, kargs, kwargs):
-    """Handler for creating ClassSpans."""
-    span = ClassSpan(class_name=base)
-    span.set_args(kargs, kwargs, {})
-    span.body = None
-    out.append(span)
-
-def _build_ego_or_sampler_span(out: list, base: str, kargs: list, kwargs: dict):
-    # Split ego and potential UUID
-    parts = base.split(":", 1)
-    ego = parts[0]
-    uuid = parts[1] if len(parts) > 1 else ""
-
-    out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=uuid))
-
-    # A sampler can be defined with kargs/kwargs on the ego span
-    sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "goal")}
-    goal = kwargs.get("<>", "") or kwargs.get("goal", "")
-    if kargs or sampler_kwargs or goal:
-        if not goal:
-            # It's not a sampler if it doesn't have a goal
-            # This can happen if there are only kargs, which are not supported for samplers.
-            # We just ignore them.
-            pass
-        else:
-            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, goal=goal))
-
-
-def _build_context_reset_span(train: bool):
-    def _handler(out: list, base: str, kargs: list, kwargs: dict):
-        """Handler for creating ContextResetSpans."""
-        out.append(ContextResetSpan(train=train))
-
-    return _handler
-
-def _build_obj_span(out: list[Span], base, kargs, kwargs):
-    """Fallback handler for creating ObjSpans from one or more IDs."""
-    logger.debug("")
-    var_ids = [v.strip() for v in base.split('|')]
-    span = ObjSpan(var_ids=var_ids).set_args(kargs, kwargs, {})
-    out.append(span)
-
-def build_span(out: list[Span], spantext: str):
-    """Finds the correct handler in the grammar and creates span(s) for a tag."""
-    tag_content = spantext.strip()
-    if not tag_content:
-        return
-    base, kargs, kwargs = parse_span_tag(tag_content)
-
-    logger.debug(f"base='{base}' kargs={kargs} kwargs={kwargs}")
-
-    for rule in HOLOWARE_GRAMMAR:
-        if rule['match'](base, kargs, kwargs):
-            logger.debug(f"handler={rule['match'].__name__}")
-            rule['handler'](out, base, kargs, kwargs)
-            return
-
-    # Fallback for ObjSpans or unhandled ClassSpans
-    if base:
-        if base[0].isupper():
-            logger.debug("handler=_build_class_span ClassSpan")
-            _build_class_span(out, base, kargs, kwargs)
-        else:
-            logger.debug("handler=_build_class_span ObjSpan")
-            _build_obj_span(out, base, kargs, kwargs)
-
-def parse_span_tag(tag: str) -> Tuple[str, list[str], Dict[str, str]]:
-    kwargs: Dict[str, str] = {}
-    kargs: list[str] = []
-
-    parts = shlex.split(tag)
-    if not parts:
-        return "", [], {}
-
-    base_span = parts[0]
-    new_kargs = []
-    for part in parts[1:]:
-        if "=" in part:
-            key, value = part.split("=", 1)
-            kwargs[key] = value
-        elif part.startswith('<>'):
-            if len(part) > 2:
-                kwargs['<>'] = part[2:]
-            else:
-                raise ValueError("Empty <> attribute")
-        else:
-            new_kargs.append(part)
-
-    kargs.extend(new_kargs)
-
-    return base_span, kargs, kwargs
-
-
-def filter_comments(content: str) -> str:
-    """Removes comments from holoware content."""
-    lines = content.split('\n')
-    processed_lines = []
-    for line in lines:
-        if line.strip().startswith('#'):
-            processed_lines.append("")
-        else:
-            processed_lines.append(line)
-    return "\n".join(processed_lines)
-
-
 class HolowareParser:
-    def __init__(self, code: str, ego=None):
+    def __init__(self, code: str, ego=None, start_with_system=False):
         self.code = code
         self.pos = 0
         self.ware = Holoware()
         self.ego: Optional[str] = ego
+        self.start_with_system = start_with_system
 
     def parse(self) -> "Holoware":
         logger.push_debug("PARSE")
@@ -169,7 +63,9 @@ class HolowareParser:
             spantext = self.read_until_span_end()
             self._parse_span(spantext)
 
-        self._add_implicit_ego_if_needed()
+        if self.start_with_system:
+            self._add_implicit_ego_if_needed()
+
         self._finalize_text_span()
 
         logger.pop()
@@ -201,11 +97,12 @@ class HolowareParser:
         last_span = self.ware.spans[-1] if self.ware.spans else None
         is_text = isinstance(span, TextSpan)
 
-        if not self.ego and is_text and span.text.strip():
-            new_ego = EgoSpan(ego='system')
-            self.ware.spans.append(new_ego)
-            self.ego = new_ego.ego
-            last_span = new_ego
+        # requires_ego_insertion = not self.ego and is_text and span.text.strip()
+        # if self.start_with_system and requires_ego_insertion:
+        #     new_ego = EgoSpan(ego='system')
+        #     self.ware.spans.append(new_ego)
+        #     self.ego = new_ego.ego
+        #     last_span = new_ego
 
         if not self.ego and isinstance(span, (SampleSpan, ObjSpan, ClassSpan)):
             self._add_implicit_ego_if_needed()
@@ -382,3 +279,110 @@ class HolowareParser:
                     last_span = span
             else:
                 last_span = span
+
+# --- Span Builders ---
+
+def parse_span_tag(tag: str) -> Tuple[str, list[str], Dict[str, str]]:
+    kwargs: Dict[str, str] = {}
+    kargs: list[str] = []
+
+    parts = shlex.split(tag)
+    if not parts:
+        return "", [], {}
+
+    base_span = parts[0]
+    new_kargs = []
+    for part in parts[1:]:
+        if "=" in part:
+            key, value = part.split("=", 1)
+            kwargs[key] = value
+        elif part.startswith('<>'):
+            if len(part) > 2:
+                kwargs['<>'] = part[2:]
+            else:
+                raise ValueError("Empty <> attribute")
+        else:
+            new_kargs.append(part)
+
+    kargs.extend(new_kargs)
+
+    return base_span, kargs, kwargs
+
+def build_span(out: list[Span], spantext: str):
+    """Finds the correct handler in the grammar and creates span(s) for a tag."""
+    tag_content = spantext.strip()
+    if not tag_content:
+        return
+    base, kargs, kwargs = parse_span_tag(tag_content)
+
+    logger.debug(f"base='{base}' kargs={kargs} kwargs={kwargs}")
+
+    for rule in HOLOWARE_GRAMMAR:
+        if rule['match'](base, kargs, kwargs):
+            logger.debug(f"handler={rule['match'].__name__}")
+            rule['handler'](out, base, kargs, kwargs)
+            return
+
+    # Fallback for ObjSpans or unhandled ClassSpans
+    if base:
+        if base[0].isupper():
+            logger.debug("handler=_build_class_span ClassSpan")
+            _build_class(out, base, kargs, kwargs)
+        else:
+            logger.debug("handler=_build_class_span ObjSpan")
+            _build_obj(out, base, kargs, kwargs)
+
+
+def _build_class(out: list[Span], base, kargs, kwargs):
+    """Handler for creating ClassSpans."""
+    span = ClassSpan(class_name=base)
+    span.set_args(kargs, kwargs, {})
+    span.body = None
+    out.append(span)
+
+def _build_ego_or_sampler(out: list, base: str, kargs: list, kwargs: dict):
+    # Split ego and potential UUID
+    parts = base.split(":", 1)
+    ego = parts[0]
+    uuid = parts[1] if len(parts) > 1 else ""
+
+    out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=uuid))
+
+    # A sampler can be defined with kargs/kwargs on the ego span
+    sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "goal")}
+    goal = kwargs.get("<>", "") or kwargs.get("goal", "")
+    if kargs or sampler_kwargs or goal:
+        if not goal:
+            # It's not a sampler if it doesn't have a goal
+            # This can happen if there are only kargs, which are not supported for samplers.
+            # We just ignore them.
+            pass
+        else:
+            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, goal=goal))
+
+def _build_context(train: bool):
+    def _handler(out: list, base: str, kargs: list, kwargs: dict):
+        """Handler for creating ContextResetSpans."""
+        out.append(ContextResetSpan(train=train))
+
+    return _handler
+
+def _build_obj(out: list[Span], base, kargs, kwargs):
+    """Fallback handler for creating ObjSpans from one or more IDs."""
+    logger.debug("")
+    var_ids = [v.strip() for v in base.split('|')]
+    span = ObjSpan(var_ids=var_ids).set_args(kargs, kwargs, {})
+    out.append(span)
+
+
+def filter_comments(content: str) -> str:
+    """Removes comments from holoware content."""
+    lines = content.split('\n')
+    processed_lines = []
+    for line in lines:
+        if line.strip().startswith('#'):
+            processed_lines.append("")
+        else:
+            processed_lines.append(line)
+    return "\n".join(processed_lines)
+

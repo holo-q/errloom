@@ -21,6 +21,7 @@ log.setup_logging(
     print_threads=errlargs.print_threads,
     reset_log_columns=errlargs.reset_log_columns)
 
+# TODO make this a command line option (list of special loggers to enable)
 log.disable_logger("errloom.tapestry")
 
 discovery.crawl_package(
