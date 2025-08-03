@@ -327,6 +327,7 @@ def setup_logging(
     log_filename: Optional[str] = None,
     persistence_file: Optional[str] = None,
     print_threads: bool = False,
+    print_time: bool = False,
     reset_log_columns: bool = False
 ) -> str:
     """
@@ -340,6 +341,7 @@ def setup_logging(
         log_filename: Optional custom log filename. If None, auto-generates one.
         persistence_file: Optional path for logging persistence file. If None, uses default.
         print_threads: Whether to print thread names in console output.
+        print_time: Whether to print timestamps in console output. Defaults to False.
         reset_log_columns: Whether to reset the persisted column width.
 
     Returns:
@@ -358,6 +360,7 @@ def setup_logging(
         handler = CustomRichHandler(
             rich_tracebacks=True,
             show_path=False,
+            show_time=print_time,
             console=cl,
             markup=True,
             print_paths=print_paths,

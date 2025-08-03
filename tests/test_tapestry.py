@@ -1,11 +1,11 @@
-from testslide import TestCase
 import logging
 
 from errloom.tapestry import (AutoMask, Context, FragmentType, Rollout, Tapestry)
 from errloom.aliases import APIChat
+from tests.base import ErrloomTest
 
 
-class ContextToApiMessagesTest(TestCase):
+class ContextToApiMessagesTest(ErrloomTest):
     def setUp(self) -> None:
         super().setUp()
         logging.basicConfig(level=logging.DEBUG)
@@ -129,7 +129,7 @@ class ContextToApiMessagesTest(TestCase):
         self.assertIsNone(ctx3.extract_mdjson(role="assistant"))
 
 
-class RolloutWrapperTest(TestCase):
+class RolloutWrapperTest(ErrloomTest):
     def test_rollout_context_management(self):
         r = Rollout(row={"id": 1})
         r.new_context()
@@ -163,7 +163,7 @@ class RolloutWrapperTest(TestCase):
         self.assertEqual(r.extract_json(role="assistant"), "{}")
 
 
-class TapestryDatasetTest(TestCase):
+class TapestryDatasetTest(ErrloomTest):
     def test_extract_rollouts_to_dataset_prompt_and_completion(self):
         # Build two rollouts
         r1 = Rollout(row={"id": "r1"}, gravity=0.5)

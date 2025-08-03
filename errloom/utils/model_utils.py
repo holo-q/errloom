@@ -1,14 +1,8 @@
 from importlib.util import find_spec
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Tuple, Union
 
-import torch
 import torch.nn as nn
-from datasets import IterableDataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
-
-from errloom.aliases import Data
-
-data_cache: dict[str, Data] = dict()
 
 class _ForwardRedirection:
     """Implements the `forward-redirection`.
@@ -68,7 +62,7 @@ def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[
         # Detect if we're running on CPU or GPU
         import torch
         is_cpu = not torch.cuda.is_available() or torch.cuda.device_count() == 0
-        
+
         # Check if CPU mode is explicitly requested via errlargs
         try:
             from errloom import errlargs
@@ -76,7 +70,7 @@ def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[
                 is_cpu = True
         except ImportError:
             pass
-        
+
         if is_cpu:
             # CPU-optimized configuration
             model_kwargs = dict(
@@ -85,13 +79,13 @@ def get_model(model_name: str, use_liger: bool = True, model_kwargs: Union[Dict[
                 use_cache=False,
             )
         else:
-            # GPU-optimized configuration  
+            # GPU-optimized configuration
             model_kwargs = dict(
                 torch_dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2",
                 use_cache=False,
             )
-    
+
     if is_liger_available() and use_liger:
         print("Using Liger kernel")
         from liger_kernel.transformers import AutoLigerKernelForCausalLM  # type: ignore
@@ -114,15 +108,3 @@ def get_model_and_tokenizer(name: str, use_liger: bool = True, model_kwargs: Uni
     return model, tokenizer
 
 
-def load_data(data)->Optional[Data]:
-    if isinstance(data, str):
-        if data in data_cache:
-            return data_cache[data]
-        data = load_dataset(data, split='train', streaming=True)
-        if not isinstance(data, IterableDataset):
-            raise f"[red]❌ Expected an IterableDataset for streaming, but got {type(data)}.[/red]"
-        return data
-    return None
-
-def clear_cache():
-    data_cache.clear()

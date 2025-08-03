@@ -1,4 +1,3 @@
-from testslide import TestCase
 from rich.panel import Panel
 import logging
 
@@ -13,6 +12,7 @@ from errloom.holoware.holoware import (
 )
 from errloom.holoware.holoware_parse import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
 from errloom.lib import log
+from tests.base import ErrloomTest
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def _load_and_print_holoware(code: str) -> Holoware:
     logger.info(holoware.to_rich())
     return holoware
 
-class FilterCommentsTest(TestCase):
+class FilterCommentsTest(ErrloomTest):
     def setUp(self) -> None:
         super().setUp()
         log.setup_logging("DEBUG", True, True)
@@ -51,7 +51,7 @@ class FilterCommentsTest(TestCase):
         content = "line_with_hash = '#value'"
         self.assertEqual(filter_comments(content), content)
 
-class ParseSpanTagTest(TestCase):
+class ParseSpanTagTest(ErrloomTest):
     def test_parse_span_tag_simple(self):
         base, kargs, kwargs = parse_span_tag("MyClass")
         self.assertEqual(base, "MyClass")
@@ -98,7 +98,7 @@ class ParseSpanTagTest(TestCase):
             parse_span_tag('MyClass key="value with spaces')
         self.assertIn("No closing quotation", str(e.exception))
 
-class SpanBuildersTest(TestCase):
+class SpanBuildersTest(ErrloomTest):
     def test_build_class_span(self):
         out = []
         _build_class(out, "MyClass", ["arg"], {"kw": "val"})
@@ -157,7 +157,7 @@ class SpanBuildersTest(TestCase):
         self.assertEqual(span.var_ids, ["var1", "var2"])
         self.assertEqual(span.kargs, ["karg"])
 
-class HolowareParserTest(TestCase):
+class HolowareParserTest(ErrloomTest):
     def test_ware_parser_basic(self):
         test_cases = [
             ("", []),
@@ -429,7 +429,7 @@ Output your assessment in this format:
 <|FidelityAttractor original decompressed|>
 """
 
-class CompressorHolowareTest(TestCase):
+class CompressorHolowareTest(ErrloomTest):
     def test_parser_compressor_holoware(self):
         ware = _load_and_print_holoware(COMPRESSOR_HOL)
         spans = ware.spans

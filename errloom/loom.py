@@ -54,7 +54,7 @@ class Loom(ABC):
                  session: Optional['Session'] = None,
                  dump_rollouts: Optional[str | bool] = False):
         # Import errlargs for dry training logic
-        from errloom import errlargs
+        from errloom import errlargs # argp depends on loom to assign a default
 
         self.trainer: Optional['RLTrainer'] = None
 
@@ -85,12 +85,14 @@ class Loom(ABC):
             self.model_name = model[0]
             self.model = model[1]
         elif isinstance(model, str):
-            from errloom.utils.model_utils import get_model
             self.model_name = model
             # Load model even in dry mode for dry training
-            need_model_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
-                                           and hasattr(errlargs, 'dry') and errlargs.dry)
-            self.model = get_model(model) if (not dry or need_model_for_dry_training) else None
+            need_model_for_dry_training = (dry and errlargs.command == "train" and errlargs.dry)
+            if not dry or need_model_for_dry_training:
+                from errloom.utils.model_utils import get_model
+                self.model = get_model(model)
+            else:
+                self.model = None
         else:
             self.model_name = None
             self.model = None
@@ -99,12 +101,14 @@ class Loom(ABC):
             self.tokenizer = tokenizer[0]
             self.tokenizer_name = tokenizer[1]
         elif isinstance(tokenizer, str):
-            from errloom.utils.model_utils import get_tokenizer
             self.tokenizer_name = model
             # Load tokenizer even in dry mode for dry training
-            need_tokenizer_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
-                                               and hasattr(errlargs, 'dry') and errlargs.dry)
-            self.tokenizer = get_tokenizer(tokenizer) if (not dry or need_tokenizer_for_dry_training) else None
+            need_tokenizer_for_dry_training = (dry and errlargs.command == "train" and errlargs.dry)
+            if not dry or need_tokenizer_for_dry_training:
+                from errloom.utils.model_utils import get_tokenizer
+                self.tokenizer = get_tokenizer(tokenizer)
+            else:
+                self.tokenizer = None
         else:
             self.tokenizer_name = None
             self.tokenizer = None
@@ -116,7 +120,6 @@ class Loom(ABC):
             with LogContext("👟 Initializing GRPO...", "GRPO init", logger=self.logger):
                 from errloom.training.rl_trainer import RLTrainer
                 from errloom.defaults import grpo_defaults, grpo_local_test_defaults, grpo_micro_test_defaults, grpo_cpu_test_defaults
-                from errloom import errlargs
 
                 # Choose config based on testing flags
                 if errlargs.cpu:
@@ -135,8 +138,7 @@ class Loom(ABC):
                     args=config)
         else:
             # Check if we need a trainer for dry training mode
-            from errloom import errlargs
-            if hasattr(errlargs, 'command') and errlargs.command == "train" and hasattr(errlargs, 'dry') and errlargs.dry:
+            if errlargs.command == "train" and errlargs.dry:
                 # Create trainer in dry mode for dry training
                 if self.model is not None and self.tokenizer is not None and self.model_name is not None:
                     with LogContext("🧪 Initializing Dry GRPO...", "dry_grpo_init", logger=self.logger):
@@ -172,12 +174,11 @@ class Loom(ABC):
                 self.client_args[k] = v
 
     def init_data(self, data, data_bench, data_train, data_split: Optional[float] = 0.5):
-        from errloom.utils.model_utils import load_data
         from datasets import Dataset, IterableDataset  # type: ignore
-
+        from errloom.utils.data_utils import load_data
         self.data = load_data(data)
-        self.data_train = self.data if data == data_train else load_data(data_train or data)
-        self.data_bench = self.data if data == data_bench else load_data(data_bench or data)
+        self.data_train = self.data if data == data_train or data_train is None else load_data(data_train or data)
+        self.data_bench = self.data if data == data_bench or data_bench is None else load_data(data_bench or data)
 
         # Split the base dataset so train & bench don't see the same thing (50:50 by default)
         if data_split is not None and data == data_train and data == data_bench:
@@ -273,7 +274,8 @@ class Loom(ABC):
         if isinstance(rows, int):
             raise ValueError("rows must be a Data object or an integer")
 
-        assert isinstance(rows, Data)
+        from errloom.aliases import is_data_type
+        assert is_data_type(rows), f"Expected Data type, got {type(rows)}"
 
         # self.logger.header_info("")
         self.logger.push_info("WEAVE")

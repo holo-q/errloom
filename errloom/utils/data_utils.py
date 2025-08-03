@@ -1,9 +1,25 @@
 # NOTE: Helper functions for example datasets. Not intended for core functionality.
 
 import random
-from typing import Dict, Callable, Any
+from typing import Dict, Callable, Any, Optional
+from datasets import Dataset
+from errloom.aliases import Data
 
-from datasets import Dataset, load_dataset, concatenate_datasets # type: ignore
+data_cache: dict[str, Data] = dict()
+
+def load_data(data)->Optional[Data]:
+    from datasets import IterableDataset, load_dataset
+    if isinstance(data, str):
+        if data in data_cache:
+            return data_cache[data]
+        data = load_dataset(data, split='train', streaming=True)
+        if not isinstance(data, IterableDataset):
+            raise f"[red]❌ Expected an IterableDataset for streaming, but got {type(data)}.[/red]"
+        return data
+    return None
+
+def clear_cache():
+    data_cache.clear()
 
 def extract_boxed_answer(text: str) -> str:
     def find_matching_brace(s: str, start: int) -> int:
@@ -242,3 +258,4 @@ Please ensure that the dataset is formatted with 'prompt' (str) and 'answer' (st
     if "temp_answer" in dataset.column_names:
         dataset = dataset.rename_column("temp_answer", "answer")
     return dataset
+
