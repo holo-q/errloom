@@ -21,7 +21,7 @@ logger = log.getLogger(__name__)
 
 # --- Grammar Definition ---
 def is_ego_or_sampler(base, kargs, kwargs) -> bool:
-    return base in ("o_o", "@_@", "x_x") or "goal" in kwargs or "<>" in kwargs
+    return base in ("o_o", "@_@", "x_x") or "<>" in kwargs or "fence" in kwargs
 
 def is_context_reset(base, kargs, kwargs) -> bool:
     return base in ("+++", "===", "---", "^^^", "###", "@@@", "\"\"\"", "***", "%%%")
@@ -349,16 +349,16 @@ def _build_ego_or_sampler(out: list, base: str, kargs: list, kwargs: dict):
     out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=uuid))
 
     # A sampler can be defined with kargs/kwargs on the ego span
-    sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "goal")}
-    goal = kwargs.get("<>", "") or kwargs.get("goal", "")
-    if kargs or sampler_kwargs or goal:
-        if not goal:
-            # It's not a sampler if it doesn't have a goal
+    sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "fence")}
+    fence = kwargs.get("<>", "") or kwargs.get("fence", "")
+    if kargs or sampler_kwargs or fence:
+        if not fence:
+            # It's not a sampler if it doesn't have a fence
             # This can happen if there are only kargs, which are not supported for samplers.
             # We just ignore them.
             pass
         else:
-            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, goal=goal))
+            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, fence=fence))
 
 def _build_context(train: bool):
     def _handler(out: list, base: str, kargs: list, kwargs: dict):

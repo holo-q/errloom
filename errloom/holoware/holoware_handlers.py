@@ -32,17 +32,40 @@ class HolowareHandlers:
 
     @classmethod
     def SampleSpan(cls, phore:Holophore, span:SampleSpan):
-        sample = phore.sample(phore.rollout)
+        # Add opening fence tag to context if fence is specified
+        if span.fence:
+            opening_tag = f"<{span.fence}>"
+            phore.add_masked(opening_tag)
+        
+        # Determine stop sequences based on span fence attributes
+        stop_sequences = []
+        
+        # Primary stop sequence from fence attribute
+        if span.fence:
+            stop_sequences.append(f"</{span.fence}>")
+        
+        # Sample with stop sequences
+        sample = phore.sample(phore.rollout, stop_sequences=stop_sequences)
         if not sample:
             logger.error("Got a null sample from the loom.")
             return
 
-        # If the SamplerSpan has a fence attribute, wrap the response in fence tags
-        if span.goal:
-            text = f"<{span.goal}>{sample}</{span.goal}>"
+        # Handle the response based on whether we have a fence
+        if span.fence:
+            closing_tag = f"</{span.fence}>"
+            
+            # If the model naturally stopped with the closing tag, include it
+            # Otherwise, add the closing tag to complete the fence
+            if sample.endswith(closing_tag):
+                # Model naturally included the closing tag
+                text = sample
+            else:
+                # Model didn't include closing tag - add it
+                text = f"{sample}{closing_tag}"
         else:
+            # No fence specified - use raw sample
             text = sample
-
+        
         # Add text that will be optimized and reinforced into the weights
         phore.add_reinforced(text)
 

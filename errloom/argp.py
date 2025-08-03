@@ -313,6 +313,10 @@ def parse_args():
     """Parse command line arguments and set global variables."""
     global argv, argv_remaining, errlargs, is_dev, is_vastai, is_vastai_continue
 
+    is_testing = any(["testslide" in arg for arg in sys.argv])
+    if is_testing:
+        return
+
     argv = sys.argv[1:]
     args = parse_known_args()
     argv_remaining = args[1]

@@ -128,7 +128,7 @@ class SpanBuildersTest(ErrloomTest):
 
     def test_build_ego_or_sampler_span_as_sampler(self):
         out = []
-        _build_ego_or_sampler(out, "o_o:id", ["karg"], {"goal": "test"})
+        _build_ego_or_sampler(out, "o_o:id", ["karg"], {"fence": "test"})
         self.assertEqual(len(out), 2)
         ego_span, sampler_span = out
         self.assertIsInstance(ego_span, EgoSpan)
@@ -136,7 +136,7 @@ class SpanBuildersTest(ErrloomTest):
         self.assertIsInstance(sampler_span, SampleSpan)
         self.assertEqual(sampler_span.uuid, "id")
         self.assertEqual(sampler_span.kargs, ["karg"])
-        self.assertEqual(sampler_span.goal, "test")
+        self.assertEqual(sampler_span.fence, "test")
         self.assertEqual(sampler_span.kwargs, {})
 
     def test_build_context_reset_span(self):
@@ -227,10 +227,10 @@ class HolowareParserTest(ErrloomTest):
                 ],
             ),
             (
-                "<|@_@ goal=run|>",
+                "<|@_@ fence=run|>",
                 [
                     {"type": EgoSpan, "attrs": {"ego": "assistant"}},
-                    {"type": SampleSpan, "attrs": {"goal": "run"}},
+                    {"type": SampleSpan, "attrs": {"fence": "run"}},
                 ],
             ),
         ]
@@ -269,7 +269,7 @@ class HolowareParserTest(ErrloomTest):
         with self.assertRaises(ValueError):
             _load_and_print_holoware("<|my_obj|>")
         with self.assertRaises(ValueError):
-            _load_and_print_holoware("<|goal=run|>")
+            _load_and_print_holoware("<|fence=run|>")
 
     def test_parser_empty_tag(self):
         spans = _load_and_print_holoware("<||>").spans
@@ -450,8 +450,8 @@ class CompressorHolowareTest(ErrloomTest):
 
         sample_spans = [s for s in spans if isinstance(s, SampleSpan)]
         self.assertEqual(len(sample_spans), 4)
-        goals = {s.goal for s in sample_spans}
-        self.assertEqual(goals, {"compress", "decompress", "think", "json"})
+        fences = {s.fence for s in sample_spans}
+        self.assertEqual(fences, {"compress", "decompress", "think", "json"})
 
         obj_spans = [s for s in spans if isinstance(s, ObjSpan)]
         self.assertEqual(len(obj_spans), 4)

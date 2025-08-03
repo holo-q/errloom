@@ -20,7 +20,7 @@ class MockLoom:
     def __init__(self, sample_text="mocked_sample"):
         self.sample_text = sample_text
 
-    def sample(self, rollout):
+    def sample(self, rollout, stop_sequences=[]):
         return self.sample_text
 
 
@@ -162,14 +162,16 @@ class HolowareExecutionTest(HoloTest):
         self.assertIsInstance(instance.last_holo_end_args[1], ClassSpan)
 
     def test_holoware_run_sample_span(self):
-        code = "<|@_@ goal=test|>"
+        code = "<|@_@ <>test|>"
         holoware, holophore = self.run_holoware(code)
 
         context = holophore.contexts[0]
         frags = context.fragments
+
         # assistant content fragment containing wrapped sample
         self.assertGreaterEqual(len(frags), 1)
-        self.assertTrue(any(f.content == "<test>mocked_sample</test>" for f in frags))
+        self.assertTrue(any(f.content == "<test>" for f in frags))
+        self.assertTrue(any(f.content == "mocked_sample</test>" for f in frags))
 
     def test_holoware_run_context_reset(self):
         code = "<|o_o|>First context.<|+++|>Second context."

@@ -4,7 +4,7 @@ from typing import Optional, TYPE_CHECKING
 from rich.console import Console
 
 from errloom import Attractor
-from errloom.holoware.holophore import Holophore
+from errloom.holoware.holoware.holophore import Holophore
 from errloom.holoware.holoware import ClassSpan, Holoware, TextSpan
 from errloom.lib.log import ellipse
 
@@ -65,3 +65,7 @@ class BingoAttractor(Attractor):
             return f"BingoAttractor([{ellipse(self.seed)}] -> [{ellipse(self.goal)})]"
         else:
             return f"BingoAttractor({ellipse(self.goal)})"
+
+    @property
+    def display_goal(self):
+        return self.goal[:30].replace('\n', '\\n').replace('\r', '\\r')

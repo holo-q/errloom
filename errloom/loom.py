@@ -498,13 +498,18 @@ Max concurrent: {tapestry.max_concurrent}
 
         return content if content is not None else "[ERROR] empty_response"
 
-    def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True) -> str:
+    def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True, stop_sequences: list[str] = None) -> str:
         """
         Sample a model response for a given prefix context
         MessageList or raw str in completion mode
 
         Convenience function for wrapping (chat, completion) API calls.
         Returns special error messages for context length issues.
+        
+        Args:
+            rollout: The rollout containing context for sampling
+            sanitize_sampling_args: Whether to sanitize sampling arguments for remote APIs
+            stop_sequences: List of strings where generation should stop if encountered
         """
         client = self.client
         model = self.model_name
@@ -513,6 +518,18 @@ Max concurrent: {tapestry.max_concurrent}
             sanitized_args = self.sanitize_sampling_args(client, rollout.sampling_args)
         else:
             sanitized_args = rollout.sampling_args
+
+        # Add stop sequences to sampling arguments if provided
+        if stop_sequences:
+            # Copy to avoid mutating the original args
+            sanitized_args = sanitized_args.copy()
+            # Merge with any existing stop sequences
+            existing_stop = sanitized_args.get('stop', [])
+            if isinstance(existing_stop, str):
+                existing_stop = [existing_stop]
+            elif existing_stop is None:
+                existing_stop = []
+            sanitized_args['stop'] = existing_stop + stop_sequences
 
         try:
             res: ChatCompletion

@@ -132,7 +132,6 @@ class EgoSpan(Span):
 @dataclass
 class SampleSpan(Span):
     """Sample tokens from the model"""
-    goal: str = ""
     fence: str = ""
 
     # TODO we an add other arguments for temperature and stuff, which might not be static
@@ -141,8 +140,8 @@ class SampleSpan(Span):
         return "bold green"
 
     @property
-    def display_goal(self):
-        return self.goal[:30].replace('\n', '\\n').replace('\r', '\\r')
+    def display_fence(self):
+        return self.fence[:30].replace('\n', '\\n').replace('\r', '\\r')
 
 @dataclass
 class TextSpan(Span):
@@ -432,8 +431,6 @@ class Holoware:
             segs = []
             if span.uuid:
                 segs.append(f"id={span.uuid}")
-            if span.goal:
-                segs.append(f"goal={span.display_goal}...")
             if span.fence:
                 fence_display = span.fence.replace('\n', '\\n').replace('\r', '\\r')
                 segs.append(f"fence={fence_display}")
