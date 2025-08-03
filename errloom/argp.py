@@ -3,10 +3,13 @@ import sys
 from typing import Tuple
 from errloom import defaults
 from errloom.holoware_loom import HolowareLoom
+from errloom.lib import log
 
 # Standard arguments for an Errloom training script
 # Or simply using errloom directly as a standalone program
 # ------------------------------------------------------------
+
+logger = log.getLogger(__name__)
 
 def colorize_command(command: str) -> str:
     """
@@ -50,7 +53,7 @@ def colorize_command(command: str) -> str:
         elif ":" in part and ("." in part or "localhost" in part or part.startswith("127.")):
             # IP addresses, URLs, or localhost:port
             colored_parts.append(f"[magenta]{part}[/]")
-        elif part == "<loom/holoware/session_name>":
+        # elif part == "<loom/holoware/session_name>":
             # Special handling for the complex placeholder
             colored_text = "<" + colorize_loom("loom").replace("[/]", "") + "/" + \
                           colorize_holoware("holoware").replace("[/]", "") + "/" + \
@@ -102,7 +105,7 @@ def show_help():
     from errloom.holoware_load import get_default_loader
     from rich.rule import Rule
 
-    logc()
+    # logc()
     print_errloom_banner()
     log("")
     log(Rule("[bold cyan]Home Screen", style="cyan"))
@@ -291,78 +294,95 @@ def get_base_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def parse_known_args() -> Tuple[argparse.Namespace, list]:
+def parse_known_args(args: list[str] | None = None) -> Tuple[argparse.Namespace, list]:
     """
     Parse known arguments using the base parser.
     Returns parsed known args and remaining unknown args.
+
+    Args:
+        args: Optional list of arguments to parse. If None, uses sys.argv[1:]
 
     Returns:
         Tuple[argparse.Namespace, list]: Tuple of (parsed_args, unknown_args)
     """
     parser = get_base_parser()
-    return parser.parse_known_args()
+    return parser.parse_known_args(args)
 
 
-argv = sys.argv[1:]
-args = parse_known_args()
-argv_remaining = args[1]
-errlargs = args[0]
+def parse_args():
+    """Parse command line arguments and set global variables."""
+    global argv, argv_remaining, errlargs, is_dev, is_vastai, is_vastai_continue
 
-# Automatic implication-based args
-# ----------------------------------------
-if errlargs.command == "dry":
-    errlargs.dry = True
-    errlargs.dump = False
-    # Default n to 1 for dry runs if not explicitly set
-    if errlargs.n is None or errlargs.n == 10:  # Default value
-        errlargs.n = 1
-elif errlargs.command == "dump":
-    errlargs.dry = True
-    errlargs.dump = True
-    # Default n to 1 for dump runs if not explicitly set
-    if errlargs.n is None or errlargs.n == 10:  # Default value
-        errlargs.n = 1
-elif errlargs.command == "train":
-    # Allow explicit --dry flag during training to override
-    if not hasattr(errlargs, 'dry') or not errlargs.dry:
-        errlargs.dry = False
-    errlargs.dump = False
-    # Keep default n value of 10 for train
-    if errlargs.n is None:
-        errlargs.n = 10
-else:
-    # No command specified
-    errlargs.dry = None
-    errlargs.dump = None
-    # Set default n if not specified
-    if errlargs.n is None:
-        errlargs.n = 10
+    argv = sys.argv[1:]
+    args = parse_known_args()
+    argv_remaining = args[1]
+    errlargs = args[0]
 
-is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test or errlargs.debug or errlargs.command == 'dry'
-if is_dev:
-    errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
+    # Automatic implication-based args
+    # ----------------------------------------
+    if errlargs.command == "dry":
+        errlargs.dry = True
+        errlargs.dump = False
+        # Default n to 1 for dry runs if not explicitly set
+        if errlargs.n is None or errlargs.n == 10:  # Default value
+            errlargs.n = 1
+    elif errlargs.command == "dump":
+        errlargs.dry = True
+        errlargs.dump = True
+        # Default n to 1 for dump runs if not explicitly set
+        if errlargs.n is None or errlargs.n == 10:  # Default value
+            errlargs.n = 1
+    elif errlargs.command == "train":
+        # Allow explicit --dry flag during training to override
+        if not hasattr(errlargs, 'dry') or not errlargs.dry:
+            errlargs.dry = False
+        errlargs.dump = False
+        # Keep default n value of 10 for train
+        if errlargs.n is None:
+            errlargs.n = 10
+    else:
+        # No command specified
+        errlargs.dry = None
+        errlargs.dump = None
+        # Set default n if not specified
+        if errlargs.n is None:
+            errlargs.n = 10
 
-# Validate that ware and loom are not both set
-if errlargs.ware is not None and errlargs.loom is not None:
-    raise ValueError("Cannot specify both --ware and --loom. Please choose one.")
+    is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test or errlargs.debug or errlargs.command == 'dry'
+    if is_dev:
+        errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
 
-# VastAI deployment detection
-is_vastai = errlargs.vastai or \
-            errlargs.vastai_gui or \
-            errlargs.vastai_upgrade or \
-            errlargs.vastai_install or \
-            errlargs.vastai_redeploy or \
-            errlargs.vastai_quick or \
-            errlargs.vastai_copy or \
-            errlargs.vastai_search or \
-            errlargs.vastai_destroy or \
-            errlargs.vastai_reboot or \
-            errlargs.vastai_list or \
-            errlargs.vastai_trace or \
-            errlargs.vastai_shell or \
-            errlargs.vastai_vllm
+    # Validate that ware and loom are not both set
+    if errlargs.ware is not None and errlargs.loom is not None:
+        raise ValueError("Cannot specify both --ware and --loom. Please choose one.")
 
-is_vastai_continue = errlargs.vastai or errlargs.vastai_quick
+    # VastAI deployment detection
+    is_vastai = errlargs.vastai or \
+                errlargs.vastai_gui or \
+                errlargs.vastai_upgrade or \
+                errlargs.vastai_install or \
+                errlargs.vastai_redeploy or \
+                errlargs.vastai_quick or \
+                errlargs.vastai_copy or \
+                errlargs.vastai_search or \
+                errlargs.vastai_destroy or \
+                errlargs.vastai_reboot or \
+                errlargs.vastai_list or \
+                errlargs.vastai_trace or \
+                errlargs.vastai_shell or \
+                errlargs.vastai_vllm
+
+    is_vastai_continue = errlargs.vastai or errlargs.vastai_quick
+
+# Initialize globals for command line access
+argv = sys.argv[1:]  # Raw arguments without program name
+oargs = argv[:]  # Copy for manipulation
+argv_remaining = oargs[1:]  # Remaining arguments after program name
+errlargs = parse_known_args([])[0]
+
+parse_args()
+
+logger.info(f"errlargs: {errlargs}")
 
 def get_errloom_session(load=True, *, nosubdir=False):
     """

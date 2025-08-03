@@ -1,4 +1,8 @@
 import os
+
+from errloom.holophore import Holophore
+from errloom.holoware import ClassSpan
+
 BASE_URL = "https://api.deepinfra.com/v1/openai"
 API_KEY = os.getenv("DEEPINFRA_API_KEY")
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
@@ -237,7 +241,7 @@ class ToolExecutor:
         if not holophore.contexts or not holophore.context.messages:
             return "Error: No messages to process."
 
-        last_message = holophore.context.messages[-1]
+        last_message = holophore.active_context.messages[-1]
         if last_message['role'] != 'assistant':
             return "Error: Last message is not from assistant."
 

@@ -762,6 +762,9 @@ def get_current_context():
     """Get a copy of the current thread's indent stack for passing to child threads."""
     return _get_indent_stack().copy()
 
+def clear_stack():
+    _get_indent_stack().clear()
+
 class ContextAwareThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     """
     A ThreadPoolExecutor that automatically propagates the errloom logging indent context

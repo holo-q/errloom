@@ -14,10 +14,10 @@ logger = log.getLogger(__name__)
 
 class Holophore:
     """
-    The Holophore is the "soul" of the holoware, containing the state of a single
-    execution of a holoware. This includes the rollout, which contains the sequence
-    of contexts and samples, and the environment, which contains any variables
-    or classes that are available to the holoware.
+    The Holophore is the "soul" of an holoware, containing the state of its execution.
+    This includes the rollout, which contains the sequence of contexts and samples,
+    and the environment, which contains any variables or classes that are available
+    to the holoware. It also provides a stateful interface around the rollout for mutations.
     """
 
     def __init__(self, loom, rollout: Rollout, env: dict):
@@ -57,8 +57,7 @@ class Holophore:
         self._rollout.new_context()
 
     def ensure_context(self):
-        if self.context is None:
-            self.new_context()
+        self._rollout.ensure_context()
 
     # def add_text(self, text: str):
     #     self.ensure_context()
@@ -71,11 +70,13 @@ class Holophore:
 
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
+        self.ensure_context()
         self._rollout.add_reinforced(self.ego, content)
         self.last_insertion += content
 
     def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
+        self.ensure_context()
         self._rollout.add_frozen(self.ego, content)
         self.last_insertion += content
 

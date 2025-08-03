@@ -29,7 +29,6 @@ from errloom.lib.log import (colorize_client, colorize_completion, colorize_depl
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
 
-
 def execute_dry_run(n: int):
     client = create_client_from_args(errlargs, dry_run=True)
     HolowareLoom("compressor.hol", client=client, data="agentlans/wikipedia-paragraphs", dry=True, unsafe=errlargs.unsafe).weave(errlargs.n)
@@ -60,7 +59,11 @@ def main(default_title: Optional[str] = None,
          default_data: str | Data = errlargs.data or "agentlans/wikipedia-paragraphs",
          default_loom: type | Loom = discovery.get_class(errlargs.loom) or HolowareLoom,  # TODO can we specify to the type checker that it's a Loom type in particular, not just any type?
          default_holoware: Optional[str] = errlargs.ware,
-         default_session: Optional[Session] = None):
+         default_session: Optional[Session] = None,
+         parse_args: bool = True):
+
+    if parse_args:
+        argp.parse_args()
 
     # Early detection and routing based on arguments
     loom_or_ware_arg = getattr(errlargs, 'loom_or_ware', None)
@@ -116,7 +119,7 @@ def main(default_title: Optional[str] = None,
     session = default_session or Session.Create(title)
 
     # ----------------------------------------
-    logc()
+    # logc()
     argp.print_errloom_banner()
     log("╔══════════════════════════════════════════════════════════════════════════════════╗")
     log("║                                                                                  ║")

@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 
 def _load_and_print_holoware(code: str) -> Holoware:
     """Loads holoware, prints it in a box, and returns the parsed object."""
+    holoware = HolowareParser(code).parse()
     logger.info(Panel(code, title="Holoware Code", expand=False, border_style="cyan"))
-    return HolowareParser(code).parse()
-
+    logger.info(holoware.to_rich())
+    return holoware
 
 class FilterCommentsTest(TestCase):
     def setUp(self) -> None:

@@ -17,17 +17,24 @@ log.setup_logging(
     level='debug' if errlargs.debug else errlargs.log_level,
     highlight=True,
     persistence_file=persistence_file,
-    print_paths=errlargs.print_paths,
-    print_threads=errlargs.print_threads,
+    print_paths=True or errlargs.print_paths, # TODO userconf override flag
+    print_threads=errlargs.print_threads, # TODO userconf override flag
     reset_log_columns=errlargs.reset_log_columns)
 
 # TODO make this a command line option (list of special loggers to enable)
 log.disable_logger("errloom.tapestry")
 
-discovery.crawl_package(
+discovery.crawl_package_fast(
     'errloom',
     base_classes=[Attractor, Loom, CommModel, Span],
-    check_has_attr=['__holo__']
+    method_patterns=['__holo__'],
+    skip_patterns=[
+        'errloom.gui',           # GUI modules - not needed for core functionality
+        'errloom.deploy',        # Deployment modules - heavy imports
+        'errloom.tui',           # Terminal UI modules
+        'errloom.training',      # Training modules - heavy ML imports
+        'errloom.interop.vast',  # Vast-specific interop modules
+    ]
 )
 
 # you must reference all the classes of the library directly

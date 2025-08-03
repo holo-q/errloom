@@ -6,21 +6,19 @@ from asyncio import Semaphore
 from copy import deepcopy
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from datasets import Dataset, IterableDataset  # type: ignore
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
 
 from errloom.aliases import Data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.tapestry import Rollout, Tapestry
 from errloom.lib import log
 from errloom.lib.log import ContextAwareThreadPoolExecutor, PrintedText, indent_decorator, LogContext
-from errloom.utils.model_utils import load_data
 
 if typing.TYPE_CHECKING:
     import torch.nn
     import transformers
     from errloom.session import Session
+    from openai import OpenAI
+    from openai.types.chat import ChatCompletion
 
 # noinspection PyDefaultArgument
 
@@ -42,7 +40,7 @@ class Loom(ABC):
     def __init__(self,
                  model: str | Tuple[str, 'torch.nn.Module'] | None = None,
                  tokenizer: str | Tuple[str, 'transformers.PreTrainedTokenizer'] | None = None,
-                 client: OpenAI | None = None,
+                 client: Optional['OpenAI'] = None,
                  client_args: Dict[str, Any] = {},
                  message_type: Literal['chat', 'completion'] = 'chat',
                  data: Optional[Data | str] = None,
@@ -91,7 +89,7 @@ class Loom(ABC):
             self.model_name = model
             # Load model even in dry mode for dry training
             need_model_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
-                                         and hasattr(errlargs, 'dry') and errlargs.dry)
+                                           and hasattr(errlargs, 'dry') and errlargs.dry)
             self.model = get_model(model) if (not dry or need_model_for_dry_training) else None
         else:
             self.model_name = None
@@ -105,7 +103,7 @@ class Loom(ABC):
             self.tokenizer_name = model
             # Load tokenizer even in dry mode for dry training
             need_tokenizer_for_dry_training = (dry and hasattr(errlargs, 'command') and errlargs.command == "train"
-                                             and hasattr(errlargs, 'dry') and errlargs.dry)
+                                               and hasattr(errlargs, 'dry') and errlargs.dry)
             self.tokenizer = get_tokenizer(tokenizer) if (not dry or need_tokenizer_for_dry_training) else None
         else:
             self.tokenizer_name = None
@@ -131,10 +129,10 @@ class Loom(ABC):
                     config = grpo_defaults(name=self.model_name)
 
                 self.trainer = RLTrainer(
-                        loom=self,  # Pass self as the loom argument
-                        model=self.model,  # type: ignore
-                        tokenizer=self.tokenizer,  # type: ignore
-                        args=config)
+                    loom=self,  # Pass self as the loom argument
+                    model=self.model,  # type: ignore
+                    tokenizer=self.tokenizer,  # type: ignore
+                    args=config)
         else:
             # Check if we need a trainer for dry training mode
             from errloom import errlargs
@@ -156,11 +154,11 @@ class Loom(ABC):
                             config = grpo_defaults(name=self.model_name)
 
                         self.trainer = RLTrainer(
-                                loom=self,  # Pass self as the loom argument
-                                model=self.model,  # type: ignore
-                                tokenizer=self.tokenizer,  # type: ignore
-                                args=config,
-                                dry=True)  # Pass dry=True to trainer
+                            loom=self,  # Pass self as the loom argument
+                            model=self.model,  # type: ignore
+                            tokenizer=self.tokenizer,  # type: ignore
+                            args=config,
+                            dry=True)  # Pass dry=True to trainer
 
         valid_data = self.data or self.data_train and self.data_bench
         if not valid_data:
@@ -174,6 +172,9 @@ class Loom(ABC):
                 self.client_args[k] = v
 
     def init_data(self, data, data_bench, data_train, data_split: Optional[float] = 0.5):
+        from errloom.utils.model_utils import load_data
+        from datasets import Dataset, IterableDataset  # type: ignore
+
         self.data = load_data(data)
         self.data_train = self.data if data == data_train else load_data(data_train or data)
         self.data_bench = self.data if data == data_bench else load_data(data_bench or data)
@@ -228,8 +229,8 @@ class Loom(ABC):
                 # Add error information to the rollout
                 state.samples.append(f"[ERROR] {type(e).__name__}: {str(e)}")
                 state.extra['error'] = {
-                    'type': type(e).__name__,
-                    'message': str(e),
+                    'type':       type(e).__name__,
+                    'message':    str(e),
                     'rollout_id': id(state)
                 }
 
@@ -244,6 +245,7 @@ class Loom(ABC):
                 return state
 
     def take_data(self, n=None) -> Data:
+        from datasets import Dataset
         if self.data is None:
             raise ValueError("[red]Not enough data in the training set to perform a dry run.[/red]")
         data = list(self.data.take(n))
@@ -322,8 +324,8 @@ class Loom(ABC):
 
         if self.dry:
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
-            for i,roll in enumerate(tapestry.rollouts):
-                self.logger.info_hl(f"{i+1}. {log.to_json_text(roll, indent=2, redactions=['contexts'])}")
+            for i, roll in enumerate(tapestry.rollouts):
+                self.logger.info_hl(f"{i + 1}. {log.to_json_text(roll, indent=2, redactions=['contexts'])}")
                 self.logger.info(PrintedText(roll.to_rich()))
 
         # Dump rollouts to session if requested
@@ -450,7 +452,7 @@ Max concurrent: {tapestry.max_concurrent}
     # def get_rule_weights(self) -> List[float]:
     #     return self.attractor.rule_weights
 
-    def sanitize_sampling_args(self, client: OpenAI, sampling_args: Dict[str, Any]) -> Dict[str, Any]:
+    def sanitize_sampling_args(self, client: 'OpenAI', sampling_args: Dict[str, Any]) -> Dict[str, Any]:
         from urllib.parse import urlparse
         url = urlparse(str(client.base_url))
         # check if url is not localhost/127.0.0.1/0.0.0.0
@@ -480,7 +482,6 @@ Max concurrent: {tapestry.max_concurrent}
             inputs = inputs.select(range(num_samples))
 
         return self.weave(inputs)
-
 
 
     def _handle_api_response(self, response, message_type: str) -> str:
@@ -554,6 +555,8 @@ Max concurrent: {tapestry.max_concurrent}
         """
         Make a dataset from the evaluation results.
         """
+        from datasets import Dataset  # type: ignore
+
         if tapestry is None and self.client is None:
             raise ValueError('Either tapestry or client must be provided')
         if push_to_hub and hub_name is None:

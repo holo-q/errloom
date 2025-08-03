@@ -64,19 +64,6 @@ class Context:
         if print_log:
             logger.debug(f"add_fragment: {role} -> {log.ellipse(content, 45)}")
 
-    # def add_text(self, text: str):
-    #     """Legacy method - adds as masked prompt by default."""
-    #     if self._messages and self._messages[-1].get('role') == 'assistant':
-    #         # Continuing assistant message
-    #         self.add_fragment(text, FragmentType.REINFORCE, role='assistant')
-    #     else:
-    #         self.add_fragment(text, FragmentType.FROZEN, role=None)
-    #
-    # def add_message(self, ego: str, text: str):
-    #     """Legacy method - all assistant output is reinforced."""
-    #     fragment_type = FragmentType.REINFORCE if ego == 'assistant' else FragmentType.FROZEN
-    #     self.add_fragment(text, fragment_type, role=ego)
-
     def add_frozen(self, role: Optional[str], content: str):
         """Add text to mask (ignored in training)."""
         self.add_fragment(role, content, FragmentType.FROZEN, print_log=False)
@@ -113,17 +100,15 @@ class Context:
 
         for idx, frag in enumerate(self.fragments):
             normalized_role = _normalize_role(frag.ego, is_first=(idx == 0))
-            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{log.ellipse(frag.content.replace('\\n', ' '), 45)}[/]")
+            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{log.ellipse(frag.content.replace('\n', '\\n'), 45).strip()}[/]")
 
             if current_role is None:
                 # First fragment
                 current_role = normalized_role
                 content = [frag.content]
-                # logger.debug(f"First fragment, setting current_role to {current_role}")
             elif normalized_role == current_role:
                 # Same role, accumulate content
                 content.append(frag.content)
-                # logger.debug(f"Same role {current_role}, accumulating content")
             else:
                 # Role changed, finalize previous message
                 s = "".join(content)
@@ -342,7 +327,8 @@ class Context:
 
         messages = self.to_api_messages()
         text = Text()
-        for msg in messages:
+        for i, msg in enumerate(messages):
+            is_last_msg = i == len(messages) - 1
             role = msg.get('role', 'unknown')
             content = msg.get('content', '')
             # Guard: ensure a known role for rendering
@@ -399,12 +385,12 @@ class Context:
             single_line = "\n" not in str(highlighted_content)
             if single_line:
                 text.append(f"{role}: ", style=color)
-                text.append(highlighted_content)
-                text.append("\n", style="white")
             else:
                 text.append(f"{role}:", style=color)
                 text.append("\n")
-                text.append(highlighted_content)
+
+            text.append(highlighted_content)
+            if not is_last_msg:
                 text.append("\n", style="white")
 
         return text
@@ -459,8 +445,11 @@ class Rollout:
         return self.contexts[-1]
 
     def new_context(self):
-        """Create a new context with specified mode."""
         self.contexts.append(Context())
+
+    def ensure_context(self):
+        if len(self.contexts) == 0:
+            self.new_context()
 
     def add_reinforced(self, ego: Optional[str], content: str):
         """Add text to reinforce (unmasked in training)."""
@@ -510,11 +499,6 @@ class Rollout:
         from errloom.lib.log import PrintedText
         return str(PrintedText(self))
 
-    @property
-    def context(self) -> Context:
-        """Legacy property - use active_context instead."""
-        return self.active_context
-
     def to_api_chat(self) -> APIChat:
         """
         Get OpenAI API format messages from the current context.
@@ -522,13 +506,13 @@ class Rollout:
         Returns:
             List of message dicts compatible with "OpenAI" chat completions API.
         """
-        return self.context.to_api_messages()
+        return self.active_context.to_api_messages()
 
     def to_text(self) -> str:
         """
         Get text from the current context.
         """
-        return self.context.to_api_string()
+        return self.active_context.to_api_string()
 
     def extract_fence(self, wrapper_tag: Optional[str], role: str = "assistant") -> Optional[str]:
         """
@@ -557,7 +541,7 @@ class Rollout:
         Returns:
             Extracted JSON string or None if not found
         """
-        return self.context.extract_mdjson(role)
+        return self.active_context.extract_mdjson(role)
 
     def to_rich(self) -> Panel:
         out = []

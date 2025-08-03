@@ -403,10 +403,10 @@ class AsyncBatchGenerator:
             # Use new method to get sample messages
             completions.append(rollout.to_api_chat())
             # Extract prompt from rollout context
-            if hasattr(rollout.context, 'messages') and rollout.context.messages:
-                prompts.append(rollout.context.messages)
-            elif hasattr(rollout.context, 'text'):
-                prompts.append(rollout.context.text)
+            if hasattr(rollout.active_context, 'messages') and rollout.active_context.messages:
+                prompts.append(rollout.active_context.messages)
+            elif hasattr(rollout.active_context, 'text'):
+                prompts.append(rollout.active_context.text)
             else:
                 # Fallback to row data
                 prompts.append(rollout.row.get('prompt', ''))
@@ -496,7 +496,7 @@ def process_chat_format(
     """
 
     # Extract prompt messages from rollout context
-    messages = rollout.context.messages
+    messages = rollout.active_context.messages
     if not isinstance(messages, list):
         messages = list(messages)
 
@@ -575,7 +575,7 @@ class ChatFormatStrategy(TokenizationStrategy):
     def process_rollout(self, rollout: Rollout, config: ProcessingConfig) -> TokenizedRollout:
         """Process chat format using incremental prefixes"""
         # Extract prompt messages from rollout context
-        messages = rollout.context.messages
+        messages = rollout.active_context.messages
         if not isinstance(messages, list):
             messages = list(messages)
 
