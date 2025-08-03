@@ -9,6 +9,7 @@ from errloom.holoware.holoware import Holoware, ClassSpan
 from errloom.tapestry import Rollout
 from errloom.lib import log
 from tests.base import ErrloomTest
+from errloom.holoware.holoware import TextSpan
 
 logger = log.getLogger(__name__)
 
@@ -56,11 +57,11 @@ class HoloTest(ErrloomTest, ABC):
             "HoloTest": HoloClass,
             "my_var":   "injected_value",
         }
-        self.holoware = None
-        self.holophore = None
-        self.rollout = None
+        self.holoware: Holoware | None = None
+        self.holophore: Holophore | None = None
+        self.rollout: Rollout | None = None
 
-    def run_holoware(self, code: str) -> Holophore:
+    def run_holoware(self, code: str) -> tuple[Holoware, Holophore]:
         """Helper function to parse and run a holoware string."""
         holoware = Holoware.parse(code)
         logger.info("=== PARSED: ===")
@@ -83,7 +84,7 @@ class HoloTest(ErrloomTest, ABC):
         logging.getLogger().setLevel(logging.INFO)
         logger.info(self.rollout.to_rich())
 
-        return self.holophore
+        return holoware, self.holophore
 
 # Tests
 # ----------------------------------------
@@ -91,7 +92,7 @@ class HoloTest(ErrloomTest, ABC):
 class HolowareExecutionTest(HoloTest):
     def test_holoware_run_simple_text(self):
         code = "Hello, world!"
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         self.assertEqual(len(holophore.contexts), 1)
         context = holophore.contexts[0]
@@ -101,7 +102,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_ego_change(self):
         code = "<|o_o|>User message.<|@_@|>Assistant response."
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         self.assertEqual(len(holophore.contexts), 1)
         context = holophore.contexts[0]
@@ -114,7 +115,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_obj_span(self):
         code = "<|o_o|>Value is <|my_var|>."
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         self.assertEqual(len(holophore.contexts), 1)
         context = holophore.contexts[0]
@@ -125,7 +126,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_class_lifecycle(self):
         code = "<|o_o|><|HoloTest|>"
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         self.assertEqual(len(holophore.span_bindings), 1)
         instance = list(holophore.span_bindings.values())[0]
@@ -144,7 +145,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_class_with_args(self):
         code = "<|o_o|><|HoloTest karg1 karg2 key1=val1|>"
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         instance = list(holophore.span_bindings.values())[0]
 
@@ -162,7 +163,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_sample_span(self):
         code = "<|@_@ goal=test|>"
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         context = holophore.contexts[0]
         frags = context.fragments
@@ -172,7 +173,7 @@ class HolowareExecutionTest(HoloTest):
 
     def test_holoware_run_context_reset(self):
         code = "<|o_o|>First context.<|+++|>Second context."
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         self.assertEqual(len(holophore.contexts), 2)
         frags0 = holophore.contexts[0].fragments
@@ -201,7 +202,7 @@ class HolowareExecutionTest(HoloTest):
                 return "Body text: fallback"
 
         self.env["BodyHoloTest"] = BodyHoloTest
-        holophore = self.run_holoware(code)
+        holoware, holophore = self.run_holoware(code)
 
         instance = list(holophore.span_bindings.values())[0]
         self.assertTrue(instance.holo_called)
@@ -271,33 +272,100 @@ class CompressorHolowareExecutionTest(HoloTest):
             "text": "This is the original text.",
             "original": "This is the original text.",
             "compressed": "th_is_s_th_0r1g_txt",
-            "decompressed": "This is the original text, decompressed."
+            "decompressed": "This is the original text, decompressed.",
+            "BingoAttractor": MockBingoAttractor,
+            "FidelityCritique": MockFidelityCritique,
+            "FidelityAttractor": MockFidelityAttractor,
         })
 
 
     def test_holoware_run_compressor_holoware(self):
-        holophore = self.run_holoware(COMPRESSOR_HOL)
+        holoware, holophore = self.run_holoware(COMPRESSOR_HOL)
 
-        # Check that all 3 contexts were created (train, train, eval)
+        # Assert that the correct contexts are marked for training
+        self.assertEqual(holoware.trained_contexts, [0, 1])
+
+        # 1. Check that all 3 contexts were created
         self.assertEqual(len(holophore.contexts), 3)
 
-        # Check that the class instances were created and bound
+        # 2. Check that all class instances were created and bound
         self.assertEqual(len(holophore.span_bindings), 4)
-        instance_types = [type(inst) for inst in holophore.span_bindings.values()]
-        self.assertEqual(len(instance_types), 4)
 
-        # Combine content from all contexts since BingoAttractors are in different contexts
-        all_content = ""
-        for context in holophore.contexts:
-            for frag in context.fragments:
-                all_content += frag.content
+        bingo_attractor1 = list(holophore.span_bindings.values())[0]
+        bingo_attractor2 = list(holophore.span_bindings.values())[1]
+        fidelity_critique = list(holophore.span_bindings.values())[2]
+        fidelity_attractor = list(holophore.span_bindings.values())[3]
 
-        # Check that required content appears in the combined output
-        self.assertIn("<obj id=original>This is the original text.</obj>", all_content)
-        self.assertIn("<obj id=decompressed>This is the original text, decompressed.</obj>", all_content)
-        # BingoAttractor returns its goal text from the body, not the mock "Holo!" string
-        self.assertIn("Compress the following text losslessly", all_content)  # From first BingoAttractor
-        self.assertIn("Compare the two objects and analyze", all_content)  # From second BingoAttractor  
-        self.assertIn("<think>mocked_sample</think>", all_content)
-        self.assertIn("<json>mocked_sample</json>", all_content)
-        # FidelityAttractor doesn't override __holo__ so it won't have specific output, just check for its execution
+        self.assertIsInstance(bingo_attractor1, MockBingoAttractor)
+        self.assertIsInstance(bingo_attractor2, MockBingoAttractor)
+        self.assertIsInstance(fidelity_critique, MockFidelityCritique)
+        self.assertIsInstance(fidelity_attractor, MockFidelityAttractor)
+
+        # 3. Check arguments for FidelityAttractor
+        self.assertEqual(fidelity_attractor.original_id, "original")
+        self.assertEqual(fidelity_attractor.decompressed_id, "decompressed")
+
+        # 4. Check that __holo__ methods were called
+        self.assertTrue(bingo_attractor1.holo_called)
+        self.assertTrue(bingo_attractor2.holo_called)
+        self.assertTrue(fidelity_critique.holo_called)
+        self.assertTrue(fidelity_attractor.holo_called)
+
+
+        # 5. Check the final rendered output for each context
+        context0_content = "".join(frag.content for frag in holophore.contexts[0].fragments)
+        context1_content = "".join(frag.content for frag in holophore.contexts[1].fragments)
+        context2_content = "".join(frag.content for frag in holophore.contexts[2].fragments)
+
+        # Context 0: Compression
+        self.assertIn("BINGO: Compress the following text losslessly", context0_content)
+        self.assertIn("<obj id=text>This is the original text.</obj>", context0_content)
+        self.assertIn("<compress>mocked_sample</compress>", context0_content)
+        self.assertNotIn("<decompress>", context0_content)
+        self.assertNotIn("BINGO: Compare the two objects", context0_content)
+
+
+        # Context 1: Decompression
+        self.assertIn("<obj id=compressed>th_is_s_th_0r1g_txt</obj>", context1_content)
+        self.assertIn("<decompress>mocked_sample</decompress>", context1_content)
+        self.assertNotIn("<compress>", context1_content)
+        self.assertNotIn("FidelityCritique", context1_content)
+
+        # Context 2: Evaluation
+        self.assertIn("<obj id=original>This is the original text.</obj>", context2_content)
+        self.assertIn("<obj id=decompressed>This is the original text, decompressed.</obj>", context2_content)
+        self.assertIn("BINGO: Compare the two objects and analyze", context2_content)
+        self.assertIn('{"mock_schema": "compact"}', context2_content)
+        self.assertIn("<think>mocked_sample</think>", context2_content)
+        self.assertIn("<json>mocked_sample</json>", context2_content)
+        self.assertNotIn("<compress>", context2_content)
+
+
+class MockFidelityCritique(HoloClass):
+    def __holo__(self, holophore, span):
+        self.holo_called = True
+        self.last_holo_args = (holophore, span)
+        return '{"mock_schema": "compact"}'
+
+class MockBingoAttractor(HoloClass):
+    def __holo__(self, holophore, span):
+        self.holo_called = True
+        self.last_holo_args = (holophore, span)
+        if span.body and span.body.spans:
+            text_span = span.body.first_span_by_type(TextSpan)
+            if hasattr(text_span, 'text'):
+                return f"BINGO: {text_span.text.strip()}"
+        return "BINGO: <no body>"
+
+class MockFidelityAttractor(HoloClass):
+    def __init__(self, original_id, decompressed_id, *kargs, **kwargs):
+        super().__init__(*kargs, **kwargs)
+        self.original_id = original_id
+        self.decompressed_id = decompressed_id
+
+    def __holo__(self, holophore, span):
+        # This class doesn't produce content, it's for scoring.
+        # We set flags to confirm it was processed.
+        self.holo_called = True
+        self.last_holo_args = (holophore, span)
+        return None

@@ -37,11 +37,11 @@ class FilterCommentsTest(TestCase):
 
     def test_filter_comments_only_comments(self):
         content = "# comment 1\n# comment 2"
-        self.assertEqual(filter_comments(content), "\n")
+        self.assertEqual(filter_comments(content), "")
 
     def test_filter_comments_mixed(self):
         content = "line 1\n# comment\nline 2"
-        self.assertEqual(filter_comments(content), "line 1\n\nline 2")
+        self.assertEqual(filter_comments(content), "line 1\nline 2")
 
     def test_filter_comments_with_whitespace(self):
         content = "  # comment with leading whitespace"
@@ -165,7 +165,6 @@ class HolowareParserTest(TestCase):
             (
                 "just text",
                 [
-                    {"type": EgoSpan, "attrs": {"ego": "system"}},
                     {"type": TextSpan, "attrs": {"text": "just text"}},
                 ],
             ),
@@ -181,7 +180,6 @@ class HolowareParserTest(TestCase):
             (
                 "Hello<|o_o|>",
                 [
-                    {"type": EgoSpan, "attrs": {"ego": "system"}},
                     {"type": TextSpan, "attrs": {"text": "Hello"}},
                     {"type": EgoSpan, "attrs": {"ego": "user"}},
                 ],
@@ -198,7 +196,6 @@ class HolowareParserTest(TestCase):
             (
                 "text <|o_o|> text",
                 [
-                    {"type": EgoSpan, "attrs": {"ego": "system"}},
                     {"type": TextSpan, "attrs": {"text": "text "}},
                     {"type": EgoSpan, "attrs": {"ego": "user"}},
                     {"type": TextSpan, "attrs": {"text": "text"}},
@@ -250,23 +247,21 @@ class HolowareParserTest(TestCase):
 
     def test_parser_implicit_system_ego(self):
         ware = _load_and_print_holoware("some text")
-        self.assertEqual(len(ware.spans), 2)
-        self.assertIsInstance(ware.spans[0], EgoSpan)
-        self.assertEqual(ware.spans[0].ego, "system")
-        self.assertIsInstance(ware.spans[1], TextSpan)
-        self.assertEqual(ware.spans[1].text, "some text")
+        self.assertEqual(len(ware.spans), 1)
+        self.assertIsInstance(ware.spans[0], TextSpan)
+        self.assertEqual(ware.spans[0].text, "some text")
 
     def test_parser_context_reset_clears_ego(self):
         code = "<|o_o|>hello<|+++|>world"
         ware = _load_and_print_holoware(code)
-        self.assertEqual(len(ware.spans), 5)
+        self.assertEqual(len(ware.spans), 4)
         self.assertIsInstance(ware.spans[0], EgoSpan)
         self.assertEqual(ware.spans[0].ego, "user")
+        self.assertIsInstance(ware.spans[1], TextSpan)
+        self.assertEqual(ware.spans[1].text, "hello")
         self.assertIsInstance(ware.spans[2], ContextResetSpan)
-        self.assertIsInstance(ware.spans[3], EgoSpan)
-        self.assertEqual(ware.spans[3].ego, "system")
-        self.assertIsInstance(ware.spans[4], TextSpan)
-        self.assertEqual(ware.spans[4].text, "world")
+        self.assertIsInstance(ware.spans[3], TextSpan)
+        self.assertEqual(ware.spans[3].text, "world")
 
     def test_parser_span_before_ego_raises_error(self):
         with self.assertRaises(ValueError):
@@ -287,26 +282,24 @@ class HolowareParserTest(TestCase):
     def test_parser_handles_escaped_tag_in_text(self):
         code = "This is some text with a \\<|fake_tag|> in it."
         ware = _load_and_print_holoware(code)
-        self.assertEqual(len(ware.spans), 2)
-        self.assertIsInstance(ware.spans[0], EgoSpan)
-        self.assertEqual(ware.spans[0].ego, "system")
-        self.assertIsInstance(ware.spans[1], TextSpan)
-        self.assertEqual(ware.spans[1].text, "This is some text with a <|fake_tag|> in it.")
+        self.assertEqual(len(ware.spans), 1)
+        self.assertIsInstance(ware.spans[0], TextSpan)
+        self.assertEqual(ware.spans[0].text, "This is some text with a <|fake_tag|> in it.")
 
     def test_parser_escaped_backslash_before_tag(self):
         code = "\\\\<|o_o|>"
         ware = _load_and_print_holoware(code)
-        self.assertEqual(len(ware.spans), 3)
-        self.assertIsInstance(ware.spans[1], TextSpan)
-        self.assertEqual(ware.spans[1].text, "\\")
-        self.assertIsInstance(ware.spans[2], EgoSpan)
+        self.assertEqual(len(ware.spans), 2)
+        self.assertIsInstance(ware.spans[0], TextSpan)
+        self.assertEqual(ware.spans[0].text, "\\")
+        self.assertIsInstance(ware.spans[1], EgoSpan)
 
     def test_parser_triple_backslash_escape(self):
         code = "\\\\\\<|o_o|>"
         ware = _load_and_print_holoware(code)
-        self.assertEqual(len(ware.spans), 2)
-        self.assertIsInstance(ware.spans[1], TextSpan)
-        self.assertEqual(ware.spans[1].text, "\\<|o_o|>")
+        self.assertEqual(len(ware.spans), 1)
+        self.assertIsInstance(ware.spans[0], TextSpan)
+        self.assertEqual(ware.spans[0].text, "\\<|o_o|>")
 
     def test_parser_unclosed_tag_raises_error(self):
         with self.assertRaises(ValueError) as e:
@@ -342,11 +335,9 @@ class HolowareParserTest(TestCase):
 
         body = class_span.body
         self.assertIsNotNone(body)
-        self.assertEqual(len(body.spans), 2)
-        self.assertIsInstance(body.spans[0], EgoSpan)
-        self.assertEqual(body.spans[0].ego, "system")
-        self.assertIsInstance(body.spans[1], TextSpan)
-        self.assertEqual(body.spans[1].text.strip(), "Some indented text.")
+        self.assertEqual(len(body.spans), 1)
+        self.assertIsInstance(body.spans[0], TextSpan)
+        self.assertEqual(body.spans[0].text.strip(), "Some indented text.")
 
     def test_parser_indented_block_complex(self):
         code = """<|o_o|>
@@ -372,9 +363,9 @@ class HolowareParserTest(TestCase):
 
         nested_body = item_span.body
         self.assertIsNotNone(nested_body)
-        self.assertEqual(len(nested_body.spans), 2)
-        self.assertIsInstance(nested_body.spans[1], TextSpan)
-        self.assertEqual(nested_body.spans[1].text.strip(), "Nested item")
+        self.assertEqual(len(nested_body.spans), 1)
+        self.assertIsInstance(nested_body.spans[0], TextSpan)
+        self.assertEqual(nested_body.spans[0].text.strip(), "Nested item")
 
     def test_parser_indented_block_no_block(self):
         code = "<|o_o|><|MyClass|>\nNot indented."
