@@ -45,7 +45,7 @@ from errloom.lib import log
 logger = log.getLogger(__name__)
 
 if typing.TYPE_CHECKING:
-    from errloom.holophore import Holophore
+    from errloom.holoware.holophore import Holophore
 
 def holostatic(cls):
     """
@@ -217,14 +217,14 @@ class Holoware:
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
     def __call__(self, phore: "Holophore"):
-        from errloom.holoware_handlers import HolowareHandlers
+        from errloom.holoware.holoware_handlers import HolowareHandlers
 
         # it is require since up above its only imported for type_checking whith ""
         # it is literally the case that both pyright and pycharm's own inspections
         # simply miss this and do not understand it. Behold the failures of modern
         # software engineering:
         # noinspection PyUnresolvedReferences
-        from errloom.holophore import Holophore  # noqa: F401
+        from errloom.holoware.holophore import Holophore  # noqa: F401
 
         logger.push_debug(f"WARE({self.name})" if self.name else "HOLOWARE()")
 
@@ -322,7 +322,7 @@ class Holoware:
         Returns:
             A Holoware object representing the parsed template
         """
-        from errloom.holoware_parse import HolowareParser
+        from errloom.holoware.holoware_parse import HolowareParser
         return HolowareParser(content).parse()
 
 

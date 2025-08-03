@@ -22,7 +22,7 @@ from errloom import argp, defaults, Loom
 from errloom.lib import discovery
 from errloom.aliases import Data
 from errloom.argp import create_client_from_args, errlargs, show_help
-from errloom.holoware_loom import HolowareLoom
+from errloom.holoware.holoware_loom import HolowareLoom
 from errloom.session import Session
 from errloom.lib.log import (colorize_client, colorize_completion, colorize_deployment, colorize_error, colorize_field_label, colorize_mode_dry, colorize_mode_dump, colorize_mode_production, colorize_model, colorize_rule_title, colorize_session, colorize_target, colorize_title, log, logc, logger_main)
 
@@ -316,7 +316,7 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
 def _display_holoware_source(holoware_name: str):
     """Display the source code of a holoware file."""
     from errloom.lib.log import colorize_holoware, colorize_error, colorize_success
-    from errloom.holoware_load import get_default_loader
+    from errloom.holoware.holoware_loader import get_default_loader
     from rich.syntax import Syntax
 
     try:

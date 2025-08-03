@@ -4,11 +4,11 @@ from typing import Optional
 from rich.table import Table
 from rich.box import Box
 
-from errloom import holoware_load
-from errloom.holophore import Holophore
+from errloom.holoware import holoware_loader
+from errloom.holoware.holophore import Holophore
+
 from errloom.loom import Loom
 from errloom.tapestry import Rollout
-from errloom.lib.log import PrintedText
 
 # logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-        self.holoware = holoware_load.get_default_loader().load_holoware(path)
+        self.holoware = holoware_loader.get_default_loader().load_holoware(path)
 
         tb = Table(box=EMPTY)
         tb.add_column("Parameter", style="cyan", width=25)

@@ -2,7 +2,7 @@ import argparse
 import sys
 from typing import Tuple
 from errloom import defaults
-from errloom.holoware_loom import HolowareLoom
+from errloom.holoware.holoware_loom import HolowareLoom
 from errloom.lib import log
 
 # Standard arguments for an Errloom training script
@@ -101,8 +101,8 @@ def print_errloom_banner():
 
 def show_help():
     """Display comprehensive help for errloom commands"""
-    from errloom.lib.log import log, logc, colorize_field_label
-    from errloom.holoware_load import get_default_loader
+    from errloom.lib.log import log, colorize_field_label
+    from errloom.holoware.holoware_loader import get_default_loader
     from rich.rule import Rule
 
     # logc()

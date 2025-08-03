@@ -1,12 +1,10 @@
-import asyncio
 import concurrent.futures
 import inspect
 import logging
-from asyncio import Semaphore
 from typing import Callable, List
 
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan
+from errloom.holoware.holophore import Holophore
+from errloom.holoware.holoware import ClassSpan
 from errloom.parsing.parser import Parser
 from errloom.tapestry import Rollout, Tapestry
 
@@ -129,7 +127,7 @@ class Attractor:
                 for func in self._rule_funcs
             ]
             gravities = [future.result() for future in futures]
-        
+
         return {func.__name__: gravity for func, gravity in zip(self._rule_funcs, gravities)}
         # rollout.reward += sum([gravity * weight for gravity, weight in zip(gravity_scores, self.get_rule_weights())])
 
@@ -147,17 +145,17 @@ class Attractor:
         :param tapestry:
         """
         from tqdm import tqdm
-        
+
         # Use concurrent.futures directly to avoid nested event loop issues
         with concurrent.futures.ThreadPoolExecutor(max_workers=tapestry.max_concurrent) as executor:
             futures = [
                 executor.submit(self.feel, rollout)
                 for rollout in tapestry.rollouts
             ]
-            
+
             # Use tqdm to show progress
-            for future in tqdm(concurrent.futures.as_completed(futures), 
-                              total=len(tapestry.rollouts), 
+            for future in tqdm(concurrent.futures.as_completed(futures),
+                              total=len(tapestry.rollouts),
                               desc=f"Evaluating {len(tapestry.rollouts)} rollouts"):
                 future.result()  # Wait for completion
 

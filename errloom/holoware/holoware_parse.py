@@ -5,8 +5,8 @@ from typing import Dict, Optional, Tuple
 from rich.panel import Panel
 
 from errloom.lib.log import indent_decorator
-from .lib import log
-from .holoware import (
+from errloom.lib import log
+from errloom.holoware.holoware import (
     ClassSpan,
     ContextResetSpan,
     EgoSpan,

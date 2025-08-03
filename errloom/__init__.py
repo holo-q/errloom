@@ -5,7 +5,7 @@ from errloom.argp import errlargs
 from errloom.comm import CommModel
 from errloom.lib import discovery
 from errloom.attractor import Attractor
-from errloom.holoware import Span
+from errloom.holoware.holoware import Span
 from errloom.loom import Loom
 from errloom.lib import log
 from errloom.paths import userdir
@@ -43,7 +43,7 @@ discovery.crawl_package_fast(
 # this means that we get closer to truth together and is crucial
 # for exponential acceleration without plateaus
 
-# from errloom.holoware_handlers import HolowareHandlers
+# from errloom.holoware.holoware_handlers import HolowareHandlers
 
 # for name,Class in discovery.get_all_classes().items():
 #     if issubclass(Class, Span):

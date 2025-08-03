@@ -4,8 +4,8 @@ from typing import Optional, TYPE_CHECKING
 from rich.console import Console
 
 from errloom import Attractor
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan, Holoware, TextSpan
+from errloom.holoware.holophore import Holophore
+from errloom.holoware.holoware import ClassSpan, Holoware, TextSpan
 from errloom.lib.log import ellipse
 
 if TYPE_CHECKING:

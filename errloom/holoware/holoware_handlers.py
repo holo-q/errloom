@@ -1,7 +1,7 @@
 import logging
 
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan, ContextResetSpan, EgoSpan, ObjSpan, SampleSpan, TextSpan
+from errloom.holoware.holophore import Holophore
+from errloom.holoware.holoware import ClassSpan, ContextResetSpan, EgoSpan, ObjSpan, SampleSpan, TextSpan
 
 logger = logging.getLogger(__name__)
 

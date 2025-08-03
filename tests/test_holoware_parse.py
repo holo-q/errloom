@@ -2,7 +2,7 @@ from testslide import TestCase
 from rich.panel import Panel
 import logging
 
-from errloom.holoware import (
+from errloom.holoware.holoware import (
     ClassSpan,
     ContextResetSpan,
     EgoSpan,
@@ -11,7 +11,7 @@ from errloom.holoware import (
     SampleSpan,
     TextSpan,
 )
-from errloom.holoware_parse import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
+from errloom.holoware.holoware_parse import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
 from errloom.lib import log
 
 logger = logging.getLogger(__name__)

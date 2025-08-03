@@ -2,7 +2,7 @@ import json
 
 from pydantic import BaseModel
 
-from errloom.holoware import holostatic
+from errloom.holoware.holoware import holostatic
 
 @holostatic
 class CommModel(BaseModel):

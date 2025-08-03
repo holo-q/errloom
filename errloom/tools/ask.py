@@ -1,7 +1,7 @@
 import os
 
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan
+from errloom.holoware.holophore import Holophore
+from errloom.holoware.holoware import ClassSpan
 
 BASE_URL = "https://api.deepinfra.com/v1/openai"
 API_KEY = os.getenv("DEEPINFRA_API_KEY")
@@ -164,7 +164,6 @@ def search(query: str) -> str:
         {"query": "what is the capital of France"} -> ["Paris is the capital of France", ...]
         {"query": "when was the Declaration of Independence signed"} -> ["The Declaration of Independence was signed on July 4, 1776", ...]
     """
-    from typing import List, Dict, Any
 
     try:
         from brave import Brave  # type: ignore

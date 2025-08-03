@@ -3,8 +3,6 @@ from typing import Any, Callable, Dict, List
 
 from datasets import Dataset
 
-from errloom.holophore import Holophore
-from errloom.holoware import ClassSpan
 from errloom.utils.openai_chat import MessageList
 from errloom import FnRule
 from errloom.parsing.smola_parser import SmolaParser

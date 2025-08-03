@@ -1,14 +1,14 @@
 import inspect
 import typing
 
-from errloom.holoware import Span
+from errloom.holoware.holoware import Span
 from errloom.tapestry import Rollout
 from errloom.lib import log
 
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom
-    from errloom.holoware import Holoware
+    from errloom.holoware.holoware import Holoware
 
 logger = log.getLogger(__name__)
 

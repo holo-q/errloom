@@ -4,7 +4,8 @@ import logging
 import os
 from typing import List, Optional
 
-from errloom.holoware import Holoware
+from errloom.holoware.holoware import Holoware
+from errloom.holoware import holoware_parse
 
 logger = logging.getLogger(__name__)
 _default_loader = None
@@ -46,7 +47,6 @@ class HolowareLoader:
         """
         Load a prompt from file and parse it if it uses the DSL.
         """
-        from errloom import holoware_parse
 
         if filename in self._cache:
             return self._cache[filename]

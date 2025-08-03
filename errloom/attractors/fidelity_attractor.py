@@ -1,4 +1,3 @@
-import logging
 import random
 from typing import List, Literal
 
@@ -7,7 +6,7 @@ from pydantic import Field
 from errloom import Span
 from errloom.attractor import Attractor
 from errloom.comm import CommModel
-from errloom.holophore import Holophore
+from errloom.holoware.holophore import Holophore
 
 class FidelityCritique(CommModel):
     """
