@@ -59,15 +59,6 @@ class Holophore:
     def ensure_context(self):
         self._rollout.ensure_context()
 
-    # def add_text(self, text: str):
-    #     self.ensure_context()
-    #     ctx = self.context
-    #     if len(ctx.fragments) == 0 or self.ego != ctx.fragments[-1].ego:
-    #         ctx.add_message(self.ego, text)
-    #     else:
-    #         ctx.add_text(text)
-    #     self._newtext += text
-
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
         self.ensure_context()

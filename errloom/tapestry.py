@@ -100,7 +100,8 @@ class Context:
 
         for idx, frag in enumerate(self.fragments):
             normalized_role = _normalize_role(frag.ego, is_first=(idx == 0))
-            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{log.ellipse(frag.content.replace('\n', '\\n'), 45).strip()}[/]")
+            ellipsed_content = log.ellipse(frag.content.replace('\n', '\\n'), 45).strip()
+            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{ellipsed_content}[/]")
 
             if current_role is None:
                 # First fragment
