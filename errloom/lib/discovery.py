@@ -43,34 +43,34 @@ _text_scan_cache: Dict[str, Dict[str, Set[str]]] = {}  # module_path -> {pattern
 def scan_file_for_classes(file_path: Path, base_class_names: Set[str], method_patterns: Optional[List[str]] = None) -> Dict[str, Set[str]]:
     """
     Scan a Python file for class definitions without importing it.
-    
+
     Args:
         file_path: Path to the Python file to scan
         base_class_names: Set of base class names to look for in inheritance
         method_patterns: List of method name patterns to search for (e.g., ['__holo__', '__call__'])
-    
+
     Returns:
         Dict with keys 'inheritance' and 'special_methods' mapping to sets of class names
     """
     cache_key = str(file_path)
     if cache_key in _text_scan_cache:
         return _text_scan_cache[cache_key]
-    
+
     method_patterns = method_patterns or []
-    
+
     try:
         content = file_path.read_text(encoding='utf-8')
     except (UnicodeDecodeError, OSError):
         # Skip files that can't be read as UTF-8 or don't exist
         return {'inheritance': set(), 'special_methods': set()}
-    
+
     inheritance_classes = set()
     special_method_classes = set()
-    
+
     # Pattern for class definitions (with or without inheritance)
     # Matches: class SomeName: or class SomeName(BaseClass): or class SomeName(Base1, Base2):
     class_pattern = r'^class\s+(\w+)(?:\s*\(\s*([^)]*)\s*\))?\s*:'
-    
+
     # Build patterns for special methods
     method_regex_patterns = []
     for method_name in method_patterns:
@@ -78,10 +78,10 @@ def scan_file_for_classes(file_path: Path, base_class_names: Set[str], method_pa
         escaped_method = re.escape(method_name)
         pattern = rf'^\s+(async\s+)?def\s+{escaped_method}\s*\('
         method_regex_patterns.append(pattern)
-    
+
     lines = content.split('\n')
     current_class = None
-    
+
     for line in lines:
         # Check for class definitions
         class_match = re.match(class_pattern, line)
@@ -89,26 +89,26 @@ def scan_file_for_classes(file_path: Path, base_class_names: Set[str], method_pa
             class_name = class_match.group(1)
             inheritance_list = class_match.group(2)  # May be None if no inheritance
             current_class = class_name
-            
+
             # Check if any of the base classes match our target base classes
             if inheritance_list and base_class_names:
                 for base_name in base_class_names:
                     if base_name in inheritance_list:
                         inheritance_classes.add(class_name)
                         break
-        
+
         # Check for special methods within classes
         elif current_class and method_regex_patterns:
             for pattern in method_regex_patterns:
                 if re.match(pattern, line):
                     special_method_classes.add(current_class)
                     break
-        
+
         # Reset current_class when we exit the class (crude but effective)
         elif line.strip() and not line.startswith(' ') and not line.startswith('\t'):
             if not line.startswith('#') and not line.startswith('"""') and not line.startswith("'''"):
                 current_class = None
-    
+
     result = {'inheritance': inheritance_classes, 'special_methods': special_method_classes}
     _text_scan_cache[cache_key] = result
     return result
@@ -124,11 +124,11 @@ def crawl_package_fast(
     """
     Fast text-based package crawling that scans files without importing them.
     Classes are indexed by location but only imported when requested.
-    
+
     Args:
         package_name: Name of the package to crawl
         base_classes: List of base classes to match against
-        check_has_attr: List of attribute names to check for  
+        check_has_attr: List of attribute names to check for
         method_patterns: List of method names to search for (e.g., ['__holo__', '__call__'])
         skip_patterns: List of module name patterns to skip during crawling
     """
@@ -140,9 +140,9 @@ def crawl_package_fast(
     base_class_names = set()
     if base_classes:
         base_class_names.update(cls.__name__ for cls in base_classes)
-    
+
     logger.debug(f"🔍 [bold cyan]FAST CRAWLING[/bold cyan] {package_name}")
-    
+
     # Build criteria description
     criteria = []
     if base_class_names:
@@ -151,7 +151,7 @@ def crawl_package_fast(
         criteria.append(f"attrs: {check_has_attr}")
     if method_patterns:
         criteria.append(f"methods: {method_patterns}")
-    
+
     if criteria:
         logger.debug(f"   🎯 {' | '.join(criteria)}")
 
@@ -168,41 +168,41 @@ def crawl_package_fast(
     package_path = Path(package.__file__).parent
     candidate_modules = []
     scanned_files = 0
-    
+
     # Scan all .py files in the package
     for py_file in package_path.rglob("*.py"):
         if py_file.name.startswith("__"):
             continue
-            
+
         scanned_files += 1
         relative_path = py_file.relative_to(package_path.parent)
         module_name = str(relative_path.with_suffix("")).replace(os.sep, ".")
-        
+
         # Apply skip patterns
         if skip_patterns:
             should_skip = any(pattern in module_name for pattern in skip_patterns)
             if should_skip:
-                logger.debug(f"   ⏭️  [dim]Skipping {py_file.name}[/dim]")
+                logger.debug(f"   ⏭️  [dim]Skipping {py_file.name.strip()}[/dim]")
                 continue
-        
+
         # Scan file for classes
         scan_result = scan_file_for_classes(py_file, base_class_names, method_patterns)
-        
+
         if scan_result['inheritance'] or scan_result['special_methods']:
             candidate_modules.append((module_name, scan_result))
-    
+
     # Index classes without importing modules
     indexed_count = 0
     for module_name, scan_result in candidate_modules:
         indexed_in_module = []
-        
+
         # Index inheritance-based classes
         if scan_result['inheritance']:
             for class_name in scan_result['inheritance']:
                 _class_index[class_name] = module_name
                 indexed_count += 1
                 indexed_in_module.append(f"{class_name}→inheritance")
-        
+
         # Index special method classes
         if scan_result['special_methods']:
             for class_name in scan_result['special_methods']:
@@ -210,7 +210,7 @@ def crawl_package_fast(
                 indexed_count += 1
                 method_indicator = f"@{method_patterns[0] if method_patterns else 'method'}"
                 indexed_in_module.append(f"{class_name}{method_indicator}")
-        
+
         if indexed_in_module:
             module_short = module_name.replace(f"{package_name}.", "")
             logger.debug(f"   📦 [green]{module_short}[/green]: {', '.join(indexed_in_module)}")
@@ -227,7 +227,7 @@ def crawl_package(
 ):
     """
     LEGACY: Eager loading package crawler. Use crawl_package_fast() for lazy loading.
-    
+
     Crawls a given package to find and register classes based on specified criteria.
     This function imports all modules immediately and stores class objects in the registry.
 
@@ -252,7 +252,7 @@ def crawl_package(
     base_classes = base_classes or []
 
     logger.debug(f"🔍 [bold cyan]CRAWLING[/bold cyan] {package_name}")
-    
+
     # Log search criteria on one line
     criteria = []
     if base_classes:
@@ -275,21 +275,21 @@ def crawl_package(
     package_path = os.path.dirname(package.__file__)
     registered_count = 0
     module_count = 0
-    
+
     def visit_module(module_info):
         nonlocal registered_count, module_count
         module_count += 1
         full_module_name = module_info.name
-        
+
         try:
             module = importlib.import_module(full_module_name)
-            
+
             registered_in_module = []
             for name, obj in inspect.getmembers(module):
                 if inspect.isclass(obj):
                     should_register = False
                     match_reason = None
-                    
+
                     if base_classes:
                         for base in base_classes:
                             if issubclass(obj, base) and obj is not base:
@@ -308,7 +308,7 @@ def crawl_package(
                         _class_registry[obj.__name__] = obj
                         registered_count += 1
                         registered_in_module.append(f"{name}{match_reason}")
-            
+
             # Only log modules that registered classes
             if registered_in_module:
                 module_short = full_module_name.replace(f"{package_name}.", "")
@@ -328,11 +328,11 @@ def crawl_package(
             if should_skip:
                 logger.debug(f"   ⏭️  [dim]Skipping {module_info.name.split('.')[-1]}[/dim]")
                 continue
-        
+
         visit_module(module_info)
 
     _crawled_packages.add(package_name)
-    
+
     logger.debug(f"   ✅ [bold green]COMPLETE[/bold green] {registered_count}/{module_count} classes/modules → {len(_class_registry)} total")
 
 
@@ -345,33 +345,33 @@ def get_class(name: str) -> Type[Any] | None:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"🔍 {name} ✅ [cached]")
         return _class_registry[name]
-    
+
     # Check if we know where to find it
     if name not in _class_index:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"🔍 {name} ❌ [not indexed]")
         return None
-    
+
     # Lazy import the module and find the class
     module_name = _class_index[name]
     try:
+        logger.debug(f"🔍 Importing {name} from {module_name}")
         module = importlib.import_module(module_name)
-        
+
         # Find the class in the module
         for class_name, obj in inspect.getmembers(module, inspect.isclass):
             if class_name == name:
                 _class_registry[name] = obj
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"🔍 {name} ✅ [lazy loaded from {module_name}]")
+                logger.debug(f"✅ Successfully imported {name}")
                 return obj
-        
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"🔍 {name} ❌ [not found in {module_name}]")
+
+        logger.error(f"❌ Class {name} not found in module {module_name}")
         return None
-        
+
     except Exception as e:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"🔍 {name} ❌ [import failed: {str(e)[:30]}]")
+        logger.error(f"❌ Failed to import {name} from {module_name}: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -383,7 +383,7 @@ def get_all_classes() -> Dict[str, Type[Any]]:
     for class_name in _class_index:
         if class_name not in _class_registry:
             get_class(class_name)  # This will lazy-load it
-    
+
     logger.debug(f"📚 [cyan]Registry dump[/cyan]: {len(_class_registry)} classes (from {len(_class_index)} indexed)")
     return _class_registry.copy()
 
@@ -393,12 +393,12 @@ _cache_valid = False
 def find_special_classes(method_names: Optional[List[str]] = None):
     """
     Find classes in loaded modules that have specific methods.
-    
+
     Args:
         method_names: List of method names to look for (defaults to ['__holo__'] for backwards compatibility)
     """
     global _special_classes_cache, _cache_valid
-    
+
     method_names = method_names or ['__holo__']
     cache_key = tuple(sorted(method_names))
 
@@ -408,11 +408,11 @@ def find_special_classes(method_names: Optional[List[str]] = None):
         return cached_classes
 
     logger.debug(f"🔍 [bold cyan]SCANNING SPECIAL CLASSES[/bold cyan]: {method_names}")
-    
+
     special_classes = {}
     modules = dict(sys.modules)
     found_classes = 0
-    
+
     for module_name, module in modules.items():
         if module is None:
             continue
@@ -428,51 +428,58 @@ def find_special_classes(method_names: Optional[List[str]] = None):
                         found_classes += 1
                         module_special_classes.append(f"{name}@{method_name}")
                         break  # Found one method, no need to check others
-            
+
             # Only log modules with special classes
             if module_special_classes:
                 module_short = module_name.split('.')[-1] if '.' in module_name else module_name
                 logger.debug(f"   🎭 [green]{module_short}[/green]: {', '.join(module_special_classes)}")
-                
+
         except Exception:
             continue
 
     _special_classes_cache[cache_key] = special_classes
     _cache_valid = True
-    
+
     logger.debug(f"   ✅ [bold green]COMPLETE[/bold green] {found_classes} special classes found")
-    
+
     return special_classes
 
 def resolve_special_class(class_name: str, method_names: Optional[List[str]] = None):
     """
     Resolve a class by name that has specific methods, using lazy loading first, then fallback to module scanning.
-    
+
     Args:
         class_name: Name of the class to find
         method_names: List of method names the class should have (defaults to ['__holo__'])
     """
     method_names = method_names or ['__holo__']
-    
+
     # First try lazy loading from index
-    result = get_class(class_name)
-    if result:
-        # Check if it has any of the required methods
-        for method_name in method_names:
-            if hasattr(result, method_name):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"🎯 {class_name} ✅ [lazy]")
-                return result
-    
+    try:
+        result = get_class(class_name)
+        if result:
+            # Check if it has any of the required methods
+            for method_name in method_names:
+                if hasattr(result, method_name):
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"🎯 {class_name} ✅ [lazy]")
+                    return result
+    except Exception as e:
+        logger.error(f"❌ Failed to load {class_name} via get_class(): {e}")
+
     # Fallback to scanning loaded modules
-    special_classes = find_special_classes(method_names)
-    result = special_classes.get(class_name)
-    
-    if logger.isEnabledFor(logging.DEBUG):
-        status = "✅ [scanned]" if result else "❌"
-        logger.debug(f"🎯 {class_name} {status}")
-    
-    return result
+    try:
+        special_classes = find_special_classes(method_names)
+        result = special_classes.get(class_name)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            status = "✅ [scanned]" if result else "❌"
+            logger.debug(f"🎯 {class_name} {status}")
+
+        return result
+    except Exception as e:
+        logger.error(f"❌ Failed to scan for {class_name}: {e}")
+        return None
 
 
 def resolve_holo_class(class_name: str):
@@ -485,7 +492,7 @@ def resolve_holo_class(class_name: str):
 
 def find_holo_classes():
     """
-    DEPRECATED: Use find_special_classes() instead. 
+    DEPRECATED: Use find_special_classes() instead.
     Find holo classes (backwards compatibility).
     """
     return find_special_classes(['__holo__'])
@@ -511,8 +518,8 @@ def invalidate_holo_cache():
 
 
 def crawl_on_demand(
-    module_patterns: List[str], 
-    base_classes: Optional[List[Type[Any]]] = None, 
+    module_patterns: List[str],
+    base_classes: Optional[List[Type[Any]]] = None,
     check_has_attr: Optional[List[str]] = None,
     method_patterns: Optional[List[str]] = None,
     skip_patterns: Optional[List[str]] = None,
@@ -520,28 +527,28 @@ def crawl_on_demand(
     """
     Crawl specific module patterns that were previously skipped during initial package crawling.
     Uses lazy indexing - classes are catalogued but not imported until requested.
-    
+
     Args:
         module_patterns: List of module patterns to crawl (e.g., ['errloom.training', 'errloom.gui'])
-        base_classes: List of base classes to match against  
+        base_classes: List of base classes to match against
         check_has_attr: List of attribute names to check for
         method_patterns: List of method names to search for
         skip_patterns: List of module patterns to skip
     """
     logger.debug(f"🔄 [bold cyan]ON-DEMAND CRAWL[/bold cyan]: {module_patterns}")
-    
+
     for pattern in module_patterns:
         try:
             # Use lazy crawling - index classes without importing
             crawl_package_fast(
-                pattern, 
-                base_classes=base_classes, 
+                pattern,
+                base_classes=base_classes,
                 check_has_attr=check_has_attr,
                 method_patterns=method_patterns,
                 skip_patterns=skip_patterns
             )
         except Exception as e:
             logger.debug(f"   ❌ [red]Failed to crawl {pattern}: {e}[/red]")
-    
+
     # Invalidate special class cache since we may have found new classes
     invalidate_special_cache()

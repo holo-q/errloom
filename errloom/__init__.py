@@ -24,6 +24,11 @@ log.setup_logging(
 # TODO make this a command line option (list of special loggers to enable)
 log.disable_logger("errloom.tapestry")
 
+# Debug: Let's see what classes are discovered
+import logging
+logger = logging.getLogger(__name__)
+logger.info("🔍 Starting package discovery for errloom...")
+
 discovery.crawl_package_fast(
     'errloom',
     base_classes=[Attractor, Loom, CommModel, Span],
@@ -36,6 +41,24 @@ discovery.crawl_package_fast(
         'errloom.interop.vast',  # Vast-specific interop modules
     ]
 )
+
+# Debug: Check if BingoAttractor is in the index
+class_index = discovery.get_class_index()
+logger.info(f"📋 Class index contains {len(class_index)} classes:")
+for class_name in sorted(class_index.keys()):
+    if 'Bingo' in class_name or 'Attractor' in class_name:
+        logger.info(f"   🎯 Found: {class_name} -> {class_index[class_name]}")
+
+# Debug: Try to get BingoAttractor class
+bingo_class = discovery.get_class('BingoAttractor')
+if bingo_class:
+    logger.info(f"✅ BingoAttractor successfully loaded: {bingo_class}")
+else:
+    logger.error(f"❌ BingoAttractor could not be loaded!")
+    # Let's see what attractor classes are available
+    all_classes = discovery.get_all_classes()
+    attractor_classes = [name for name in all_classes.keys() if 'Attractor' in name]
+    logger.info(f"🔍 Available Attractor classes: {attractor_classes}")
 
 # you must reference all the classes of the library directly
 # if there is an update to the library and the class is now missing

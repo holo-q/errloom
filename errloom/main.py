@@ -123,7 +123,7 @@ def main(default_title: Optional[str] = None,
     argp.print_errloom_banner()
     log(f"╔══════════════════════════════════════════════════════════════════════════════════╗")
     log(f"║                                                                                  ║")
-    log(f"║                        {colorize_title('🚀 TRAINING SESSION 🚀')}                                 ║")
+    log(f"║                        {colorize_title('🚀 TRAINING SESSION 🚀')}                                    ║")
     log(f"║                                                                                  ║")
     log(f"╚══════════════════════════════════════════════════════════════════════════════════╝")
     log(f"")
