@@ -1,38 +1,30 @@
+import colorsys
+import concurrent.futures
 import logging
 import os
 import sys
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
 from math import ceil
 from pathlib import Path
-from threading import local
-from typing import Callable, Optional, Any
-from contextlib import contextmanager
 from time import perf_counter
-import colorsys
+from typing import Any, Callable, Optional
 
 import rich.traceback
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
-import concurrent.futures
+
+from errloom import paths  # noqa: E402
+# Centralized persistence paths
+# Storage is available if needed for future extensions; avoid adding dynamic fields
+# Persisted storage (lives under ~/.errloom via paths.userdir)
+from errloom.storage import application as storage_application, application as storage_application  # noqa: F401; noqa: E402
 
 # Centralized persistence paths (no dynamic writes to Storage schema)
-from errloom import paths
-
-# Centralized persistence paths
-from errloom import paths  # ~/.errloom paths
-# Storage is available if needed for future extensions; avoid adding dynamic fields
-from errloom.storage import application as storage_application  # noqa: F401
-
 # Centralized persistence
-from errloom import paths  # ~/.errloom paths
-from errloom.storage import application as storage_application  # global JSON storage
-
-# Persisted storage (lives under ~/.errloom via paths.userdir)
-from errloom.storage import application as storage_application  # noqa: E402
-from errloom import paths  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +105,6 @@ def _set_trace_indent(value):
 
 def get_color_for_time(seconds: float) -> str:
     """Get a Rich color style based on elapsed time for visual feedback."""
-    from rich.style import Style
 
     # Define our gradient keypoints (time in seconds, hue)
     keypoints = [
@@ -1046,7 +1037,7 @@ def PrintedText(renderable, prefix_cols: int | None = None, width: int | None = 
 
     # Deduct the left prefix from the total, leaving at least MIN_PAYLOAD_WIDTH.
     left_cols = int(prefix_cols) if isinstance(prefix_cols, int) and prefix_cols > 0 else 0
-    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols)
+    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols - 10) # TODO why the fuck do we need to substract 10 ? none of the Rule(...) fit the console size without this.
 
     # Use a dedicated console at the computed payload width.
     c = Console(width=payload_width)

@@ -3,14 +3,13 @@
 import logging
 import socket
 import unittest
-from typing import Any, Dict
+from typing import Any, cast, Dict
 from unittest.mock import patch
-from typing import cast
 
-from tests.base import ErrloomTest
-
+from errloom.interop.vllm_client import VLLMClient
 from errloom.loom import Loom
 from errloom.tapestry import Rollout
+from tests.base import ErrloomTest
 
 try:
     from datasets import Dataset  # type: ignore
@@ -18,6 +17,9 @@ except Exception:
     Dataset = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+HOST = "localhost"
+PORT = 8000
 
 def _is_port_open(host: str, port: int, timeout: float = 0.25) -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -122,22 +124,25 @@ class LoomSamplingUnitTest(ErrloomTest):
         preview = gen[:200].replace("\n", "\\n")
         logger.info(f"streaming_with_stops -> {preview}")
 
+class LoomClientTest(ErrloomTest):
+    def setUp(self):
+        super().setUp()
+        self.client = VLLMClient(host=HOST, port=PORT, connection_timeout=1.0)
 
-class LoomVLLMIntegrationTest(ErrloomTest):
+    def tearDown(self):
+        super().tearDown()
+        self.client.close()
+
+class LoomVLLMIntegrationTest(LoomClientTest):
     """
     Full VLLMClient inference test, skipped unless localhost:8000 is reachable.
     Does not attempt to boot or manage the server; assumes user runs it separately.
     """
 
-    HOST = "localhost"
-    PORT = 8000
 
     @unittest.skipUnless(_is_port_open(HOST, PORT), "vLLM server not reachable at localhost:8000; skipping integration test")
     def test_vllm_client_inference_chat(self):
         # Import here to avoid hard dependency when server isn't used
-        from errloom.interop.vllm_client import VLLMClient  # errloom.interop.vllm_client.VLLMClient.__init__()
-
-        client = VLLMClient(host=self.HOST, port=self.PORT, connection_timeout=1.0)
 
         # Build a Loom that uses VLLMClient; dry=True to avoid trainer/model init
         data = [{"id": 1, "question": "Who are you?", "answer": ""}]
@@ -149,7 +154,7 @@ class LoomVLLMIntegrationTest(ErrloomTest):
             loom = _MinimalLoom(
                 model="Qwen/Qwen3-4B",
                 tokenizer="Qwen/Qwen3-4B",
-                client=cast(Any, client),  # type: ignore[arg-type]
+                client=cast(Any, self.client),  # type: ignore[arg-type]
                 client_args={"temperature": 0.0, "max_tokens": 32},
                 message_type="chat",
                 data=data_ds,        # type: ignore[arg-type]
@@ -178,10 +183,6 @@ class LoomVLLMIntegrationTest(ErrloomTest):
 
     @unittest.skipUnless(_is_port_open(HOST, PORT), "vLLM server not reachable at localhost:8000; skipping integration test")
     def test_vllm_client_inference_completion(self):
-        from errloom.interop.vllm_client import VLLMClient  # errloom.interop.vllm_client.VLLMClient.__init__()
-
-        client = VLLMClient(host=self.HOST, port=self.PORT, connection_timeout=1.0)
-
         data = [{"id": 2, "prompt": "Echo: ping ->", "answer": ""}]
         if Dataset is not None:
             data_ds2 = Dataset.from_list(data)  # type: ignore
@@ -191,7 +192,7 @@ class LoomVLLMIntegrationTest(ErrloomTest):
             loom = _MinimalLoom(
                 model="Qwen/Qwen3-4B",
                 tokenizer="Qwen/Qwen3-4B",
-                client=cast(Any, client),  # type: ignore[arg-type]
+                client=cast(Any, self.client),  # type: ignore[arg-type]
                 client_args={"temperature": 0.0, "max_tokens": 32},
                 message_type="completion",
                 data=data_ds2,        # type: ignore[arg-type]

@@ -279,6 +279,8 @@ class Loom(ABC):
         # self.logger.header_info("")
         self.logger.push_info("WEAVE")
 
+        from errloom import test_rollout_conversation
+
         async def unroll_row(semaphore: Semaphore, state: Rollout, executor: concurrent.futures.Executor) -> Rollout:
             """
             Run a rollout for a given prompt.
@@ -327,7 +329,7 @@ class Loom(ABC):
             self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
             for i, roll in enumerate(tapestry.rollouts):
                 self.logger.info_hl(f"{i + 1}. {log.to_json_text(roll, indent=2, redactions=['contexts'])}")
-                self.logger.info(PrintedText(roll.to_rich()))
+                self.logger.info(roll.to_rich())
 
         # Dump rollouts to session if requested
         if self.dump_rollouts and self.session:
@@ -521,7 +523,7 @@ Max concurrent: {tapestry.max_concurrent}
             sanitized_args = rollout.sampling_args
 
         # If we have custom stop sequences, we need to use streaming
-        if stop_sequences:
+        if stop_sequences and not self.dry:
             return self._sample_with_streaming(
                 rollout=rollout,
                 sanitized_args=sanitized_args,

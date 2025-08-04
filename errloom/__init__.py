@@ -1,6 +1,7 @@
 __version__ = "0.1.0"
 
 from errloom.lib import log
+from errloom.tapestry import Rollout
 
 log.setup_logging(
     level="info",
@@ -63,3 +64,21 @@ discovery.crawl_package_fast(
 #     if issubclass(Class, Span):
 #         if type(Class).__name__ not in HolowareHandlers.__dict__:
 #             log(f"HoloSpan class {name} has no handler in HolowareHandlers")
+
+def test_rollout_conversation():
+    roll = Rollout({})
+    roll.new_context()
+    roll.add_frozen("system", """
+You are an expert in information theory and symbolic compression.
+Your task is to compress text losslessly into a non-human-readable format optimized for density.
+Abuse language mixing, abbreviations, and unicode symbols to aggressively compress the input while retaining ALL information required for full reconstruction.
+        """)
+    roll.add_frozen(ego="user", content="Foo1")
+    roll.add_frozen(ego="assistant", content="Bar2")
+    roll.new_context()
+    roll.add_frozen("system", "It's still a test!")
+    roll.add_frozen(ego="user", content="Foo1")
+    roll.add_frozen(ego="assistant", content="Bar2")
+
+    logger.info(roll.to_rich())
+
