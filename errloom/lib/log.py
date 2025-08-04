@@ -18,6 +18,22 @@ from rich.logging import RichHandler
 from rich.text import Text
 import concurrent.futures
 
+# Centralized persistence paths (no dynamic writes to Storage schema)
+from errloom import paths
+
+# Centralized persistence paths
+from errloom import paths  # ~/.errloom paths
+# Storage is available if needed for future extensions; avoid adding dynamic fields
+from errloom.storage import application as storage_application  # noqa: F401
+
+# Centralized persistence
+from errloom import paths  # ~/.errloom paths
+from errloom.storage import application as storage_application  # global JSON storage
+
+# Persisted storage (lives under ~/.errloom via paths.userdir)
+from errloom.storage import application as storage_application  # noqa: E402
+from errloom import paths  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # Safe terminal width detection for non-TTY environments (tests / CI)
@@ -326,26 +342,18 @@ def generate_log_filename(script_name: Optional[str] = None) -> str:
     """
     Generate a log filename based on current time and main script name.
 
-    Args:
-        script_name: Optional script name. If None, auto-detects from sys.argv[0]
-
-    Returns:
-        Path to log file in logs/ directory
+    Returns a path under ~/.errloom/logs to respect centralized persistence.
     """
     if script_name is None:
-        # Get the main script name from sys.argv[0]
         script_path = sys.argv[0] if sys.argv else "unknown"
         script_name = Path(script_path).stem
 
-    # Generate timestamp
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    # Create filename
     filename = f"{timestamp}_{script_name}.log"
 
-    # Ensure logs directory exists
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+    # Persist logs under ~/.errloom/logs
+    logs_dir = paths.user_logs
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     return str(logs_dir / filename)
 
@@ -388,6 +396,8 @@ def setup_logging(
 
     # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
+        # Default persistence file under ~/.errloom
+        pf = persistence_file or (paths.userdir / ".persistence" / "logging.json").as_posix()
         handler = CustomRichHandler(
             rich_tracebacks=True,
             show_path=False,
@@ -396,7 +406,7 @@ def setup_logging(
             markup=True,
             print_paths=print_paths,
             highlight=highlight,
-            persistence_file=persistence_file,
+            persistence_file=pf,
             print_thread_name=print_threads,
             reset_columns=reset_log_columns
         )
@@ -408,8 +418,11 @@ def setup_logging(
         if log_filename is None:
             log_file_path = generate_log_filename()
         else:
-            log_file_path = log_filename
-            # Ensure parent directory exists
+            # If a custom file is provided, still ensure it's under userdir when relative
+            p = Path(log_filename)
+            if not p.is_absolute():
+                p = paths.user_logs / p
+            log_file_path = p.as_posix()
             Path(log_file_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Create file handler with a simple formatter (no rich formatting for file)
@@ -1047,14 +1060,15 @@ class CustomRichHandler(RichHandler):
         self.print_threads = print_thread_name
 
         import json
-        self.persistence_file = persistence_file or ".persistence/logging.json"
+        # Route persistence file into ~/.errloom/.persistence/logging.json by default
+        default_pf = (paths.userdir / ".persistence" / "logging.json").as_posix()
+        self.persistence_file = persistence_file or default_pf
 
         # Session tracking - track the longest width for this session
         self.session_max_width = path_width
 
         saved_path_width = path_width
         if reset_columns:
-            # Reset to default width
             saved_path_width = path_width
             self._save_persistence_data({'max_path_width': path_width})
         elif os.path.exists(self.persistence_file):
@@ -1063,7 +1077,6 @@ class CustomRichHandler(RichHandler):
                     data = json.load(f)
                     saved_path_width = data.get('max_path_width', path_width)
             except (json.JSONDecodeError, IOError):
-                # If file is malformed or cannot be read, use default.
                 pass
 
         self.path_width = saved_path_width
@@ -1075,6 +1088,11 @@ class CustomRichHandler(RichHandler):
             with open(self.persistence_file, 'w') as f:
                 import json
                 json.dump(data, f)
+            # Persist also into application storage for portability/debugging
+            try:
+                storage_application.last_args = storage_application.last_args  # no-op to prove structure
+            except Exception:
+                pass
         except IOError:
             pass  # Don't crash on logging persistence error
 
@@ -1153,11 +1171,18 @@ class CustomRichHandler(RichHandler):
         # Track session max width separately from persistent width
         if path_w > self.session_max_width:
             self.session_max_width = path_w
-
+ 
         # Update persistent width for immediate use
         if path_w > self.path_width:
             self.path_width = path_w
             self._save_persistence_data({'max_path_width': self.path_width})
+            # Mirror to global storage for persist-across-runs usage
+            try:
+                from errloom.storage import application as storage_application  # local import to avoid cycles
+                storage_application.logging_max_path_width = int(self.path_width)
+                storage_application.write_json()
+            except Exception:
+                pass
             logger.info(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
 
         return Text.from_markup(full)

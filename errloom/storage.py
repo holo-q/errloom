@@ -121,13 +121,18 @@ class AppStorage(Storage):
 	vast_instances: list[VastInstance] = []
 	vast_mappings: dict[str, VastInstance] = {}
 	last_args: list[str] = []
+	# Persisted console path column width for Rich handler (max observed, padded elsewhere)
+	logging_max_path_width: int = 10
 
 	def get_recent_sessions(self):
 		return [Path(path) for path in self.recent_sessions if Path(path).exists()]
 
 
-application = AppStorage((paths.root / "storage.json").as_posix())
+# Persist application storage under userdir (e.g., ~/.errloom/storage.json)
+application = AppStorage((paths.userdir / "storage.json").as_posix())
 try:
+	# Ensure parent directory exists before any IO
+	application.path.parent.mkdir(parents=True, exist_ok=True)
 	application.read_json()
 except Exception as e:
 	print("Invalid storage.json!")
