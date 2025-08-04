@@ -1037,7 +1037,7 @@ def PrintedText(renderable, prefix_cols: int | None = None, width: int | None = 
 
     # Deduct the left prefix from the total, leaving at least MIN_PAYLOAD_WIDTH.
     left_cols = int(prefix_cols) if isinstance(prefix_cols, int) and prefix_cols > 0 else 0
-    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols - 10) # TODO why the fuck do we need to substract 10 ? none of the Rule(...) fit the console size without this.
+    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols - 12) # TODO why the fuck do we need to substract 10 ? none of the Rule(...) fit the console size without this.
 
     # Use a dedicated console at the computed payload width.
     c = Console(width=payload_width)

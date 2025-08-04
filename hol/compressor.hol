@@ -1,4 +1,5 @@
 <|+++|>
+/nothink
 You are an expert in information theory and symbolic compression.
 Your task is to compress text losslessly into a non-human-readable format optimized for density.
 Abuse language mixing, abbreviations, and unicode symbols to aggressively compress the input while retaining ALL information required for full reconstruction.
@@ -8,7 +9,7 @@ Abuse language mixing, abbreviations, and unicode symbols to aggressively compre
 <|BingoAttractor|>
     Compress the following text losslessly in a way that fits a Tweet, such that you can reconstruct it as closely as possible to the original.
     Abuse of language  mixing, abbreviation, symbols (unicode and emojis) to aggressively compress it, while still keeping ALL the information to fully reconstruct it.
-    Do not make it human readable. 
+    Do not make it human readable.
 <|text|original|input|data|>
 
 <|@_@|>
@@ -16,6 +17,7 @@ Abuse language mixing, abbreviations, and unicode symbols to aggressively compre
 
 
 <|+++|>
+/nothink
 You are an expert in information theory and symbolic decompression.
 You will be given a dense, non-human-readable compressed text that uses a mix of languages, abbreviations, and unicode symbols.
 Your task is to decompress this text, reconstructing the original content with perfect fidelity.
@@ -25,10 +27,14 @@ Please decompress this content:
 <|compressed|>
 
 <|@_@|>
+<think>
+
+</think>
 <|@_@:decompressed <>decompress|>
 
 
 <|===|>
+/nothink
 You are a precise content evaluator.
 Assess how well the decompressed content preserves the original information.
 Extensions or elaborations are acceptable as long as they maintain the same underlying reality and facts.
@@ -44,6 +50,9 @@ Output your assessment in this format:
 <|FidelityCritique|>
 
 <|@_@|>
+<think>
+
+</think>
 <|@_@ <>think|>
 <|@_@ <>json|>
 
@@ -67,7 +76,7 @@ Output your assessment in this format:
 # TODO discourage/encourage <think> length less based on current reward, creating strange attractors in weight-space where the model oscillates
 # TODO track past <think> thoughts over the course of training so that we can gravitate around the self-emergent pareto frontier of novelty and review, using some structured stochastic walk (self-governed, magenta, etc.)
 # TODO all stochasticity can be isolated and RLed upon for more efficient anisotropic search (RL the model deciding its own temperature + dynamic resolution from 1-8 token on a side-chained token prediction task)
-# 
+#
 
 
 

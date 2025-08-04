@@ -12,6 +12,9 @@ from errloom.tapestry import Rollout, Tapestry
 from errloom.lib import log
 from errloom.lib.log import ContextAwareThreadPoolExecutor, PrintedText, indent_decorator, LogContext
 
+MAX_REACH = "[MAX_REACH]"
+ERR_MAX_REACH = "ERROR:[MAX_REACH]"
+
 if typing.TYPE_CHECKING:
     import torch.nn
     import transformers
@@ -51,7 +54,8 @@ class Loom(ABC):
                  unsafe: bool = False,
                  show_rollout_errors: bool = False,
                  session: Optional['Session'] = None,
-                 dump_rollouts: Optional[str | bool] = False):
+                 dump_rollouts: Optional[str | bool] = False,
+                 allow_partial_on_length: bool = False):
         # Import errlargs for dry training logic
         from errloom import errlargs  # argp depends on loom to assign a default
 
@@ -71,6 +75,7 @@ class Loom(ABC):
                 'spaces_between_special_tokens': False,
             }
         }
+        self.allow_partial_on_length = allow_partial_on_length
         self.message_type: Literal['chat', 'completion'] = message_type
         self.max_concurrent = max_concurrent
         self.dry = dry
@@ -500,7 +505,7 @@ Max concurrent: {tapestry.max_concurrent}
         rollout: Rollout,
         sanitize_sampling_args: bool = True,
         stop_sequences: list[str] | None = None,
-        allow_partial_on_length: bool = False,
+        allow_partial_on_length: bool = None,
     ) -> str:
         """
         Sample a model response for a given prefix context.
@@ -516,6 +521,8 @@ Max concurrent: {tapestry.max_concurrent}
         """
         client = self.client
         model = self.model_name
+
+        allow_partial_on_length = allow_partial_on_length or self.allow_partial_on_length
 
         if sanitize_sampling_args:
             sanitized_args = self.sanitize_sampling_args(client, rollout.sampling_args)
@@ -560,8 +567,11 @@ Max concurrent: {tapestry.max_concurrent}
                 except Exception:
                     pass
                 ret = self._handle_api_response(res, self.message_type)
-                if finish_reason == "length" and not allow_partial_on_length:
-                    ret = "[ERROR] max_tokens_reached"
+                if finish_reason == "length":
+                    if not allow_partial_on_length:
+                        ret = "ERROR:[MAX_REACH]"
+                    else:
+                        ret += MAX_REACH
 
             elif self.message_type == 'completion':
                 # Use Rollout method to get completion text
@@ -575,9 +585,12 @@ Max concurrent: {tapestry.max_concurrent}
                 except Exception:
                     pass
                 ret = self._handle_api_response(completion_res, self.message_type)
-                if finish_reason == "length" and not allow_partial_on_length:
-                    ret = "[ERROR] max_tokens_reached"
-
+                if finish_reason == "length":
+                    if finish_reason == "length":
+                        if not allow_partial_on_length:
+                            ret = ERR_MAX_REACH
+                        else:
+                            ret += MAX_REACH
             else:
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
         except Exception as e:
@@ -736,9 +749,9 @@ Max concurrent: {tapestry.max_concurrent}
             if "longer than the maximum" in error_msg or "exceeds the model" in error_msg:
                 # Return partial text if allowed; else signal prompt-too-long
                 try:
-                    return accumulated if allow_partial_on_length else "[ERROR] prompt_too_long"
+                    return accumulated + MAX_REACH if allow_partial_on_length else ERR_MAX_REACH
                 except Exception:
-                    return "[ERROR] prompt_too_long"
+                    return ERR_MAX_REACH
             raise
 
     def make_dataset(self,

@@ -174,7 +174,8 @@ def main(default_title: Optional[str] = None,
                     unsafe=errlargs.unsafe,
                     show_rollout_errors=errlargs.show_rollout_errors,
                     session=session if errlargs.dump else None,
-                    dump_rollouts=errlargs.dump)
+                    dump_rollouts=errlargs.dump,
+                    allow_partial_on_length=errlargs.dry)
             elif issubclass(LoomClass, Loom):
                 loom = LoomClass(
                     model=model_name, tokenizer=model_name,
@@ -184,7 +185,9 @@ def main(default_title: Optional[str] = None,
                     unsafe=errlargs.unsafe,
                     show_rollout_errors=errlargs.show_rollout_errors,
                     session=session if errlargs.dump else None,
-                    dump_rollouts=errlargs.dump)
+                    dump_rollouts=errlargs.dump,
+                    allow_partial_on_length=errlargs.dry
+                )
             else:
                 raise ValueError(f"Unknown loom class: {LoomClass}")
         else:
