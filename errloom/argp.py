@@ -363,7 +363,7 @@ def should_parse_args():
     """Check if we should parse errloom arguments based on the entry point."""
     import os
     script_name = os.path.basename(sys.argv[0])
-    return script_name not in ["vf-vllm", "vf-vllm.py", "testslide"]
+    return not any(p in script_name for p in ["vllm", "testslide"])
 
 
 # Initialize other global variables with safe defaults

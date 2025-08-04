@@ -67,7 +67,7 @@ dev = [
 [project.scripts]
 main = "errloom.main:run"
 errl = "errloom.main:run"
-vf-vllm = "errloom.interop.vllm_server:cli_main"
+errl-vllm = "errloom.interop.vllm_server:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -10,7 +10,7 @@ from errloom.holoware.holoware import (
     SampleSpan,
     TextSpan,
 )
-from errloom.holoware.holoware_parse import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
+from errloom.holoware.holoware_parser import (_build_class, _build_context, _build_ego_or_sampler, _build_obj, filter_comments, HolowareParser, parse_span_tag)
 from errloom.lib import log
 from tests.base import ErrloomTest
 

@@ -6,7 +6,6 @@ from asyncio import Semaphore
 from copy import deepcopy
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-
 from errloom.aliases import Data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.tapestry import Rollout, Tapestry
@@ -54,7 +53,7 @@ class Loom(ABC):
                  session: Optional['Session'] = None,
                  dump_rollouts: Optional[str | bool] = False):
         # Import errlargs for dry training logic
-        from errloom import errlargs # argp depends on loom to assign a default
+        from errloom import errlargs  # argp depends on loom to assign a default
 
         self.trainer: Optional['RLTrainer'] = None
 
@@ -488,29 +487,30 @@ Max concurrent: {tapestry.max_concurrent}
 
     def _handle_api_response(self, response, message_type: str) -> str:
         """Handle API response and extract content with error checking."""
-        if response.choices[0].finish_reason == 'length':
-            return "[ERROR] max_tokens_reached"
-
         if message_type == 'chat':
             content = response.choices[0].message.content
         else:  # completion
             content = response.choices[0].text
-
         return content if content is not None else "[ERROR] empty_response"
 
-    def sample(self,
-               rollout: Rollout,
-               sanitize_sampling_args: bool = True,
-               stop_sequences: list[str] = None) -> str:
+    def sample(
+        self,
+        rollout: Rollout,
+        sanitize_sampling_args: bool = True,
+        stop_sequences: list[str] | None = None,
+        allow_partial_on_length: bool = False,
+    ) -> str:
         """
-        Sample a model response for a given prefix context
-        MessageList or raw str in completion mode
+        Sample a model response for a given prefix context.
+        MessageList or raw str in completion mode.
         Returns special error messages for context length issues.
 
         Args:
             rollout: The rollout containing context and sampling args
             sanitize_sampling_args: Whether to sanitize args for non-local endpoints
             stop_sequences: Custom stop sequences that may span multiple tokens, raw string.
+            allow_partial_on_length: If True, when the backend signals a length finish, return the partial text
+                                     instead of a sentinel string. Default False to preserve current behavior.
         """
         client = self.client
         model = self.model_name
@@ -522,22 +522,60 @@ Max concurrent: {tapestry.max_concurrent}
 
         # If we have custom stop sequences, we need to use streaming
         if stop_sequences:
-            return self._sample_with_streaming(rollout, sanitized_args, stop_sequences)
+            return self._sample_with_streaming(
+                rollout=rollout,
+                sanitized_args=sanitized_args,
+                stop_sequences=stop_sequences,
+                allow_partial_on_length=allow_partial_on_length,
+            )
 
         # Original non-streaming path for backward compatibility
         try:
-            res: ChatCompletion
+            # Helper to materialize coroutine results synchronously
+            import inspect
+
+            def _await_if_coro(obj):
+                if inspect.iscoroutine(obj):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        import nest_asyncio  # type: ignore
+
+                        nest_asyncio.apply()
+                        return loop.run_until_complete(obj)
+                    except RuntimeError:
+                        return asyncio.run(obj)
+                return obj
+
             if self.message_type == 'chat':
                 # Use Rollout method to get OpenAI format messages
                 messages = rollout.to_api_chat()
                 res = client.chat.completions.create(model=model, messages=messages, **sanitized_args)  # type: ignore
+                res = _await_if_coro(res)
+                # Optionally preserve partial content on length finish
+                finish_reason = None
+                try:
+                    finish_reason = getattr(res.choices[0], "finish_reason", None)
+                except Exception:
+                    pass
                 ret = self._handle_api_response(res, self.message_type)
+                if finish_reason == "length" and not allow_partial_on_length:
+                    ret = "[ERROR] max_tokens_reached"
+
             elif self.message_type == 'completion':
                 # Use Rollout method to get completion text
                 prompt = rollout.to_text()
                 from openai.types.completion import Completion
                 completion_res: Completion = client.completions.create(model=model, prompt=prompt, **sanitized_args)
+                completion_res = _await_if_coro(completion_res)
+                finish_reason = None
+                try:
+                    finish_reason = getattr(completion_res.choices[0], "finish_reason", None)
+                except Exception:
+                    pass
                 ret = self._handle_api_response(completion_res, self.message_type)
+                if finish_reason == "length" and not allow_partial_on_length:
+                    ret = "[ERROR] max_tokens_reached"
+
             else:
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
         except Exception as e:
@@ -548,10 +586,8 @@ Max concurrent: {tapestry.max_concurrent}
 
         # Convert response to proper message format for new architecture
         if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
-            # For new architecture, always store as message dictionaries
             rollout.samples.append({'role': 'assistant', 'content': ret})
         else:
-            # Fallback for legacy compatibility
             if not hasattr(rollout, 'samples'):
                 rollout.samples = []
             rollout.samples.append({'role': 'assistant', 'content': ret})
@@ -559,10 +595,19 @@ Max concurrent: {tapestry.max_concurrent}
         return ret
 
     @indent_decorator("SAMPLE")
-    def _sample_with_streaming(self, rollout: Rollout, sanitized_args: dict, stop_sequences: list[str]) -> str:
+    def _sample_with_streaming(
+        self,
+        rollout: Rollout,
+        sanitized_args: dict,
+        stop_sequences: list[str],
+        allow_partial_on_length: bool = False,
+    ) -> str:
         """
         Sample with streaming to handle custom stop sequences that may span multiple tokens.
+        Uses streaming from OpenAI 1.x, and tolerates backends that return an async iterator/coroutine by
+        materializing all stream events synchronously before iterating.
         """
+        import inspect
         client = self.client
         model = self.model_name
 
@@ -570,57 +615,128 @@ Max concurrent: {tapestry.max_concurrent}
         stream_args = sanitized_args.copy()
         self.logger.debug(stream_args)
 
+        def _extract_and_maybe_finish(acc_text: str) -> tuple[Optional[str], str]:
+            for stop_seq in stop_sequences:
+                if stop_seq in acc_text:
+                    pos = acc_text.find(stop_seq)
+                    return acc_text[:pos], acc_text
+            return None, acc_text
+
+        def _consume_iterator(iterator, is_chat: bool) -> str:
+            accumulated_text = ""
+            for event in iterator:
+                chunk = event
+                chunk_text = None
+
+                if is_chat:
+                    # Try delta.content first
+                    try:
+                        delta = chunk.choices[0].delta  # type: ignore[attr-defined]
+                        content = getattr(delta, "content", None)
+                        if content:
+                            chunk_text = content
+                    except Exception:
+                        try:
+                            msg = chunk.choices[0].message  # type: ignore[attr-defined]
+                            content = getattr(msg, "content", None)
+                            if content:
+                                chunk_text = content
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        text = chunk.choices[0].text  # type: ignore[attr-defined]
+                        if text:
+                            chunk_text = text
+                    except Exception:
+                        pass
+
+                if not chunk_text:
+                    continue
+
+                accumulated_text += chunk_text
+                final_text, accumulated_text = _extract_and_maybe_finish(accumulated_text)
+                if final_text is not None:
+                    return final_text
+
+            return accumulated_text
+
+        def _materialize_sync_iterable(obj):
+            # If object has iter_events(), use it; else if it's iterable, return as-is; else try to detect async/coro.
+            if hasattr(obj, "iter_events"):
+                try:
+                    return list(obj.iter_events())  # type: ignore[attr-defined]
+                except TypeError:
+                    pass
+            try:
+                iter(obj)
+                return obj
+            except TypeError:
+                return None  # Not a sync iterable
+
+        def _materialize_async(obj):
+            # Consume coroutine or async generator into a list of items synchronously.
+            # We are in a worker thread; create or reuse an event loop safely.
+            async def _collect_async(async_obj):
+                # Support both coroutine (await -> stream) and async iterator
+                stream_obj = async_obj
+                if inspect.iscoroutine(async_obj):
+                    stream_obj = await async_obj
+                items = []
+                # Prefer iter_events() if exists on resolved stream; else consume as async iterator
+                if hasattr(stream_obj, "iter_events"):
+                    async for ev in stream_obj.iter_events():  # type: ignore[attr-defined]
+                        items.append(ev)
+                else:
+                    async for ev in stream_obj:
+                        items.append(ev)
+                return items
+
+            try:
+                loop = asyncio.get_running_loop()
+                import nest_asyncio  # type: ignore
+                nest_asyncio.apply()
+                return loop.run_until_complete(_collect_async(obj))
+            except RuntimeError:
+                # No running loop in this thread; create one to collect
+                return asyncio.run(_collect_async(obj))
+
         try:
             if self.message_type == 'chat':
                 messages = rollout.to_api_chat()
-                stream = client.chat.completions.create(model=model, messages=messages, stream=True, **stream_args)
+                stream_or_coro = client.chat.completions.create(model=model, messages=messages, stream=True, **stream_args)  # type: ignore
+
+                # Try to use as sync iterable first
+                iterable = _materialize_sync_iterable(stream_or_coro)
+                if iterable is None:
+                    # Fallback: treat as coroutine/async stream and collect
+                    iterable = _materialize_async(stream_or_coro)
+
+                accumulated = _consume_iterator(iterable, is_chat=True)
+
             elif self.message_type == 'completion':
                 prompt = rollout.to_text()
-                stream = client.completions.create(model=model, prompt=prompt, stream=True, **stream_args)
+                stream_or_coro = client.completions.create(model=model, prompt=prompt, stream=True, **stream_args)  # type: ignore
+
+                iterable = _materialize_sync_iterable(stream_or_coro)
+                if iterable is None:
+                    iterable = _materialize_async(stream_or_coro)
+
+                accumulated = _consume_iterator(iterable, is_chat=False)
             else:
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
 
-            # Collect tokens while checking for stop sequences
-            accumulated_text = ""
-
-            self.logger.debug("Streaming response...")
-
-            for chunk in stream:
-                self.logger.info(f"RECV: {chunk}")
-                if self.message_type == 'chat':
-                    delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
-                        chunk_text = delta.content
-                    else:
-                        continue
-                else:  # completion
-                    if hasattr(chunk.choices[0], 'text') and chunk.choices[0].text:
-                        chunk_text = chunk.choices[0].text
-                    else:
-                        continue
-
-                accumulated_text += chunk_text
-
-                # Check if any stop sequence is found
-                for stop_seq in stop_sequences:
-                    if stop_seq in accumulated_text:
-                        # Find the position and truncate
-                        stop_pos = accumulated_text.find(stop_seq)
-                        final_text = accumulated_text[:stop_pos]
-
-                        rollout.samples.append({'role': 'assistant', 'content': final_text})
-                        return final_text
-
-            self.logger.debug("Streaming done.")
-
-            # No stop sequence found, return full accumulated text
-            rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
-            return accumulated_text
+            rollout.samples.append({'role': 'assistant', 'content': accumulated})
+            return accumulated
 
         except Exception as e:
             error_msg = str(e)
             if "longer than the maximum" in error_msg or "exceeds the model" in error_msg:
-                return "[ERROR] prompt_too_long"
+                # Return partial text if allowed; else signal prompt-too-long
+                try:
+                    return accumulated if allow_partial_on_length else "[ERROR] prompt_too_long"
+                except Exception:
+                    return "[ERROR] prompt_too_long"
             raise
 
     def make_dataset(self,
@@ -655,7 +771,7 @@ Max concurrent: {tapestry.max_concurrent}
         if push_to_hub:
             assert hub_name is not None
             dataset.push_to_hub(hub_name)
-        return dataset
+
 
     def _format_prompt_for_chat(self, prompt: str, system_prompt: str | None = None, few_shot: str | List[Dict[str, Any]] | None = None) -> List[Dict[str, Any]]:
         """Format a prompt for chat API with system prompt and few-shot examples."""
@@ -694,28 +810,53 @@ Max concurrent: {tapestry.max_concurrent}
 
         TODO doccument this few_show argument - wtf is that?
         """
+        from datasets import Dataset, IterableDataset, IterableDatasetDict, DatasetDict  # type: ignore
 
         def _format(dataset: Data,
                     system_prompt: str | None = None,
                     question_key: str = "question",
                     answer_key: str = "answer") -> Data:
-            # skip if "prompt" already exists
-            if "prompt" in dataset.column_names:
+            # Support Dataset, DatasetDict, IterableDataset, IterableDatasetDict
+            def has_prompt_column(ds) -> bool:
+                try:
+                    cols = getattr(ds, "column_names", None)
+                    if isinstance(cols, dict):
+                        # DatasetDict-like: map split -> columns
+                        return all(("prompt" in v) for v in cols.values())
+                    if isinstance(cols, list):
+                        return "prompt" in cols
+                except Exception:
+                    pass
+                return False
+
+            # If DatasetDict/IterableDatasetDict, map over splits
+            if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
+                # If already formatted, return as-is
+                if has_prompt_column(dataset):
+                    return dataset
+                new_splits = {}
+                for split, ds in dataset.items():
+                    new_splits[split] = _format(ds, system_prompt, question_key, answer_key)  # recurse per split
+                # Recreate same dict type
+                return type(dataset)(new_splits)
+
+            # Single split Dataset or IterableDataset
+            if has_prompt_column(dataset):
                 return dataset
 
-            # extract format_prompt as a standalone function to avoid capturing self
-            def format_prompt_fn(prompt: str) -> List[Dict[str, Any]]:
+            def format_prompt_fn(prompt: str):
                 return self._format_prompt_for_chat(prompt, system_prompt, few_shot)
 
+            # datasets.map signature here does not take num_proc for iterable datasets; keep it simple and portable
             if answer_key == "answer":
                 return dataset.map(lambda x: {
                     "prompt": format_prompt_fn(x[question_key]),
-                }, num_proc=min(self.max_concurrent, DATASET_MAX_CONCURRENT))
+                })
             else:
                 return dataset.map(lambda x: {
                     "prompt": format_prompt_fn(x[question_key]),
                     "answer": x[answer_key]
-                }, num_proc=min(self.max_concurrent, DATASET_MAX_CONCURRENT))
+                })
 
         dtrain = self.get_train_data()
         dbench = self.get_bench_data()

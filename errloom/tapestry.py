@@ -137,12 +137,45 @@ class Context:
           <|im_start|>role
           content
           <|im_end|>
+
+        Special-case for completion-style prefixing:
+        - If the last normalized fragment is assistant and content is empty,
+          we end with an open assistant header to cue generation:
+              ... <|im_end|>
+              <|im_start|>assistant
         """
+        messages = self.to_api_messages()
         blocks: list[str] = []
-        for msg in self.to_api_messages():
+        for i, msg in enumerate(messages):
             role = msg.get("role", "user")
             content = msg.get("content", "")
             blocks.append(f"<|im_start|>{role}\n{content}\n<|im_end|>")
+
+        # Inspect raw fragments to decide on open assistant tail
+        # Normalize last fragment role like in to_api_messages
+        def _normalize_role(raw: Optional[str], is_first: bool) -> str:
+            if raw in ("system", "user", "assistant"):
+                return raw
+            if raw is None and is_first:
+                return "system"
+            return "user"
+
+        if self.fragments:
+            # Find last fragment and its normalized role
+            last_idx = len(self.fragments) - 1
+            last_norm = _normalize_role(self.fragments[last_idx].ego, is_first=(last_idx == 0))
+
+            # If trailing assistant fragment exists with empty content, open assistant header
+            if last_norm == "assistant":
+                # If the last assistant fragment has no content, signal open assistant turn.
+                last_content = self.fragments[last_idx].content or ""
+                if last_content == "":
+                    suffix = "<|im_start|>assistant"
+                    if blocks:
+                        return "\n".join(blocks + [suffix])
+                    else:
+                        return suffix
+
         return "\n".join(blocks)
 
     # def _update_messages_from_fragments(self):

@@ -320,7 +320,7 @@ class Holoware:
         Returns:
             A Holoware object representing the parsed template
         """
-        from errloom.holoware.holoware_parse import HolowareParser
+        from errloom.holoware.holoware_parser import HolowareParser
         return HolowareParser(content).parse()
 
 

@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import sys
 import threading
 from datetime import datetime
@@ -21,8 +20,39 @@ import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
-w = os.get_terminal_size(sys.stdout.fileno())
-cl = Console(width=w.columns)
+# Safe terminal width detection for non-TTY environments (tests / CI)
+def _safe_terminal_width(default_width: int = 120) -> int:
+    try:
+        if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+            return os.get_terminal_size(sys.stdout.fileno()).columns
+    except (OSError, ValueError):
+        pass
+    try:
+        return os.get_terminal_size().columns
+    except (OSError, ValueError):
+        return default_width
+
+TERM_WIDTH = _safe_terminal_width()
+
+# Normalize any prior width derivations to TERM_WIDTH (single integer)
+# If any previous code attempted tuple-unpacking from .columns, fix it:
+# Before (invalid): width, _ = os.get_terminal_size(sys.stdout.fileno()).columns
+# After (valid):   width = TERM_WIDTH
+try:
+    # Shadow a common name if used elsewhere
+    WIDTH = TERM_WIDTH
+except Exception:
+    pass
+
+# Safely set `width` used by formatting; prefer not to overwrite if already defined correctly.
+try:
+    # If `width` is not defined or was incorrectly set via tuple-unpack on int, ensure it's an int.
+    if "width" not in globals() or not isinstance(globals().get("width"), int):
+        width = TERM_WIDTH
+except Exception:
+    width = TERM_WIDTH
+
+cl = Console(width=TERM_WIDTH)
 
 rich.traceback.install(
     show_locals=False,  # You have False - but True is great for debugging
@@ -993,11 +1023,11 @@ def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Tex
     """
     import shutil
     if prefix_cols:
-        width, _ = os.get_terminal_size(sys.stdout.fileno()).columns
-        width = width - prefix_cols - 1
+        # Use safe terminal width; TERM_WIDTH is a single integer
+        width = max(20, TERM_WIDTH - prefix_cols - 1)
 
     if not width:
-        width = 120
+        width = TERM_WIDTH
     c = Console(width=width)
     with c.capture() as capture:
         c.print(renderable, highlight=highlight)

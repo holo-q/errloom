@@ -5,7 +5,7 @@ import os
 from typing import List, Optional
 
 from errloom.holoware.holoware import Holoware
-from errloom.holoware import holoware_parse
+from errloom.holoware import holoware_parser
 
 logger = logging.getLogger(__name__)
 _default_loader = None
@@ -60,7 +60,7 @@ class HolowareLoader:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 text = f.read()
 
-            text = holoware_parse.filter_comments(text)
+            text = holoware_parser.filter_comments(text)
             tpl = Holoware.parse(text)
 
             self._cache[filename] = tpl
