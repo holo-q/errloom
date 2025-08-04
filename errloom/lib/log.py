@@ -21,6 +21,24 @@ import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
+w = os.get_terminal_size(sys.stdout.fileno())
+cl = Console(width=w.columns)
+
+rich.traceback.install(
+    show_locals=False,  # You have False - but True is great for debugging
+    word_wrap=True,  # ✓ You already have this
+    extra_lines=2,  # Show more context lines around the error
+    max_frames=10,  # Limit very deep stacks (default is 100)
+    indent_guides=True,  # Visual indentation guides
+    # locals_max_length=10,  # Limit local var representation length
+    # locals_max_string=80,  # Limit string local var length
+    # locals_hide_dunder=True,  # Hide __dunder__ variables in locals
+    # locals_hide_sunder=True,  # Hide _private variables in locals
+    suppress=[],  # You can add modules to suppress here
+)
+
+
+
 # TRACER FUNCTIONALITY
 # ----------------------------------------
 
@@ -273,23 +291,6 @@ class EnhancedLogger(logging.Logger):
     def with_extra(self, level: int, msg: Any, extra: dict, stacklevel: int = 1) -> None:
         """Log at arbitrary level with custom extra fields, preserving stacklevel contract."""
         self.log(level, msg, extra=extra, stacklevel=stacklevel + 1)
-
-# MAIN SETUP
-# ----------------------------------------
-cl = Console(width=240)
-rich.traceback.install(
-    show_locals=False,  # You have False - but True is great for debugging
-    word_wrap=True,  # ✓ You already have this
-    extra_lines=2,  # Show more context lines around the error
-    max_frames=10,  # Limit very deep stacks (default is 100)
-    indent_guides=True,  # Visual indentation guides
-    # locals_max_length=10,  # Limit local var representation length
-    # locals_max_string=80,  # Limit string local var length
-    # locals_hide_dunder=True,  # Hide __dunder__ variables in locals
-    # locals_hide_sunder=True,  # Hide _private variables in locals
-    suppress=[],  # You can add modules to suppress here
-)
-
 
 def generate_log_filename(script_name: Optional[str] = None) -> str:
     """
@@ -992,7 +993,7 @@ def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Tex
     """
     import shutil
     if prefix_cols:
-        width, _ = shutil.get_terminal_size()
+        width, _ = os.get_terminal_size(sys.stdout.fileno()).columns
         width = width - prefix_cols - 1
 
     if not width:

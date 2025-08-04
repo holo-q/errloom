@@ -10,11 +10,13 @@ be included and which masked out. If you see references to a 'prompt' during tra
 
 # Coding Standard
 
-Never use kwargs unless there is a serious interest for an API design.
-Watch out for functional code patterns. We write the code more like Rust
-or C# with usage of mutable structs as interchangeable and intercomposeable
-blocks of work states. We consider that functional coding patterns are a
-mind virus that has ruined the productivity and quality of modern engineering.
+- Never use kwargs for anything but delegation.
+- Never use hasattr unless explicitly recommended by the user. A field exists or it doesn't.
+- Watch out for functional code patterns. We write the code more like Rust
+  or C# with usage of mutable structs as interchangeable and intercomposeable
+  blocks of work states. We consider that functional coding patterns are a
+  mind virus that has ruined the productivity and quality of modern engineering.
+
 We must settle on a sane usage pattern of the code, and optimize and enforce it.
 We don't want to write code that can cover infinite possible use-case. We encode the
 domain space into the data structures and add extension points on top in the future
@@ -90,19 +92,30 @@ Use uv for commands (uv run, uv pip, uv run pytest ...)
 
 # run
 
+Home screen
 > uv run main
 
-
 Dry test to visualize how the holoware is running, using MockClient that returns MOCK instead of calling vllm
-> uv run main --dry --n 1
+> uv run main hol/compressor.hol dry
 
 Append --debug if you want to see down to debug log level.
 
 ## test
 
-Unit tests to verify the quality and consistency of the program.
-Recommended to run before all commits
 > uv run testslide <path>
+
+Some useful args with testslide:
+
+--filter-text FILTER_TEXT
+Only execute examples that include given text in their names (test functions, doesn't apply to TestCase classes)
+
+--fail-fast
+Stop execution when an example fails.
+
+from tests.base import ErrloomTest
+
+Instead of TestCase.
+It handles some stuff with our logging architecture.
 
 ## commit
 
@@ -112,3 +125,4 @@ Never make a commit without checking git status first.
 There may be other stuff than what we worked on.
 Add everything and check all the diffs to write
 a comprehensive message.
+

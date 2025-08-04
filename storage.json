@@ -1,0 +1,16 @@
+{
+  "recent_sessions": [],
+  "open_sessions": [],
+  "cached_session_paths_detected": [],
+  "auto_layout": true,
+  "vast_instances": [],
+  "vast_mappings": {},
+  "last_args": [
+    "hol/compressor.hol",
+    "dry",
+    "--vllm",
+    "--debug",
+    "--debug",
+    "--debug"
+  ]
+}

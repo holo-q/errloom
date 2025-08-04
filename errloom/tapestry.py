@@ -430,13 +430,13 @@ class Rollout:
     gravity: float = 0.0
     gravities: Dict[str, float] = field(default_factory=dict)
     sampling_args: Dict[str, Any] = field(default_factory=dict)
+    samples: list[Dict[str, str]] = field(default_factory=list, init=False)
 
     # task: str = 'default'
     # extra: Dict[str, Any] = field(default_factory=dict)
 
     # Legacy compatibility fields (auto-computed from fragments)
     # mask: list[bool] = field(default_factory=list, init=False)
-    # samples: list[Dict[str, str]] = field(default_factory=list, init=False)
 
     @property
     def active_context(self) -> Context:

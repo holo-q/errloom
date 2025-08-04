@@ -120,6 +120,7 @@ class AppStorage(Storage):
 	auto_layout: bool = True
 	vast_instances: list[VastInstance] = []
 	vast_mappings: dict[str, VastInstance] = {}
+	last_args: list[str] = []
 
 	def get_recent_sessions(self):
 		return [Path(path) for path in self.recent_sessions if Path(path).exists()]
@@ -153,3 +154,37 @@ def fetch_last_session_name():
 
 def has_last_session():
 	return Path(root / "last_session.txt").exists()
+
+# ---- CLI last-args helpers ---------------------------------------------------
+def save_last_args(args: list[str]) -> None:
+	"""
+	Persist the latest CLI args used (argv slice, excluding program name).
+	"""
+	try:
+		application.last_args = list(args) if args else []
+		application.write_json()
+		log.debug(f"save_last_args -> {application.last_args}")
+	except Exception:
+		log.error("Failed to save last_args")
+		log.error(traceback.format_exc())
+
+
+def load_last_args() -> list[str] | None:
+	"""
+	Load the last saved CLI args, or None if not available.
+	"""
+	try:
+		# Ensure freshest read in case of external edits
+		application.read_json()
+		if getattr(application, "last_args", None):
+			return list(application.last_args)
+		return None
+	except Exception:
+		log.error("Failed to load last_args")
+		log.error(traceback.format_exc())
+		return None
+
+
+def has_last_args() -> bool:
+	la = load_last_args()
+	return bool(la and isinstance(la, list) and len(la) > 0)

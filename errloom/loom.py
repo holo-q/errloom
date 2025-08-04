@@ -558,6 +558,7 @@ Max concurrent: {tapestry.max_concurrent}
 
         return ret
 
+    @indent_decorator("SAMPLE")
     def _sample_with_streaming(self, rollout: Rollout, sanitized_args: dict, stop_sequences: list[str]) -> str:
         """
         Sample with streaming to handle custom stop sequences that may span multiple tokens.
@@ -567,22 +568,25 @@ Max concurrent: {tapestry.max_concurrent}
 
         # Prepare streaming args
         stream_args = sanitized_args.copy()
-        stream_args['stream'] = True
+        self.logger.debug(stream_args)
 
         try:
             if self.message_type == 'chat':
                 messages = rollout.to_api_chat()
-                stream = client.chat.completions.create(model=model, messages=messages, **stream_args)
+                stream = client.chat.completions.create(model=model, messages=messages, stream=True, **stream_args)
             elif self.message_type == 'completion':
                 prompt = rollout.to_text()
-                stream = client.completions.create(model=model, prompt=prompt, **stream_args)
+                stream = client.completions.create(model=model, prompt=prompt, stream=True, **stream_args)
             else:
                 raise ValueError(f"Unsupported message_type: {self.message_type}")
 
             # Collect tokens while checking for stop sequences
             accumulated_text = ""
 
+            self.logger.debug("Streaming response...")
+
             for chunk in stream:
+                self.logger.info(f"RECV: {chunk}")
                 if self.message_type == 'chat':
                     delta = chunk.choices[0].delta
                     if hasattr(delta, 'content') and delta.content:
@@ -604,24 +608,13 @@ Max concurrent: {tapestry.max_concurrent}
                         stop_pos = accumulated_text.find(stop_seq)
                         final_text = accumulated_text[:stop_pos]
 
-                        # Store in rollout
-                        if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
-                            rollout.samples.append({'role': 'assistant', 'content': final_text})
-                        else:
-                            if not hasattr(rollout, 'samples'):
-                                rollout.samples = []
-                            rollout.samples.append({'role': 'assistant', 'content': final_text})
-
+                        rollout.samples.append({'role': 'assistant', 'content': final_text})
                         return final_text
 
-            # No stop sequence found, return full accumulated text
-            if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
-                rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
-            else:
-                if not hasattr(rollout, 'samples'):
-                    rollout.samples = []
-                rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
+            self.logger.debug("Streaming done.")
 
+            # No stop sequence found, return full accumulated text
+            rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
             return accumulated_text
 
         except Exception as e:

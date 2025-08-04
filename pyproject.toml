@@ -82,3 +82,6 @@ Issues = "https://github.com/holo-q/errloom/issues"
 
 [tool.uv]
 no-build-isolation-package = ['flash-attn']
+
+[tool.ruff.lint]
+ignore = ["E402"] # Disable E402: module level import not at top of file

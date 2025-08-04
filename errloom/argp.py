@@ -1,9 +1,11 @@
 import argparse
+import logging
 import sys
 from typing import Tuple
 from errloom import defaults
 from errloom.holoware.holoware_loom import HolowareLoom
 from errloom.lib import log
+from errloom.storage import save_last_args, load_last_args, has_last_args
 
 # Standard arguments for an Errloom training script
 # Or simply using errloom directly as a standalone program
@@ -323,10 +325,37 @@ def parse_args() -> Tuple[argparse.Namespace, list] | None:
 
     return args
 
-# Initialize globals for command line access
-argv = sys.argv[1:]  # Raw arguments without program name
+# Intercept __RETRY__ before any local argv variables are derived
+def _maybe_apply_retry():
+    try:
+        _argv = sys.argv[1:]
+        if "__RETRY__" in _argv:
+            idx = _argv.index("__RETRY__")
+            before = _argv[:idx]
+            overrides = _argv[idx + 1:] if len(_argv) > idx + 1 else []
+            prev = load_last_args()
+            if not prev:
+                print("[errloom] No previous arguments saved. Cannot __RETRY__.")
+                sys.exit(2)
+            # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
+            merged_tail = list(prev) + list(overrides)
+            merged = before + merged_tail
+            logger.debug(f"__RETRY__ activated -> replacing token at index {idx}")
+            logger.debug(f"__RETRY__ before: {before}")
+            logger.debug(f"__RETRY__ last_args: {prev}")
+            logger.debug(f"__RETRY__ overrides: {overrides}")
+            logger.debug(f"__RETRY__ final argv[1:]: {merged}")
+            sys.argv = [sys.argv[0]] + merged
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Failed processing __RETRY__: {e}")
+        sys.exit(2)
+
+# Initialize globals for command line access after potential retry rewrite
+argv = sys.argv[1:]  # Raw arguments without program name (possibly rewritten)
 oargs = argv[:]  # Copy for manipulation
-argv_remaining = oargs[1:]  # Remaining arguments after program name
+argv_remaining = oargs[1:] if len(oargs) > 1 else []  # Remaining arguments after program name
 
 # Only parse arguments if we're running the main errloom entry point
 # This prevents conflicts with other entry points like vf-vllm
@@ -343,11 +372,37 @@ is_vastai = False
 is_vastai_continue = False
 
 if should_parse_args():
+    # Handle __RETRY__ before parsing: replace sys.argv[1:] with last saved args and append overrides
+    try:
+        if "__RETRY__" in argv:
+            idx = argv.index("__RETRY__")
+            before = argv[:idx]
+            overrides = argv[idx + 1:] if len(argv) > idx + 1 else []
+            prev = load_last_args()
+            if not prev:
+                print("[errloom] No previous arguments saved. Cannot __RETRY__.")
+                sys.exit(2)
+            # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
+            merged_tail = list(prev) + list(overrides)
+            merged = before + merged_tail
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"__RETRY__ -> before {before} | last {prev} | overrides {overrides} => merged {merged}")
+            else:
+                logger.info(f"__RETRY__ -> {' '.join(merged)}")
+            sys.argv = [sys.argv[0]] + merged
+            # Update working copies
+            argv = merged[:]
+            oargs = argv[:]
+            argv_remaining = oargs[1:] if len(oargs) > 1 else []
+    except Exception as e:
+        logger.error(f"Failed processing __RETRY__: {e}")
+        sys.exit(2)
+
     args = parse_args()
     assert args is not None
     argv_remaining = args[1]
     errlargs = args[0]
-    logger.info(f"errlargs: {errlargs}")
+    # logger.info(f"errlargs: {errlargs}")
 
     is_vastai_continue = errlargs.vastai or errlargs.vastai_quick
 else:
@@ -541,5 +596,14 @@ def create_client_from_args(args, dry_run=None):
 if errlargs.trace:
     from errloom.lib.log import set_trace_enabled
     set_trace_enabled(True)
+
+# Persist the effective argv (excluding program name) for future __RETRY__ runs
+try:
+    # Save exactly what we executed (sys.argv[1:])
+    if should_parse_args():
+        effective = sys.argv[1:]
+        save_last_args(effective)
+except Exception as e:
+    logger.error(f"Failed to save last args: {e}")
 
 # sys.argv = [sys.argv[0]] # eat up arguments

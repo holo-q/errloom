@@ -1,26 +1,36 @@
 __version__ = "0.1.0"
 
+from errloom.lib import log
+
+log.setup_logging(
+    level="info",
+    highlight=True,
+    persistence_file=None,
+    print_paths=True,
+    print_threads=False,
+    reset_log_columns=False,
+)
+
 from errloom.argp import errlargs
 from errloom.comm import CommModel
 from errloom.lib import discovery
 from errloom.attractor import Attractor
 from errloom.holoware.holoware import Span
 from errloom.loom import Loom
-from errloom.lib import log
 from errloom.paths import userdir
 import logging
+
 logger = logging.getLogger(__name__)
 
-# Set up persistence file path
-persistence_file = str(userdir / "persistence.json")
-
+# TODO use storage
 log.setup_logging(
-    level='debug' if errlargs.debug else errlargs.log_level,
+    level="debug" if errlargs.debug else errlargs.log_level,
     highlight=True,
-    persistence_file=persistence_file,
-    print_paths=True or errlargs.print_paths, # TODO userconf override flag
-    print_threads=errlargs.print_threads, # TODO userconf override flag
-    reset_log_columns=errlargs.reset_log_columns)
+    persistence_file=str(userdir / "persistence.json"), # TODO use storage
+    print_paths=True or errlargs.print_paths,  # TODO userconf override flag
+    print_threads=errlargs.print_threads,  # TODO userconf override flag
+    reset_log_columns=errlargs.reset_log_columns,
+)
 
 # TODO make this a command line option (list of special loggers to enable)
 log.disable_logger("errloom.tapestry")
@@ -28,16 +38,16 @@ log.disable_logger("errloom.lib.discovery")
 
 logger.debug("🔍 Starting package discovery for errloom...")
 discovery.crawl_package_fast(
-    'errloom',
+    "errloom",
     base_classes=[Attractor, Loom, CommModel, Span],
-    method_patterns=['__holo__'],
+    method_patterns=["__holo__"],
     skip_patterns=[
-        'errloom.gui',           # GUI modules - not needed for core functionality
-        'errloom.deploy',        # Deployment modules - heavy imports
-        'errloom.tui',           # Terminal UI modules
-        'errloom.training',      # Training modules - heavy ML imports
-        'errloom.interop.vast',  # Vast-specific interop modules
-    ]
+        "errloom.gui",  # GUI modules - not needed for core functionality
+        "errloom.deploy",  # Deployment modules - heavy imports
+        "errloom.tui",  # Terminal UI modules
+        "errloom.training",  # Training modules - heavy ML imports
+        "errloom.interop.vast",  # Vast-specific interop modules
+    ],
 )
 
 # you must reference all the classes of the library directly
