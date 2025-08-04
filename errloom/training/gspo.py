@@ -2,6 +2,8 @@ import torch
 
 from errloom.training.rl_trainer import ClippingStats, RLAlgorithm, RLAlgorithmMetrics, CalculatedLoss
 
+# TODO Claude implemented this zero-shot, I have no idea if this is accurate to the GSPO paper and it's untested !
+
 class GSPOAlgorithm(RLAlgorithm):
     """GSPO (Group Sequence Policy Optimization) implementation"""
 

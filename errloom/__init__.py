@@ -24,6 +24,7 @@ log.setup_logging(
 
 # TODO make this a command line option (list of special loggers to enable)
 log.disable_logger("errloom.tapestry")
+log.disable_logger("errloom.lib.discovery")
 
 logger.debug("🔍 Starting package discovery for errloom...")
 discovery.crawl_package_fast(

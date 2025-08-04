@@ -45,9 +45,7 @@ from errloom.training.async_batch_generator import (
     BatchResult
 )
 from errloom.training.async_dataloader_wrapper import AsyncDataLoaderWrapper
-from errloom.training.grpo import GRPOAlgorithm
 from errloom.training.rl_config import RLConfig
-from errloom.training.gspo import GSPOAlgorithm
 from errloom.lib.log import LogContext, EnhancedLogger
 from errloom.lib import log
 from rich.console import Console
@@ -442,9 +440,12 @@ class RLTrainer(Trainer):
         algorithm: Optional[RLAlgorithm] = None,
         dry: bool = False
     ):
+        from errloom.training.grpo import GRPOAlgorithm
+
         # maxlen is set to the total number of forward passes per step. This value of `maxlen` ensures we log only the
         # final optimization step.
-        maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
+        # REMOVE early accelerator usage; will compute after super().__init__()
+        # maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
 
         self.logger = log.getLogger(f'errloom.training.{self.__class__.__name__}')
         self.loom: Loom | None = loom
@@ -463,7 +464,8 @@ class RLTrainer(Trainer):
         self._buffered_inputs: Optional[List[TrainingInputs]] = None
         self._next_batch_id: int = 0
         self._async_started = False
-        self._textual_logs = TextualLogs(maxlen=maxlen)
+        # DEFER _textual_logs init until after super().__init__()
+        # self._textual_logs = TextualLogs(maxlen=maxlen)
         self._metrics = ModeMetrics()
         self._total_train_tokens = 0
         self._step_synced = 0
@@ -557,6 +559,10 @@ class RLTrainer(Trainer):
             callbacks=callbacks,
             optimizers=optimizers.to_tuple() if optimizers else (None, None),
         )
+
+        # Now that self.accelerator is available from Trainer, compute maxlen and init textual logs
+        maxlen = self.accelerator.num_processes * args.per_device_train_batch_size * args.gradient_accumulation_steps
+        self._textual_logs = TextualLogs(maxlen=maxlen)
 
         # Setup Reference Model
         # ----------------------------------------
@@ -1458,6 +1464,7 @@ def create_grpo_trainer(
     dry: bool = False
 ) -> RLTrainer:
     """Factory function to create a GRPO trainer"""
+    from errloom.training.grpo import GRPOAlgorithm
     algorithm = GRPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GRPOAlgorithm'))
     return RLTrainer(
         loom=loom,
@@ -1482,6 +1489,7 @@ def create_gspo_trainer(
     dry: bool = False
 ) -> RLTrainer:
     """Factory function to create a GSPO trainer"""
+    from errloom.training.gspo import GSPOAlgorithm
     algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
     return RLTrainer(
         loom=loom,
@@ -1510,6 +1518,7 @@ class GSPOTrainer(RLTrainer):
         dry: bool = False
     ):
         """Initialize GSPO trainer with GSPO algorithm"""
+        from errloom.training.gspo import GSPOAlgorithm
         algorithm = GSPOAlgorithm(config=args, logger=log.getLogger('errloom.training.GSPOAlgorithm'))
         super().__init__(
             loom=loom,
@@ -2121,9 +2130,9 @@ class VLLMWeightSyncStrategy(WeightSyncStrategy):
         return current_step > last_synced_step
 
     def sync_weights(self, trainer: 'RLTrainer') -> None:
-        # # Skip vLLM weight sync in dry mode
-        if self.dry:
-            self.logger.debug(f"[yellow]🧪 DRY MODE: Skipping vLLM weight sync[/]")
+        # Skip vLLM weight sync in dry mode
+        if trainer.dry:
+            trainer.logger.debug(f"[yellow]🧪 DRY MODE: Skipping vLLM weight sync[/]")
             return
 
         # For DeepSpeed ZeRO-3 we need to gather all parameters before operations
