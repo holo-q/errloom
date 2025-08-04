@@ -396,8 +396,8 @@ def setup_logging(
 
     # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        # Default persistence file under ~/.errloom
-        pf = persistence_file or (paths.userdir / ".persistence" / "logging.json").as_posix()
+        # Use centralized application storage directly
+        pf = persistence_file or storage_application.path.as_posix()
         handler = CustomRichHandler(
             rich_tracebacks=True,
             show_path=False,
@@ -1028,20 +1028,28 @@ def to_json_text(obj, *, indent: int = 4, ensure_ascii: bool = False, max_depth:
 # ----------------------------------------
 
 
-def PrintedText(renderable, prefix_cols=None, width=None, highlight=True) -> Text:
+def PrintedText(renderable, prefix_cols: int | None = None, width: int | None = None, highlight: bool = True) -> Text:
     """
-    Renders any rich renderable to a Text object that can be safely logged.
-    This captures the output and converts it to ANSI text, so it can be
-    included in standard logging messages without breaking formatting.
-    """
-    import shutil
-    if prefix_cols:
-        # Use safe terminal width; TERM_WIDTH is a single integer
-        width = max(20, TERM_WIDTH - prefix_cols - 1)
+    Render a rich renderable to Text using a width that accounts for the
+    left prefix columns (path + indent) to minimize unintended wrapping.
 
-    if not width:
-        width = TERM_WIDTH
-    c = Console(width=width)
+    prefix_cols: total visible columns occupied by the left sidebar prefix.
+                 This will be deducted from the console width so the payload
+                 fits on the remaining line without wrapping.
+    width:       optional total console width override (before prefix deduction).
+    """
+    # Conservative minimum for payload to avoid wrapping of banners/rules.
+    MIN_PAYLOAD_WIDTH = 40
+
+    # Determine the total console width baseline.
+    total_width = width if isinstance(width, int) and width > 0 else TERM_WIDTH
+
+    # Deduct the left prefix from the total, leaving at least MIN_PAYLOAD_WIDTH.
+    left_cols = int(prefix_cols) if isinstance(prefix_cols, int) and prefix_cols > 0 else 0
+    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols)
+
+    # Use a dedicated console at the computed payload width.
+    c = Console(width=payload_width)
     with c.capture() as capture:
         c.print(renderable, highlight=highlight)
     return Text.from_ansi(capture.get())
@@ -1060,8 +1068,8 @@ class CustomRichHandler(RichHandler):
         self.print_threads = print_thread_name
 
         import json
-        # Route persistence file into ~/.errloom/.persistence/logging.json by default
-        default_pf = (paths.userdir / ".persistence" / "logging.json").as_posix()
+        # Route persistence file to the centralized application storage path by default
+        default_pf = storage_application.path.as_posix()
         self.persistence_file = persistence_file or default_pf
 
         # Session tracking - track the longest width for this session
@@ -1153,17 +1161,22 @@ class CustomRichHandler(RichHandler):
         # Allow per-record highlight override via extra={"highlight": True|False}
         per_record_highlight = getattr(record, "highlight", None)
         highlight_flag = self.highlight if per_record_highlight is None else bool(per_record_highlight)
-        text = PrintedText(record.msg or "", highlight=highlight_flag).markup  # Bake any rich object, since we need to know it's gonna be multiline
-        # print(f"ALIGN TO {len(left)} (lines: {len(text.splitlines())})")
 
-        # print("BEFORE:")
-        # print(text)
-        text_aligned = _align_multiline(text, left)
-        # print("AFTER:")
-        # print(text)
-        text = PrintedText(text, highlight=False).markup
+        # Compute visible columns used by the left sidebar (path + indent) as printed.
+        left_cols = len(Text.from_markup(f"[dim]{left}[/dim]").plain)
 
-        # if self.print_path:
+        # Render once with sidebar width deducted to avoid unintended wrapping (esp. Rules/banners).
+        rendered = PrintedText(
+            record.msg or "",
+            prefix_cols=left_cols,
+            width=getattr(self.console, "width", TERM_WIDTH),
+            highlight=highlight_flag
+        ).markup
+
+        # Align multiline payload under left prefix
+        text_aligned = _align_multiline(rendered, left)
+
+        # Final composed line with dimmed left sidebar + right payload
         full = f"[dim]{left}[/dim]{text_aligned}"
 
         # PERSISTENCE
@@ -1171,7 +1184,7 @@ class CustomRichHandler(RichHandler):
         # Track session max width separately from persistent width
         if path_w > self.session_max_width:
             self.session_max_width = path_w
- 
+
         # Update persistent width for immediate use
         if path_w > self.path_width:
             self.path_width = path_w
@@ -1183,6 +1196,6 @@ class CustomRichHandler(RichHandler):
                 storage_application.write_json()
             except Exception:
                 pass
-            logger.info(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
+            logger.debug(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
 
         return Text.from_markup(full)

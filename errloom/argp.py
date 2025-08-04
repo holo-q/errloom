@@ -334,10 +334,6 @@ def _maybe_apply_retry():
             before = _argv[:idx]
             overrides = _argv[idx + 1:] if len(_argv) > idx + 1 else []
             prev = load_last_args()
-            if not prev:
-                print("[errloom] No previous arguments saved. Cannot __RETRY__.")
-                sys.exit(2)
-            # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
             merged_tail = list(prev) + list(overrides)
             merged = before + merged_tail
             logger.debug(f"__RETRY__ activated -> replacing token at index {idx}")
@@ -379,9 +375,6 @@ if should_parse_args():
             before = argv[:idx]
             overrides = argv[idx + 1:] if len(argv) > idx + 1 else []
             prev = load_last_args()
-            if not prev:
-                print("[errloom] No previous arguments saved. Cannot __RETRY__.")
-                sys.exit(2)
             # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
             merged_tail = list(prev) + list(overrides)
             merged = before + merged_tail
