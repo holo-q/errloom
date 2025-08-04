@@ -498,18 +498,19 @@ Max concurrent: {tapestry.max_concurrent}
 
         return content if content is not None else "[ERROR] empty_response"
 
-    def sample(self, rollout: Rollout, sanitize_sampling_args: bool = True, stop_sequences: list[str] = None) -> str:
+    def sample(self,
+               rollout: Rollout,
+               sanitize_sampling_args: bool = True,
+               stop_sequences: list[str] = None) -> str:
         """
         Sample a model response for a given prefix context
         MessageList or raw str in completion mode
-
-        Convenience function for wrapping (chat, completion) API calls.
         Returns special error messages for context length issues.
-        
+
         Args:
-            rollout: The rollout containing context for sampling
-            sanitize_sampling_args: Whether to sanitize sampling arguments for remote APIs
-            stop_sequences: List of strings where generation should stop if encountered
+            rollout: The rollout containing context and sampling args
+            sanitize_sampling_args: Whether to sanitize args for non-local endpoints
+            stop_sequences: Custom stop sequences that may span multiple tokens, raw string.
         """
         client = self.client
         model = self.model_name
@@ -519,18 +520,11 @@ Max concurrent: {tapestry.max_concurrent}
         else:
             sanitized_args = rollout.sampling_args
 
-        # Add stop sequences to sampling arguments if provided
+        # If we have custom stop sequences, we need to use streaming
         if stop_sequences:
-            # Copy to avoid mutating the original args
-            sanitized_args = sanitized_args.copy()
-            # Merge with any existing stop sequences
-            existing_stop = sanitized_args.get('stop', [])
-            if isinstance(existing_stop, str):
-                existing_stop = [existing_stop]
-            elif existing_stop is None:
-                existing_stop = []
-            sanitized_args['stop'] = existing_stop + stop_sequences
+            return self._sample_with_streaming(rollout, sanitized_args, stop_sequences)
 
+        # Original non-streaming path for backward compatibility
         try:
             res: ChatCompletion
             if self.message_type == 'chat':
@@ -563,6 +557,78 @@ Max concurrent: {tapestry.max_concurrent}
             rollout.samples.append({'role': 'assistant', 'content': ret})
 
         return ret
+
+    def _sample_with_streaming(self, rollout: Rollout, sanitized_args: dict, stop_sequences: list[str]) -> str:
+        """
+        Sample with streaming to handle custom stop sequences that may span multiple tokens.
+        """
+        client = self.client
+        model = self.model_name
+
+        # Prepare streaming args
+        stream_args = sanitized_args.copy()
+        stream_args['stream'] = True
+
+        try:
+            if self.message_type == 'chat':
+                messages = rollout.to_api_chat()
+                stream = client.chat.completions.create(model=model, messages=messages, **stream_args)
+            elif self.message_type == 'completion':
+                prompt = rollout.to_text()
+                stream = client.completions.create(model=model, prompt=prompt, **stream_args)
+            else:
+                raise ValueError(f"Unsupported message_type: {self.message_type}")
+
+            # Collect tokens while checking for stop sequences
+            accumulated_text = ""
+
+            for chunk in stream:
+                if self.message_type == 'chat':
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        chunk_text = delta.content
+                    else:
+                        continue
+                else:  # completion
+                    if hasattr(chunk.choices[0], 'text') and chunk.choices[0].text:
+                        chunk_text = chunk.choices[0].text
+                    else:
+                        continue
+
+                accumulated_text += chunk_text
+
+                # Check if any stop sequence is found
+                for stop_seq in stop_sequences:
+                    if stop_seq in accumulated_text:
+                        # Find the position and truncate
+                        stop_pos = accumulated_text.find(stop_seq)
+                        final_text = accumulated_text[:stop_pos]
+
+                        # Store in rollout
+                        if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
+                            rollout.samples.append({'role': 'assistant', 'content': final_text})
+                        else:
+                            if not hasattr(rollout, 'samples'):
+                                rollout.samples = []
+                            rollout.samples.append({'role': 'assistant', 'content': final_text})
+
+                        return final_text
+
+            # No stop sequence found, return full accumulated text
+            if hasattr(rollout, 'samples') and isinstance(rollout.samples, list):
+                rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
+            else:
+                if not hasattr(rollout, 'samples'):
+                    rollout.samples = []
+                rollout.samples.append({'role': 'assistant', 'content': accumulated_text})
+
+            return accumulated_text
+
+        except Exception as e:
+            error_msg = str(e)
+            if "longer than the maximum" in error_msg or "exceeds the model" in error_msg:
+                return "[ERROR] prompt_too_long"
+            raise
 
     def make_dataset(self,
                      tapestry: Tapestry | None = None,

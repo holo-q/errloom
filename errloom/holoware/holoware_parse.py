@@ -21,7 +21,7 @@ logger = log.getLogger(__name__)
 
 # --- Grammar Definition ---
 def is_ego_or_sampler(base, kargs, kwargs) -> bool:
-    return base in ("o_o", "@_@", "x_x") or "<>" in kwargs or "fence" in kwargs
+    return base in ("o_o", "@_@", "x_x") or "fence" in kwargs or "<>" in kwargs
 
 def is_context_reset(base, kargs, kwargs) -> bool:
     return base in ("+++", "===", "---", "^^^", "###", "@@@", "\"\"\"", "***", "%%%")

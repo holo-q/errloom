@@ -450,8 +450,8 @@ class CompressorHolowareTest(ErrloomTest):
 
         sample_spans = [s for s in spans if isinstance(s, SampleSpan)]
         self.assertEqual(len(sample_spans), 4)
-        fences = {s.fence for s in sample_spans}
-        self.assertEqual(fences, {"compress", "decompress", "think", "json"})
+        goals = {s.fence for s in sample_spans}
+        self.assertEqual(goals, {"compress", "decompress", "think", "json"})
 
         obj_spans = [s for s in spans if isinstance(s, ObjSpan)]
         self.assertEqual(len(obj_spans), 4)

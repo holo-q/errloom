@@ -253,7 +253,6 @@ class Holoware:
                         phore.span_bindings[span.uuid] = inst
 
                     logger.debug(f"init: {inst}")
-                    # logger.debug(PrintedText(Panel(f"[bold]BingoAttractor Goal:[/] {goal}", title="BingoAttractor (Dry Run)", expand=False)))
 
         logger.pop()
 

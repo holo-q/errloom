@@ -36,7 +36,7 @@ dependencies = [
     "aiofiles"
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 all = [
     "liger-kernel>=0.5.10",
     "deepspeed",

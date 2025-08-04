@@ -13,39 +13,35 @@ class HolowareHandlers:
     """
 
     @classmethod
-    def TextSpan(cls, phore:Holophore, span:TextSpan):
+    def TextSpan(cls, holophore:Holophore, span:TextSpan):
         # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection
         # It locks in the baseline "depth" which will never give a good latent space exploration
         # We need a span that implements its own mechanism where the text is not always the same
         # This way the entropy is forever fresh
-        phore.add_masked(span.text)
+        holophore.add_masked(span.text)
 
     @classmethod
-    def ObjSpan(cls, phore:Holophore, span:ObjSpan):
+    def ObjSpan(cls, holophore:Holophore, span:ObjSpan):
         for var_id in span.var_ids:
-            if var_id in phore.env:
-                value = phore.env[var_id]
-                phore.add_masked(f"<obj id={var_id}>")
-                phore.add_masked(str(value))
-                phore.add_masked("</obj>")
-                phore.add_masked("\n")
+            if var_id in holophore.env:
+                value = holophore.env[var_id]
+                holophore.add_masked(f"<obj id={var_id}>")
+                holophore.add_masked(str(value))
+                holophore.add_masked("</obj>")
+                holophore.add_masked("\n")
 
     @classmethod
-    def SampleSpan(cls, phore:Holophore, span:SampleSpan):
+    def SampleSpan(cls, holophore:Holophore, span:SampleSpan):
         # Add opening fence tag to context if fence is specified
         if span.fence:
             opening_tag = f"<{span.fence}>"
-            phore.add_masked(opening_tag)
-        
-        # Determine stop sequences based on span fence attributes
+            holophore.add_masked(opening_tag)
+
         stop_sequences = []
-        
-        # Primary stop sequence from fence attribute
         if span.fence:
             stop_sequences.append(f"</{span.fence}>")
-        
-        # Sample with stop sequences
-        sample = phore.sample(phore.rollout, stop_sequences=stop_sequences)
+
+        sample = holophore.sample(holophore.rollout, stop_sequences=stop_sequences)
         if not sample:
             logger.error("Got a null sample from the loom.")
             return
@@ -53,9 +49,7 @@ class HolowareHandlers:
         # Handle the response based on whether we have a fence
         if span.fence:
             closing_tag = f"</{span.fence}>"
-            
-            # If the model naturally stopped with the closing tag, include it
-            # Otherwise, add the closing tag to complete the fence
+
             if sample.endswith(closing_tag):
                 # Model naturally included the closing tag
                 text = sample
@@ -65,23 +59,23 @@ class HolowareHandlers:
         else:
             # No fence specified - use raw sample
             text = sample
-        
+
         # Add text that will be optimized and reinforced into the weights
-        phore.add_reinforced(text)
+        holophore.add_reinforced(text)
 
     @classmethod
-    def ContextResetSpan(cls, phore:Holophore, span:ContextResetSpan):
-        phore.new_context()
-        phore.change_ego("system")
+    def ContextResetSpan(cls, holophore:Holophore, span:ContextResetSpan):
+        holophore.new_context()
+        holophore.change_ego("system")
 
     @classmethod
-    def EgoSpan(cls, phore:Holophore, span:EgoSpan):
-        phore.change_ego(span.ego)
+    def EgoSpan(cls, holophore:Holophore, span:EgoSpan):
+        holophore.change_ego(span.ego)
 
     @classmethod
-    def ClassSpan(cls, phore: Holophore, span: ClassSpan):
+    def ClassSpan(cls, holophore: Holophore, span: ClassSpan):
         ClassName = span.class_name
-        Class = phore.env.get(ClassName)
+        Class = holophore.env.get(ClassName)
         if not Class:
             from errloom.lib.discovery import get_class
             Class = get_class(ClassName)
@@ -89,11 +83,11 @@ class HolowareHandlers:
         if not Class:
             raise Exception(f"Class '{ClassName}' not found in environment or registry.") # TODO a more appropriate error type maybe ?
 
-        if span.uuid not in phore.span_bindings:
+        if span.uuid not in holophore.span_bindings:
             pass
 
-        if hasattr(phore.span_bindings[span.uuid], "__holo__"):
-            insertion = phore.invoke__holo__(phore, span)
+        if hasattr(holophore.span_bindings[span.uuid], "__holo__"):
+            insertion = holophore.invoke__holo__(holophore, span)
             if insertion:
                 # Ensure injection is a string - convert Holophore to string if needed
                 if hasattr(insertion, '__str__'):
@@ -101,8 +95,8 @@ class HolowareHandlers:
                 else:
                     s = insertion
 
-                phore.add_masked(s)
+                holophore.add_masked(s)
         elif span.body:
-            span.body.__call__(phore)
+            span.body.__call__(holophore)
         else:
             raise Exception(f"Nothing to be done for {ClassName} span.") # TODO a more appropriate error type maybe ?
