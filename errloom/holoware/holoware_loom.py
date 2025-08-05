@@ -50,19 +50,53 @@ class HolowareLoom(Loom):
             **kwargs
         )
 
-        self.holoware = holoware_loader.get_default_loader().load_holoware(path)
+        loader = holoware_loader.get_default_loader()
+        # Store resolved holoware path for watcher/integration
+        try:
+            self.holoware_path = loader.find_holoware_path(path) or path
+        except Exception:
+            self.holoware_path = path
+        self.holoware = loader.load_holoware(path)
+        self._holoware_loader = loader  # keep for reload
+        self._holoware_spec = path      # original spec for reload
 
         tb = Table(box=EMPTY)
         tb.add_column("Parameter", style="cyan", width=25)
         tb.add_column("Value", style="white")
 
-        tb.add_row("Holoware path", path)
+        tb.add_row("Holoware path", str(getattr(self, "holoware_path", path)))
         # tb.add_row("Dataset size", str(len(self.data)))
         tb.add_row("Max concurrent", f"{max_concurrent}")
         tb.add_row("Model", model)
 
         self.logger.info(tb)
         self.logger.info(self.holoware.to_rich())
+
+    def reload_holoware(self) -> None:
+        """
+        Re-parse and reload the holoware from disk. Safe to call between runs.
+        """
+        try:
+            loader = getattr(self, "_holoware_loader", None) or holoware_loader.get_default_loader()
+            spec = getattr(self, "_holoware_spec", None)
+            if spec is None:
+                return
+            # Ask loader to drop any caches if it supports it
+            try:
+                if hasattr(loader, "clear_cache"):
+                    loader.clear_cache()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Re-resolve the path in case it changed
+            try:
+                self.holoware_path = loader.find_holoware_path(spec) or spec
+            except Exception:
+                self.holoware_path = spec
+            # Reload the holoware callable
+            self.holoware = loader.load_holoware(spec)
+            self.logger.info(f"[green]✓[/] Reloaded holoware: {spec}")
+        except Exception as e:
+            self.logger.warning(f"[yellow]⚠ Failed to reload holoware: {e}[/]")
 
     def rollout(self, roll: Rollout):
         self.logger.push_debug("ROLLOUT")

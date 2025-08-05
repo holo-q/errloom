@@ -47,8 +47,12 @@ def setup_async():
         # Don't close the loop here - we need it for later execution
     except RuntimeError:
         # Jupyter notebook or existing event loop
-        import nest_asyncio
-        nest_asyncio.apply()
+        try:
+            import importlib
+            nest_asyncio = importlib.import_module("nest_asyncio")
+            nest_asyncio.apply()
+        except Exception:
+            pass
         loop = asyncio.get_running_loop()
         # noinspection PyTypeChecker
         setup_executor(loop)
@@ -167,7 +171,7 @@ def main(default_title: Optional[str] = None,
                 loom = LoomClass(
                     holoware_to_use,
                     model=model_name, tokenizer=model_name,
-                    client=client,
+                    client=client,  # type: ignore[arg-type]
                     data=default_data,
                     data_split=0.5,
                     dry=errlargs.dry,
@@ -179,7 +183,7 @@ def main(default_title: Optional[str] = None,
             elif issubclass(LoomClass, Loom):
                 loom = LoomClass(
                     model=model_name, tokenizer=model_name,
-                    client=client,
+                    client=client,  # type: ignore[arg-type]
                     data=default_data, data_split=0.5,
                     dry=errlargs.dry,
                     unsafe=errlargs.unsafe,
@@ -213,14 +217,115 @@ def main(default_title: Optional[str] = None,
             log(Rule(colorize_completion("🏆 TRAINING COMPLETED")))
 
         else:
-            # For dry/dump, just generate rollouts
-            loom.weave(errlargs.n)
-            if errlargs.command == "dry":
-                log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
-            elif errlargs.command == "dump":
-                log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
+            # For dry/dump, optionally enter interactive loop
+            def _interactive_loop(loom_obj):
+                import sys
+                import threading
+                import select
+                import termios
+                import tty
+                from errloom.utils.watch import FileWatcher
+                from errloom.lib.log import colorize_field_label
+
+                reweave_event = threading.Event()
+                watcher = None
+
+                # If HolowareLoom, try to watch its holoware path
+                hol_path = getattr(loom_obj, "holoware_path", None)
+                if hol_path:
+                    def _on_change(_f):
+                        # Mark for immediate re-weave
+                        reweave_event.set()
+                    watcher = FileWatcher([hol_path], [_on_change], verbose=False)
+                    watcher.monitor()
+
+                def _open_in_editor(path: str):
+                    # Open the holoware file in user's editor
+                    import os
+                    import subprocess
+                    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+                    try:
+                        subprocess.run([editor, path])
+                    except Exception as _e:
+                        log(f"[yellow]Failed to open editor '{editor}': {_e}[/]")
+
+                # Setup raw mode for single-keystroke input
+                fd = sys.stdin.fileno()
+                old_settings = None
+                if sys.stdin.isatty():
+                    old_settings = termios.tcgetattr(fd)
+                    tty.setcbreak(fd)
+
+                def _wait_for_signal() -> bool:
+                    # Returns True to continue, False to quit
+                    # White = triggers, Dim = annotations
+                    prompt = (
+                        "[bold white]ENTER[/]/[bold white]SPACE[/] [dim]re-weave[/]"
+                        + " · "
+                        + "[bold white]E[/] [dim]edit[/]"
+                        + " · "
+                        + "[bold white]ESC[/]/[bold white]Q[/] [dim]quit[/]"
+                        + " · "
+                        + "[bold white]edit holoware to auto re-weave[/]"
+                    )
+                    log(prompt)
+                    while True:
+                        # 1) file change
+                        if reweave_event.wait(timeout=0.1):
+                            reweave_event.clear()
+                            return True
+                        # 2) keyboard (non-blocking, single char)
+                        rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                        if rlist:
+                            ch = sys.stdin.read(1)
+                            if ch in ("\n", "\r", " "):
+                                return True
+                            if ch in ("e", "E"):
+                                if hol_path:
+                                    _open_in_editor(hol_path)
+                                # After returning from editor, trigger reweave directly
+                                return True
+                            if ch in ("\x1b", "q", "Q"):
+                                return False
+
+                try:
+                    run_idx = 0
+                    while True:
+                        run_idx += 1
+                        # If this is a HolowareLoom, reparse before weaving
+                        try:
+                            if hasattr(loom_obj, "reload_holoware"):
+                                loom_obj.reload_holoware()  # type: ignore[attr-defined]
+                        except Exception as _e:
+                            log(f"[yellow]Holoware reload failed: {_e}[/]")
+
+                        loom_obj.weave(errlargs.n)
+                        if errlargs.command == "dump":
+                            log(Rule(colorize_mode_dump(f"💾 DUMP #{run_idx} COMPLETED")))
+                        else:
+                            log(Rule(colorize_mode_dry(f"🧪 DRY RUN #{run_idx} COMPLETED")))
+                        if not _wait_for_signal():
+                            break
+                finally:
+                    if watcher:
+                        watcher.stop_monitor()
+                    # Restore terminal mode if changed
+                    if old_settings is not None:
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+                # Non-interactive path handled outside
+
+            if getattr(errlargs, "interactive", False) and bool(errlargs.dry):
+                _interactive_loop(loom)
             else:
-                log(Rule(colorize_completion("✅ ALL WOVEN")))
+                # Non-interactive single weave
+                loom.weave(errlargs.n)
+                if errlargs.command == "dry":
+                    log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
+                elif errlargs.command == "dump":
+                    log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
+                else:
+                    log(Rule(colorize_completion("✅ ALL WOVEN")))
     except Exception as e:
         log(Rule(colorize_error("❌ Training Crashed")))
         raise

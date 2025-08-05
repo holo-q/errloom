@@ -12,10 +12,13 @@
 @log.py
 * Update the indentation features to allow skipping the spacing separator when pushing indent so that we can push WARE and then (1) and get "WARE(1)" instead of "WARE (1)"
 
+@loom
+* Interactive mode
+* Automatic /nothink insertion and scaffolding
+
 # TODOS
 
 * will added many new environments https://github.com/willccbb/verifiers/tree/main/environments lets rip them off into holowares to see how our api handles stuff
-*  
 
 # TODO: Logging alignment
 

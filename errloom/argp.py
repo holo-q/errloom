@@ -240,6 +240,7 @@ def get_base_parser() -> argparse.ArgumentParser:
     runtime_group = parser.add_argument_group('Runtime Configuration')
     runtime_group.add_argument('--seed', type=int, default=None, help='RNG seed for reproducibility, affects dataset order and some other things.')
     runtime_group.add_argument('--unsafe', action='store_true', help='Disable safe invocation mode for rollouts (exceptions will crash the process)')
+    runtime_group.add_argument('--interactive', action='store_true', help='Interactive dry/dump loop: re-weave on Enter/Space or when holoware changes; Esc/q to quit')
 
     train_group = parser.add_argument_group('Training Configuration')
     train_group.add_argument("--batch", type=int, default=8, help="How many dataset rows to process with the loom.")
@@ -334,7 +335,9 @@ def _maybe_apply_retry():
             before = _argv[:idx]
             overrides = _argv[idx + 1:] if len(_argv) > idx + 1 else []
             prev = load_last_args()
-            merged_tail = list(prev) + list(overrides)
+            prev_list = list(prev) if prev is not None else []
+            overrides_list = list(overrides) if overrides is not None else []
+            merged_tail = prev_list + overrides_list
             merged = before + merged_tail
             logger.debug(f"__RETRY__ activated -> replacing token at index {idx}")
             logger.debug(f"__RETRY__ before: {before}")
@@ -376,7 +379,9 @@ if should_parse_args():
             overrides = argv[idx + 1:] if len(argv) > idx + 1 else []
             prev = load_last_args()
             # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
-            merged_tail = list(prev) + list(overrides)
+            prev_list = list(prev) if prev is not None else []
+            overrides_list = list(overrides) if overrides is not None else []
+            merged_tail = prev_list + overrides_list
             merged = before + merged_tail
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"__RETRY__ -> before {before} | last {prev} | overrides {overrides} => merged {merged}")
