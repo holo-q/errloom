@@ -260,8 +260,23 @@ def get_base_parser() -> argparse.ArgumentParser:
     test_group.add_argument('--cpu', action='store_true', help='Run training on CPU (very slow but no GPU memory limits, good for debugging training locally)')
 
     log_group = parser.add_argument_group('Logging Configuration')
-    log_group.add_argument('--debug', action='store_true', help='Enable debug logging (equivalent to --log-level debug)')
-    log_group.add_argument('--log-level', type=str, choices=['debug', 'info', 'warning', 'error', 'critical'], default='info', help='Set the logging level')
+    # --debug: optional list
+    #   - bare: global DEBUG
+    #   - with value: comma-separated modules at DEBUG
+    log_group.add_argument(
+        '--debug',
+        nargs='?',
+        const='',
+        default=None,
+        help='Enable debug logging. With value: comma-separated modules to set at DEBUG (e.g., --debug tapestry,foo)'
+    )
+    log_group.add_argument('--log-level', type=str, choices=['debug', 'info', 'warning', 'error', 'critical'], default='info', help='Set the base logging level')
+    # --logs: appendable expressions name or name:level, comma-separated
+    log_group.add_argument(
+        '--logs',
+        action='append',
+        help='Enable specific loggers with optional level. Example: --logs tapestry:debug,foo'
+    )
     log_group.add_argument('--log-more', action='store_true', help='Enable more verbose logging output')
     log_group.add_argument('--trace', action='store_true', help='Enable function execution tracing with timing information')
     log_group.add_argument('--print-threads', action='store_true', help='Print thread names in log output')
@@ -376,15 +391,14 @@ if should_parse_args():
         if "__RETRY__" in argv:
             idx = argv.index("__RETRY__")
             before = argv[:idx]
-            overrides = argv[idx + 1:] if len(argv) > idx + 1 else []
+            overrides_list = argv[idx + 1:] if len(argv) > idx + 1 else []
             prev = load_last_args()
             # Merge at position: keep tokens before __RETRY__, then replay previous args, then append overrides
             prev_list = list(prev) if prev is not None else []
-            overrides_list = list(overrides) if overrides is not None else []
             merged_tail = prev_list + overrides_list
             merged = before + merged_tail
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"__RETRY__ -> before {before} | last {prev} | overrides {overrides} => merged {merged}")
+                logger.debug(f"__RETRY__ -> before {before} | last {prev} | overrides {overrides_list} => merged {merged}")
             else:
                 logger.info(f"__RETRY__ -> {' '.join(merged)}")
             sys.argv = [sys.argv[0]] + merged
@@ -438,7 +452,7 @@ else:
     if errlargs.n is None:
         errlargs.n = 10
 
-is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test or errlargs.debug or errlargs.command == 'dry'
+is_dev = errlargs.cpu or errlargs.local_test or errlargs.micro_test or (isinstance(errlargs.debug, str) and errlargs.debug == '') or errlargs.command == 'dry'
 if is_dev:
     errlargs.unsafe = True # Unsafe mode is always better for development as it allows us to debug errors as they come up
 

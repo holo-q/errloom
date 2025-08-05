@@ -218,7 +218,7 @@ class Holoware:
                 return span
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
-    def __call__(self, phore: "Holophore"):
+    def __call__(self, holophore: "Holophore"):
         from errloom.holoware.holoware_handlers import HolowareHandlers
 
         # it is require since up above its only imported for type_checking whith ""
@@ -231,29 +231,29 @@ class Holoware:
         logger.push_debug(f"WARE({self.name})" if self.name else "HOLOWARE()")
 
         # --- Lifecycle: Start ---
-        phore.invoke(self, "__holo_start__", [phore], {})
-        phore.active_holowares.append(self)
+        holophore.invoke(self, "__holo_start__", [holophore], {})
+        holophore.active_holowares.append(self)
 
         logger.push_debug("(1:start)")
         for span in self.spans:
             if isinstance(span, ClassSpan):
                 classname = span.class_name
-                Cls = phore.get_class(classname)
+                Cls = holophore.get_class(classname)
 
                 if not Cls:
                     raise Exception(f"Class '{classname}' not found in environment or registry.")
                 if getattr(Cls, '_is_holostatic', False):
-                    phore.span_bindings[span.uuid] = Cls
+                    holophore.span_bindings[span.uuid] = Cls
                 else:
                     # TODO extract to call_class_init (formalizes the api)
-                    kspan, kwspan = phore.get_holofunc_args(span)
-                    inst = phore.invoke(Cls, '__init__', span.kargs, span.kwargs, optional=False)
-                    phore.span_bindings[span.uuid] = inst
+                    kspan, kwspan = holophore.get_holofunc_args(span)
+                    inst = holophore.invoke(Cls, '__init__', span.kargs, span.kwargs, optional=False)
+                    holophore.span_bindings[span.uuid] = inst
 
                     # TODO extract to call_class_init (formalizes the api)
-                    inst = phore.invoke(inst, '__holo_init__', kspan, kwspan)
+                    inst = holophore.invoke(inst, '__holo_init__', kspan, kwspan)
                     if inst:
-                        phore.span_bindings[span.uuid] = inst
+                        holophore.span_bindings[span.uuid] = inst
 
                     logger.debug(f"init: {inst}")
 
@@ -261,27 +261,20 @@ class Holoware:
 
         # --- Lifecycle: Main ---
         logger.push_debug("(2:main)")
-        for i, span in enumerate(self.spans):
+        for ispan, span in enumerate(self.spans):
             SpanClassName = type(span).__name__
-
             if not isinstance(span, (TextSpan, ObjSpan)):
-                logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
+                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{ispan}] <|{span}|>[/]")
             else:
-                logger.debug(f"[{span.get_color()}]\\[{i}] <|{SpanClassName}|>[/]")
+                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{ispan}] <|{SpanClassName}|>[/]")
 
-            logger.push('.' * (len(str(i)) + 2))
+            logger.push('.' * (len(str(ispan)) + 2))
 
-            # Create a rich-formatted log message with color
-            if SpanClassName in HolowareHandlers.__dict__:
-                handler = getattr(HolowareHandlers, SpanClassName)
-                handler(phore, span)
-            else:
-                logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
-
-            has_inserted = bool(phore.last_insertion)
+            HolowareHandlers.handle(holophore, span)
+            has_inserted = bool(holophore.last_insertion)
             if has_inserted:
-                logger.debug(Text(phore.last_insertion, style="dim italic"))  # TODO if we could find a 'oduble dim' color that would be better
-                phore.last_insertion = ""
+                logger.debug(Text(holophore.last_insertion, style="dim italic"))  # TODO if we could find a 'oduble dim' color that would be better
+                holophore.last_insertion = ""
             else:
                 # logger.debug(Text("<no text>", style="dim italic"))
                 pass
@@ -290,26 +283,26 @@ class Holoware:
             if has_inserted:
                 logger.debug("")
 
-        if phore.errors > 0:
-            raise RuntimeError(f"Failed to instantiate {phore.errors} classes.")
+        if holophore.errors > 0:
+            raise RuntimeError(f"Failed to instantiate {holophore.errors} classes.")
         logger.pop()
 
         # --- Lifecycle: End ---
         logger.push_debug("(3:end)")
         logger.debug("Span Bindings:")
-        logger.debug_hl(phore.span_bindings)
-        for uid, target in phore.span_bindings.items():
+        logger.debug_hl(holophore.span_bindings)
+        for uid, target in holophore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
-                span = phore.find_span(uid)
+                span = holophore.find_span(uid)
                 # TODO extract to call_class_init (formalizes the api)
-                kspan, kwspan = phore.get_holofunc_args(span)
-                phore.invoke(target, '__holo_end__', kspan, kwspan)
+                kspan, kwspan = holophore.get_holofunc_args(span)
+                holophore.invoke(target, '__holo_end__', kspan, kwspan)
         logger.pop()
 
-        phore.active_holowares.remove(self)
+        holophore.active_holowares.remove(self)
 
         logger.pop()
-        return phore
+        return holophore
 
 
     @classmethod

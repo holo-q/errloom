@@ -3,6 +3,7 @@ __version__ = "0.1.0"
 from errloom.lib import log
 from errloom.tapestry import Rollout
 
+# To make logs palatable during argp setup
 log.setup_logging(
     level="info",
     highlight=True,
@@ -22,19 +23,57 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# TODO use storage
+# Now we can actually setup logging for real
+# Determine base level: --debug bare wins; else --log-level (default info)
+_base_level_str = 'debug' if (isinstance(errlargs.debug, str) and errlargs.debug == '') else errlargs.log_level
 log.setup_logging(
-    level="debug" if errlargs.debug else errlargs.log_level,
+    level=_base_level_str,
     highlight=True,
-    print_paths=True or errlargs.print_paths,  # TODO userconf override flag
+    enable_file_logging=True,
+    print_time=False,
+    print_paths=errlargs.print_paths,  # TODO userconf override flag
     print_threads=errlargs.print_threads,  # TODO userconf override flag
-    reset_log_columns=errlargs.reset_log_columns,
+    reset_log_columns=errlargs.reset_log_columns
 )
 
-# TODO make this a command line option (list of special loggers to enable)
+# Defaults
 # log.disable_logger("errloom.tapestry")
-log.disable_logger("errloom.lib.discovery")
-log.disable_logger("errloom.holoware.holoware_parser")
+# log.disable_logger("errloom.lib.discovery")
+# log.disable_logger("errloom.holoware.holoware_parser")
+
+# Initialize logging early based on args
+from errloom.lib.log import logging_level_from_str, parse_logs_arg, apply_logger_levels
+
+# Collect per-logger overrides from --logs
+overrides: dict[str, int] = {}
+
+# --logs can appear multiple times
+if errlargs.logs:
+    default_level_for_logs = logging_level_from_str(errlargs.log_level, logging.INFO)
+    for expr in errlargs.logs:
+        parsed = parse_logs_arg(expr, default_level_for_logs)
+        # later occurrences override earlier
+        overrides.update(parsed)
+
+# --debug with value: modules at DEBUG (does NOT force global DEBUG if value provided)
+if isinstance(errlargs.debug, str) and errlargs.debug not in (None, ''):
+    mods = [m.strip() for m in errlargs.debug.split(",") if m.strip()]
+    for m in mods:
+        overrides[m] = logging.DEBUG
+
+# Apply overrides
+apply_logger_levels(overrides)
+
+# l1 = logging.getLogger("errloom.tapestry")
+# l2 = logging.getLogger("errloom.tapestry")
+# l3 = logging.getLogger("errloom.holoware.holoware_handlers")
+# l4 = log.getLogger("errloom.holoware.holoware_handlers")
+
+# print(l1, l2, l1 == l2)
+# print(l3, l4, l3 == l4)
+# exit(0)
+
+# TODO make this a command line option (list of special loggers to enable)
 
 logger.debug("🔍 Starting package discovery for errloom...")
 discovery.crawl_package_fast(
@@ -79,4 +118,3 @@ Abuse language mixing, abbreviations, and unicode symbols to aggressively compre
     roll.add_frozen(ego="assistant", content="Bar2")
 
     logger.info(roll.to_rich())
-

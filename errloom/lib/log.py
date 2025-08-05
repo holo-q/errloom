@@ -497,6 +497,194 @@ def save_session_width_to_persistence():
             handler.save_session_width_to_persistence()
             break
 
+def logging_level_from_str(level_str: str, default: int = logging.INFO) -> int:
+    s = str(level_str or "").strip().lower()
+    mapping = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "warn": logging.WARNING,
+        "error": logging.ERROR,
+        "critical": logging.CRITICAL,
+        "fatal": logging.CRITICAL,
+    }
+    return mapping.get(s, default)
+
+
+def _iter_known_logger_names() -> list[str]:
+    """
+    Back-compat: iterate currently-registered loggers.
+    Kept for runtime-added names, but no longer the primary discovery mechanism.
+    """
+    names = set(["main"])
+    try:
+        names.update(logging.Logger.manager.loggerDict.keys())
+    except Exception:
+        pass
+    return sorted(n for n in names if isinstance(n, str) and n != "")
+
+
+def get_known_loggers_by_short_name(restrict_prefix: str = "errloom") -> dict[str, list[str]]:
+    """
+    Build mapping from final component ('tapestry') to list of full logger names.
+
+    New strategy:
+    - Predict module paths by scanning the project package directory tree (filesystem),
+      not by relying on logging registry (which only contains already-imported modules).
+    - Restrict to our package or 'main' to avoid 3rd-party loggers.
+    """
+    out: dict[str, list[str]] = {}
+
+    # Always include 'main' short mapping
+    out.setdefault("main", []).append("main")
+
+    try:
+        # Locate installed package root path
+        import importlib
+        pkg = importlib.import_module(restrict_prefix)
+        pkg_path = getattr(pkg, "__path__", None)
+        roots = list(pkg_path) if pkg_path is not None else []
+    except Exception:
+        roots = []
+
+    def add_module_modname(modname: str):
+        if not modname.startswith(f"{restrict_prefix}."):
+            return
+        short = modname.split(".")[-1]
+        out.setdefault(short, []).append(modname)
+
+    # Walk all package roots to discover python modules
+    for root in roots:
+        try:
+            root_path = Path(root)
+            if not root_path.exists():
+                continue
+            for p in root_path.rglob("*.py"):
+                # Skip private/dunder cache
+                if p.name.startswith("_") and p.name != "__init__.py":
+                    continue
+                    
+                # Build relative path from package root
+                try:
+                    rel = p.relative_to(root_path)
+                except ValueError:
+                    # Shouldn't happen since we walked from root_path, but safety
+                    continue
+
+                # Build module name
+                parts = [restrict_prefix]
+                
+                # Handle __init__.py - module is the package directory
+                if p.name == "__init__.py":
+                    parts.extend([x for x in rel.parent.parts if x])
+                else:
+                    # Regular .py file - module is the file path without extension
+                    parts.extend([x for x in rel.with_suffix("").parts if x])
+                
+                modname = ".".join(parts)
+                add_module_modname(modname)
+        except Exception:
+            # Fail-safe: continue with whatever we built so far
+            continue
+
+    # Also include any already-registered matching names, without creating a hard dependency
+    try:
+        for full in _iter_known_logger_names():
+            if full == "main" or full.startswith(f"{restrict_prefix}."):
+                short = full.split(".")[-1]
+                out.setdefault(short, []).append(full)
+    except Exception:
+        pass
+
+    # Deduplicate lists while preserving order
+    for k, v in list(out.items()):
+        seen = set()
+        dedup = []
+        for n in v:
+            if n not in seen:
+                seen.add(n)
+                dedup.append(n)
+        out[k] = dedup
+
+    return out
+
+
+def resolve_logger_targets(tokens: list[str]) -> list[str]:
+    """
+    Resolve a list of module tokens into full logger names.
+
+    Resolution order:
+    1) If token matches a predicted fully-qualified module name (from filesystem scan), use it.
+    2) If token matches a short name, expand to all predicted modules with that short name.
+    3) Else, accept token as-is so the logger can be created on demand.
+    """
+    by_short = get_known_loggers_by_short_name()
+    predicted_full = set(n for lst in by_short.values() for n in lst)
+
+    result: list[str] = []
+    for t in tokens:
+        t = (t or "").strip()
+        if not t:
+            continue
+        # Exact full-name match in predicted set
+        if t in predicted_full:
+            result.append(t)
+            continue
+        # Short-name expansion
+        if t in by_short:
+            result.extend(by_short[t])
+            continue
+        # Fallback: treat as fqname for forward-compat (logger will be created lazily)
+        result.append(t)
+
+    # Deduplicate preserving order
+    seen = set()
+    deduped = []
+    for n in result:
+        if n not in seen:
+            seen.add(n)
+            deduped.append(n)
+    return deduped
+
+
+def parse_logs_arg(expr: str, default_level: int) -> dict[str, int]:
+    """
+    Parse --logs expression: 'tapestry:debug,foo,bar:error'
+    Returns mapping short/full tokens -> level int. Levels not provided use default_level.
+    """
+    out: dict[str, int] = {}
+    if not expr:
+        return out
+    parts = [p.strip() for p in expr.split(",") if p.strip()]
+    for p in parts:
+        if ":" in p:
+            name, lvl = p.split(":", 1)
+            level_int = logging_level_from_str(lvl, default_level)
+            out[name.strip()] = level_int
+        else:
+            out[p] = default_level
+    return out
+
+
+def apply_logger_levels(mapping: dict[str, int]) -> None:
+    """
+    Apply levels to all resolved loggers according to mapping keyed by token (short or fqname).
+    """
+    if not mapping:
+        return
+    # Merge tokens into actual names
+    expanded: dict[str, int] = {}
+    for token, level in mapping.items():
+        targets = resolve_logger_targets([token])
+        for name in targets:
+            expanded[name] = level
+    for name, level in expanded.items():
+        try:
+            logging.getLogger(name).setLevel(level)
+        except Exception:
+            pass
+
+
 def getLogger(name: Optional[str] = None) -> EnhancedLogger:
     """
     Get an enhanced logger instance with push/pop indent functionality.

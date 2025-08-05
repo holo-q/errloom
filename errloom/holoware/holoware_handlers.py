@@ -1,20 +1,30 @@
-import logging
-
 from errloom.holoware.holophore import Holophore
-from errloom.holoware.holoware import ClassSpan, ContextResetSpan, EgoSpan, ObjSpan, SampleSpan, TextSpan
-
-logger = logging.getLogger(__name__)
-
+from errloom.holoware.holoware import ClassSpan, ContextResetSpan, EgoSpan, ObjSpan, SampleSpan, Span, TextSpan
+from errloom.lib import log
 
 # noinspection PyUnusedLocal
 class HolowareHandlers:
     """
     Function that match the spans and get invoked when encountered during holoware execution.
     """
+    logger = log.getLogger(__name__)
+
+    @classmethod
+    def handle(cls, holophore:Holophore, span:Span):
+        SpanClassName = type(span).__name__
+
+        # Create a rich-formatted log message with color
+        if SpanClassName in HolowareHandlers.__dict__:
+            handler = getattr(HolowareHandlers, SpanClassName)
+            handler(holophore, span)
+        else:
+            cls.logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
+
+
 
     @classmethod
     def TextSpan(cls, holophore:Holophore, span:TextSpan):
-        # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection
+        # We don't support reinforced plaintext because it's basically 100% opacity controlnet depth injection in text-space
         # It locks in the baseline "depth" which will never give a good latent space exploration
         # We need a span that implements its own mechanism where the text is not always the same
         # This way the entropy is forever fresh
@@ -43,7 +53,7 @@ class HolowareHandlers:
 
         sample = holophore.sample(holophore.rollout, stop_sequences=stop_sequences)
         if not sample:
-            logger.error("Got a null sample from the loom.")
+            cls.logger.error("Got a null sample from the loom.")
             return
 
         # Handle the response based on whether we have a fence
@@ -84,7 +94,7 @@ class HolowareHandlers:
                 holophore.env[span.id] = payload.strip()
         except Exception:
             # Avoid crashing sampling path for assignment issues; log at debug level
-            logger.debug("Failed to assign sample payload to env id for span.id=%s", getattr(span, "id", None))
+            cls.logger.debug("Failed to assign sample payload to env id for span.id=%s", getattr(span, "id", None))
 
     @classmethod
     def ContextResetSpan(cls, holophore:Holophore, span:ContextResetSpan):
