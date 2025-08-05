@@ -73,12 +73,15 @@ class Span(ABC):
     template differently during rendering.
 
     Spans can have:
-    - An ID for referencing (defaults to UUID)
+    - An internal UUID (always present)
+    - A human-assigned identifier (id) via `<|span:id ...|>` syntax for data assignment
     - Variable arguments (positional)
     - Variable keyword arguments
     - Type-specific attributes defined in subclasses
     """
     uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
+    # Universal data-assignment identifier for all spans: <|span:id ...|>
+    id: str = ""
     kargs: list[str] = field(default_factory=list)
     kwargs: dict[str, str] = field(default_factory=dict)
 

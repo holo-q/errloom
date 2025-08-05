@@ -21,7 +21,7 @@ from errloom import paths  # noqa: E402
 # Centralized persistence paths
 # Storage is available if needed for future extensions; avoid adding dynamic fields
 # Persisted storage (lives under ~/.errloom via paths.userdir)
-from errloom.storage import application as storage_application, application as storage_application  # noqa: F401; noqa: E402
+from errloom.storage import application as storage_application  # noqa: E402
 
 # Centralized persistence paths (no dynamic writes to Storage schema)
 # Centralized persistence
@@ -355,7 +355,6 @@ def setup_logging(
     highlight: bool = True,
     enable_file_logging: bool = True,
     log_filename: Optional[str] = None,
-    persistence_file: Optional[str] = None,
     print_threads: bool = False,
     print_time: bool = False,
     reset_log_columns: bool = False
@@ -387,8 +386,6 @@ def setup_logging(
 
     # Create a RichHandler for console output
     if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        # Use centralized application storage directly
-        pf = persistence_file or storage_application.path.as_posix()
         handler = CustomRichHandler(
             rich_tracebacks=True,
             show_path=False,
@@ -397,7 +394,6 @@ def setup_logging(
             markup=True,
             print_paths=print_paths,
             highlight=highlight,
-            persistence_file=pf,
             print_thread_name=print_threads,
             reset_columns=reset_log_columns
         )
@@ -1052,56 +1048,47 @@ class CustomRichHandler(RichHandler):
     class and function name of the caller.
     """
 
-    def __init__(self, *kargs, print_paths, path_width=10, highlight, persistence_file=None, print_thread_name=False, reset_columns=False, **kwargs):
+    def __init__(self, *kargs, print_paths, path_width=10, highlight, print_thread_name=False, reset_columns=False, **kwargs):
         super().__init__(*kargs, **kwargs)
         self.highlight = highlight
         self.print_paths = print_paths
         self.print_threads = print_thread_name
 
-        import json
-        # Route persistence file to the centralized application storage path by default
-        default_pf = storage_application.path.as_posix()
-        self.persistence_file = persistence_file or default_pf
-
         # Session tracking - track the longest width for this session
         self.session_max_width = path_width
 
-        saved_path_width = path_width
+        # Initialize from application storage (single source of truth)
+        try:
+            storage_application.read_json()
+            saved_path_width = int(getattr(storage_application, "logging_max_path_width", path_width))
+        except Exception:
+            saved_path_width = path_width
+
         if reset_columns:
             saved_path_width = path_width
-            self._save_persistence_data({'max_path_width': path_width})
-        elif os.path.exists(self.persistence_file):
             try:
-                with open(self.persistence_file, 'r') as f:
-                    data = json.load(f)
-                    saved_path_width = data.get('max_path_width', path_width)
-            except (json.JSONDecodeError, IOError):
+                storage_application.logging_max_path_width = int(path_width)
+                storage_application.write_json()
+            except Exception:
                 pass
 
         self.path_width = saved_path_width
 
     def _save_persistence_data(self, data: dict):
-        """Save data to the persistence file."""
+        """Persist using AppStorage, no file-based persistence."""
         try:
-            os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
-            with open(self.persistence_file, 'w') as f:
-                import json
-                json.dump(data, f)
-            # Persist also into application storage for portability/debugging
-            try:
-                storage_application.last_args = storage_application.last_args  # no-op to prove structure
-            except Exception:
-                pass
-        except IOError:
-            pass  # Don't crash on logging persistence error
+            maxw = int(data.get('max_path_width', self.path_width))
+            storage_application.logging_max_path_width = maxw
+            storage_application.write_json()
+        except Exception:
+            pass
 
     def save_session_width_to_persistence(self):
-        """Save the session's maximum width +10% to persistence."""
+        """Save the session's maximum width +10% using AppStorage."""
         if self.session_max_width > 0:
-            # Add 10% padding to the session max width
             padded_width = int(self.session_max_width * 1.1)
             self._save_persistence_data({'max_path_width': padded_width})
-            logger.debug(f"Saved session max width {self.session_max_width} (+10% = {padded_width}) to persistence")
+            logger.debug(f"Saved session max width {self.session_max_width} (+10% = {padded_width}) to storage")
 
     def render_message(self, record: logging.LogRecord, message: str):
         """
@@ -1180,13 +1167,6 @@ class CustomRichHandler(RichHandler):
         if path_w > self.path_width:
             self.path_width = path_w
             self._save_persistence_data({'max_path_width': self.path_width})
-            # Mirror to global storage for persist-across-runs usage
-            try:
-                from errloom.storage import application as storage_application  # local import to avoid cycles
-                storage_application.logging_max_path_width = int(self.path_width)
-                storage_application.write_json()
-            except Exception:
-                pass
-            logger.debug(f"Wrote max_pad_width={self.path_width} to persistence file {self.persistence_file}")
+            logger.debug(f"Wrote max_pad_width={self.path_width} to AppStorage")
 
         return Text.from_markup(full)

@@ -10,6 +10,7 @@ Abuse language mixing, abbreviations, and unicode symbols to aggressively compre
     Compress the following text losslessly in a way that fits a Tweet, such that you can reconstruct it as closely as possible to the original.
     Abuse of language  mixing, abbreviation, symbols (unicode and emojis) to aggressively compress it, while still keeping ALL the information to fully reconstruct it.
     Do not make it human readable.
+
 <|text|original|input|data|>
 
 <|@_@|>
@@ -24,12 +25,11 @@ Your task is to decompress this text, reconstructing the original content with p
 
 <|o_o|>
 Please decompress this content:
+
 <|compressed|>
 
 <|@_@|>
-<think>
-
-</think>
+<think></think>
 <|@_@:decompressed <>decompress|>
 
 

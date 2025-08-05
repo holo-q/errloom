@@ -6,7 +6,6 @@ from errloom.tapestry import Rollout
 log.setup_logging(
     level="info",
     highlight=True,
-    persistence_file=None,
     print_paths=True,
     print_threads=False,
     reset_log_columns=False,
@@ -27,14 +26,13 @@ logger = logging.getLogger(__name__)
 log.setup_logging(
     level="debug" if errlargs.debug else errlargs.log_level,
     highlight=True,
-    persistence_file=str(userdir / "persistence.json"), # TODO use storage
     print_paths=True or errlargs.print_paths,  # TODO userconf override flag
     print_threads=errlargs.print_threads,  # TODO userconf override flag
     reset_log_columns=errlargs.reset_log_columns,
 )
 
 # TODO make this a command line option (list of special loggers to enable)
-log.disable_logger("errloom.tapestry")
+# log.disable_logger("errloom.tapestry")
 log.disable_logger("errloom.lib.discovery")
 log.disable_logger("errloom.holoware.holoware_parser")
 

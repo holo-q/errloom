@@ -173,6 +173,27 @@ class HolowareExecutionTest(HoloTest):
         self.assertTrue(any(f.content == "<test>" for f in frags))
         self.assertTrue(any(f.content == "mocked_sample</test>" for f in frags))
 
+    def test_data_assignment_across_contexts(self):
+        # First context samples with id 'compressed' into a <compress> fence.
+        # Second context injects <|compressed|> via ObjSpan, which should contain the inner payload.
+        code = (
+            "<|+++|>"
+            "<|o_o|>Source.\n"
+            "<|@_@:compressed <>compress|>"
+            "<|+++|>"
+            "<|o_o|>Injected: <|compressed|>"
+        )
+        holoware, holophore = self.run_holoware(code)
+
+        # Env should have been assigned from the first fenced sample (inner payload only)
+        self.assertIn('compressed', holophore.env)
+        self.assertEqual(holophore.env['compressed'], "mocked_sample")
+
+        # Second context should include object injection with the sampled payload
+        self.assertEqual(len(holophore.contexts), 2)
+        context1_content = "".join(frag.content for frag in holophore.contexts[1].fragments)
+        self.assertIn("<obj id=compressed>mocked_sample</obj>", context1_content)
+
     def test_holoware_run_context_reset(self):
         code = "<|o_o|>First context.<|+++|>Second context."
         holoware, holophore = self.run_holoware(code)
@@ -328,14 +349,19 @@ class CompressorHolowareExecutionTest(HoloTest):
 
 
         # Context 1: Decompression
-        self.assertIn("<obj id=compressed>th_is_s_th_0r1g_txt</obj>", context1_content)
+        # After enabling universal data assignment, the compressed object should reflect
+        # the sampled payload from the compression step when no pre-seeded env override is desired.
+        # In this mocked run, SampleSpan returns 'mocked_sample', so we expect that value.
+        self.assertIn("<obj id=compressed>mocked_sample</obj>", context1_content)
         self.assertIn("<decompress>mocked_sample</decompress>", context1_content)
         self.assertNotIn("<compress>", context1_content)
         self.assertNotIn("FidelityCritique", context1_content)
 
         # Context 2: Evaluation
         self.assertIn("<obj id=original>This is the original text.</obj>", context2_content)
-        self.assertIn("<obj id=decompressed>This is the original text, decompressed.</obj>", context2_content)
+        # After enabling universal data assignment, the decompressed object reflects
+        # the sampled payload from the decompression step in this mocked environment.
+        self.assertIn("<obj id=decompressed>mocked_sample</obj>", context2_content)
         self.assertIn("BINGO: Compare the two objects and analyze", context2_content)
         self.assertIn('{"mock_schema": "compact"}', context2_content)
         self.assertIn("<think>mocked_sample</think>", context2_content)

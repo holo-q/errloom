@@ -360,32 +360,35 @@ class Context:
         }
 
         messages = self.to_api_messages()
-        text = Text()
-        for i, msg in enumerate(messages):
-            is_last_msg = i == len(messages) - 1
+        ret = Text()
+
+        for imsg, msg in enumerate(messages):
             role = msg.get('role', 'unknown')
             content = msg.get('content', '')
+
             # Guard: ensure a known role for rendering
             if role not in ("system", "user", "assistant"):
+                logger.error("Context.to_rich: Unknown role found in context: %s", role)
                 role = "user"
+
             color = role_colors.get(role, "white")
 
             # Prepare highlighted content
-            highlighted_content = Text(style="white")
+            hlcontent = Text(style="white")
             # Regex to find <tag>...</tag> and <tag id=foo>...</tag>
             # It will match <obj ...>, <compress>, <decompress>, <think>, <json>, <critique>
             pattern = _re.compile(r"(<(obj|compress|decompress|think|json|critique)\b[^>]*>.*?<\/\2>)", _re.DOTALL)
 
-            last_idx = 0
             # Defensive cleanup (display-only): strip accidental role concatenations at content start
-            safe_content = content
-            if _re.match(r'^(?:system|user|assistant){2,}\b', safe_content):
-                safe_content = _re.sub(r'^(?:system|user|assistant){2,}\b', '', safe_content, count=1).lstrip()
+            sanitized_content = content
+            if _re.match(r'^(?:system|user|assistant){2,}\b', sanitized_content):
+                sanitized_content = _re.sub(r'^(?:system|user|assistant){2,}\b', '', sanitized_content, count=1).lstrip()
 
-            for match in pattern.finditer(safe_content):
+            last_idx = 0
+            for match in pattern.finditer(sanitized_content):
                 start, end = match.span()
                 # Append text before the match
-                highlighted_content.append(safe_content[last_idx:start])
+                hlcontent.append(sanitized_content[last_idx:start])
 
                 full_match_text = match.group(1)
                 tag_name = match.group(2)
@@ -403,31 +406,35 @@ class Context:
                         style = "blue"
 
                     # Reconstruct and style
-                    highlighted_content.append(f"<{tag_name}{attributes_str}>", style=f"bold {style}")
-                    highlighted_content.append(inner_content, style=style)
-                    highlighted_content.append(f"</{tag_name}>", style=f"bold {style}")
+                    hlcontent.append(f"<{tag_name}{attributes_str}>", style=f"bold {style}")
+                    hlcontent.append(inner_content, style=style)
+                    hlcontent.append(f"</{tag_name}>", style=f"bold {style}")
                 else:
                     # Fallback for non-matching (should not happen with the outer regex)
-                    highlighted_content.append(full_match_text)
+                    hlcontent.append(full_match_text)
 
                 last_idx = end
 
             # Append any remaining text
-            highlighted_content.append(safe_content[last_idx:])
+            hlcontent.append(sanitized_content[last_idx:])
 
-            # Render role header and decide line break based on whether content has linebreaks
-            single_line = "\n" not in str(highlighted_content)
-            if single_line:
-                text.append(f"{role}: ", style=color)
-            else:
-                text.append(f"{role}:", style=color)
-                text.append("\n")
+            # Render role header
+            # ----------------------------------------
+            if imsg >0:
+                ret.append("\n", style="white")
+                ret.append("\n", style="white")
 
-            text.append(highlighted_content)
-            if not is_last_msg:
-                text.append("\n", style="white")
+            # single_line = "\n" not in str(hlcontent)
+            # if single_line:
+            #     ret.append(f"--- {role} ---", style=color)
+            # else:
+            ret.append(f"--- {role} ---", style=color)
+            ret.append("\n")
 
-        return text
+            ret.append(hlcontent)
+
+
+        return ret
 
 def _truncate_long_strings(data: Any, max_len: int = 128) -> Any:
     """Recursively truncate long strings in a data structure."""

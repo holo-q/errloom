@@ -5,7 +5,6 @@
 * support 'uv run main <loom/holoware> vllm' which runs vllm_server cli, just like the vllm launch script in @pyproject.toml
 * support 'uv run main <loom/holoware> resume'
 
-
 @main.py
 * prompt the user for their keys when using --openai, --openrouter, etc. and store them into ~/.erloom (see @paths.py for app standards) as securely as possible
 
@@ -19,6 +18,7 @@
 # TODOS
 
 * will added many new environments https://github.com/willccbb/verifiers/tree/main/environments lets rip them off into holowares to see how our api handles stuff
+* allow passing a url to a holoware text file to download it and use it as the training scaffold, e.g. a file on github
 
 # TODO: Logging alignment
 

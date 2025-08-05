@@ -341,12 +341,12 @@ def _build_class(out: list[Span], base, kargs, kwargs):
     out.append(span)
 
 def _build_ego_or_sampler(out: list, base: str, kargs: list, kwargs: dict):
-    # Split ego and potential UUID
+    # Split ego and potential identifier after colon
     parts = base.split(":", 1)
     ego = parts[0]
-    uuid = parts[1] if len(parts) > 1 else ""
+    span_id = parts[1] if len(parts) > 1 else ""
 
-    out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=uuid))
+    out.append(EgoSpan(ego=EGO_MAP.get(ego, ego), uuid=span_id))
 
     # A sampler can be defined with kargs/kwargs on the ego span
     sampler_kwargs = {k: v for k, v in kwargs.items() if k not in ("<>", "fence")}
@@ -358,7 +358,8 @@ def _build_ego_or_sampler(out: list, base: str, kargs: list, kwargs: dict):
             # We just ignore them.
             pass
         else:
-            out.append(SampleSpan(uuid=uuid, kargs=kargs, kwargs=sampler_kwargs, fence=fence))
+            # Assign the human-readable id (span_id) universally onto SampleSpan.id
+            out.append(SampleSpan(uuid=span_id, id=span_id, kargs=kargs, kwargs=sampler_kwargs, fence=fence))
 
 def _build_context(train: bool):
     def _handler(out: list, base: str, kargs: list, kwargs: dict):

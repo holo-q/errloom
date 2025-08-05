@@ -63,6 +63,29 @@ class HolowareHandlers:
         # Add text that will be optimized and reinforced into the weights
         holophore.add_reinforced(text)
 
+        # Universal data assignment: if span.id is set, bind the produced payload into env
+        # IMPORTANT: store only the inner payload (without closing fence) for re-injection via ObjSpan
+        try:
+            if getattr(span, "id", None):
+                payload = sample  # start from raw sample to avoid duplicate closing fences
+                if span.fence:
+                    open_tag = f"<{span.fence}>"
+                    close_tag = f"</{span.fence}>"
+                    # If model included fences inside sample, strip them; otherwise also strip any trailing closing fence
+                    if payload.startswith(open_tag) and payload.endswith(close_tag):
+                        payload = payload[len(open_tag):-len(close_tag)]
+                    else:
+                        # sample may or may not include the closing tag; ensure we do not keep the closing tag
+                        if payload.endswith(close_tag):
+                            payload = payload[: -len(close_tag)]
+                        # and if it starts with the opening tag, remove it
+                        if payload.startswith(open_tag):
+                            payload = payload[len(open_tag):]
+                holophore.env[span.id] = payload.strip()
+        except Exception:
+            # Avoid crashing sampling path for assignment issues; log at debug level
+            logger.debug("Failed to assign sample payload to env id for span.id=%s", getattr(span, "id", None))
+
     @classmethod
     def ContextResetSpan(cls, holophore:Holophore, span:ContextResetSpan):
         holophore.new_context()
