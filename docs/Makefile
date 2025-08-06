@@ -1,5 +1,5 @@
 # Minimal makefile for Sphinx documentation
-#
+# TODO this is inherited from Verifiers. makefile is fukin cancer. can we do something more pythonic? uv? hmm
 
 # You can set these variables from the command line, and also
 # from the environment for the first two.

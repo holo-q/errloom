@@ -11,7 +11,7 @@ be included and which masked out. If you see references to a 'prompt' during tra
 # Coding Standard
 
 - Never use kwargs for anything but delegation.
-- Never use hasattr unless explicitly recommended by the user. A field exists or it doesn't.
+- Never use hasattr or getattr unless explicitly recommended by the user. A field exists or it doesn't.
 - Watch out for functional code patterns. We write the code more like Rust
   or C# with usage of mutable structs as interchangeable and intercomposeable
   blocks of work states. We consider that functional coding patterns are a

@@ -1,6 +1,7 @@
 import logging
 
-from errloom.tapestry import (AutoMask, Context, FragType, Rollout, Tapestry)
+from errloom.tapestry import (Rollout, Tapestry)
+from errloom.context import AutoMask, Context, FragType
 from errloom.aliases import APIChat
 from tests.base import ErrloomTest
 
@@ -13,15 +14,15 @@ class ContextToApiMessagesTest(ErrloomTest):
     def test_role_normalization_and_aggregation(self):
         ctx = Context()
         # First None role becomes system
-        ctx.add_frag(ego=None, content="sys1", type=FragType.FROZEN)
+        ctx.add_frag(ego=None, text="sys1", type=FragType.FROZEN)
         # Unknown role normalizes to user (and breaks aggregation from system)
-        ctx.add_frag(ego="unknown", content="u1", type=FragType.FROZEN)
+        ctx.add_frag(ego="unknown", text="u1", type=FragType.FROZEN)
         # Consecutive user fragments aggregate
-        ctx.add_frag(ego="user", content="u2", type=FragType.REINFORCE)
+        ctx.add_frag(ego="user", text="u2", type=FragType.REINFORCE)
         # Assistant message
-        ctx.add_frag(ego="assistant", content="a1", type=FragType.REINFORCE)
+        ctx.add_frag(ego="assistant", text="a1", type=FragType.REINFORCE)
         # Another unknown normalizes to user, new block
-        ctx.add_frag(ego="weird", content="u3", type=FragType.FROZEN)
+        ctx.add_frag(ego="weird", text="u3", type=FragType.FROZEN)
 
         msgs = ctx.to_api_messages()
         self.assertEqual(len(msgs), 4)
@@ -32,9 +33,9 @@ class ContextToApiMessagesTest(ErrloomTest):
 
     def test_to_api_string_formatting(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="S", type=FragType.FROZEN)  # system
-        ctx.add_frag(ego="user", content="U", type=FragType.FROZEN)
-        ctx.add_frag(ego="assistant", content="A", type=FragType.REINFORCE)
+        ctx.add_frag(ego=None, text="S", type=FragType.FROZEN)  # system
+        ctx.add_frag(ego="user", text="U", type=FragType.FROZEN)
+        ctx.add_frag(ego="assistant", text="A", type=FragType.REINFORCE)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -92,9 +93,9 @@ class ContextToApiMessagesTest(ErrloomTest):
 
     def test_extract_fence_with_and_without_tag(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="Intro", type=FragType.FROZEN)  # system
-        ctx.add_frag(ego="assistant", content="<compress>XYZ</compress>", type=FragType.REINFORCE)
-        ctx.add_frag(ego="user", content="Tail", type=FragType.FROZEN)
+        ctx.add_frag(ego=None, text="Intro", type=FragType.FROZEN)  # system
+        ctx.add_frag(ego="assistant", text="<compress>XYZ</compress>", type=FragType.REINFORCE)
+        ctx.add_frag(ego="user", text="Tail", type=FragType.FROZEN)
 
         # Without wrapper_tag returns last message for role
         self.assertEqual(ctx.extract_xml_tag(None, role="assistant"), "<compress>XYZ</compress>")
@@ -111,21 +112,21 @@ class ContextToApiMessagesTest(ErrloomTest):
 {"a": 1, "b": {"c": 2}}
 ```"""
         ctx1 = Context()
-        ctx1.add_frag(ego="user", content="pre", type=FragType.FROZEN)
-        ctx1.add_frag(ego="assistant", content=fenced_json, type=FragType.REINFORCE)
+        ctx1.add_frag(ego="user", text="pre", type=FragType.FROZEN)
+        ctx1.add_frag(ego="assistant", text=fenced_json, type=FragType.REINFORCE)
         out1 = ctx1.extract_markdown_json(role="assistant")
         self.assertEqual(out1, '{"a": 1, "b": {"c": 2}}')
 
         # Inline
         inline = "Some text\n{" + '"x": 3, "y": {"z": 4}' + "}\nend"
         ctx2 = Context()
-        ctx2.add_frag(ego="assistant", content=inline, type=FragType.REINFORCE)
+        ctx2.add_frag(ego="assistant", text=inline, type=FragType.REINFORCE)
         out2 = ctx2.extract_markdown_json(role="assistant")
         self.assertEqual(out2, '{"x": 3, "y": {"z": 4}}')
 
         # None when no assistant content
         ctx3 = Context()
-        ctx3.add_frag(ego="user", content="no json here", type=FragType.FROZEN)
+        ctx3.add_frag(ego="user", text="no json here", type=FragType.FROZEN)
         self.assertIsNone(ctx3.extract_markdown_json(role="assistant"))
 
 

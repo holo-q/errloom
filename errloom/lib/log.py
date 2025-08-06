@@ -18,6 +18,7 @@ from rich.logging import RichHandler
 from rich.text import Text
 
 from errloom import paths  # noqa: E402
+from errloom.lib import formatting
 # Centralized persistence paths
 # Storage is available if needed for future extensions; avoid adding dynamic fields
 # Persisted storage (lives under ~/.errloom via paths.userdir)
@@ -74,8 +75,6 @@ rich.traceback.install(
     # locals_hide_sunder=True,  # Hide _private variables in locals
     suppress=[],  # You can add modules to suppress here
 )
-
-
 
 # TRACER FUNCTIONALITY
 # ----------------------------------------
@@ -188,14 +187,18 @@ def _trace_wrapper(func: Callable, print_args: bool, *args: Any, **kwargs: Any) 
 
 def trace_decorator(func: Callable) -> Callable:
     """Decorator to trace function execution with arguments."""
+
     def trace_wrapper(*args: Any, **kwargs: Any) -> Any:
         return _trace_wrapper(func, True, *args, **kwargs)
+
     return trace_wrapper
 
 def trace_decorator_noargs(func: Callable) -> Callable:
     """Decorator to trace function execution without arguments."""
+
     def trace_wrapper(*args: Any, **kwargs: Any) -> Any:
         return _trace_wrapper(func, False, *args, **kwargs)
+
     return trace_wrapper
 
 def trace_function(name: Optional[str] = None, threshold: float = 0.0, *, force=False):
@@ -207,12 +210,15 @@ def trace_function(name: Optional[str] = None, threshold: float = 0.0, *, force=
         threshold: Minimum time threshold to print
         force: Force printing regardless of global trace setting
     """
+
     def decorator(func: Callable) -> Callable:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             trace_name = name or func.__name__
             with tracer(trace_name, threshold=threshold, force=force, show_args=True, args=args, kwargs=kwargs) as timer:
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 def value_to_print_str(v):
@@ -329,6 +335,25 @@ class EnhancedLogger(logging.Logger):
         """Log at arbitrary level with custom extra fields, preserving stacklevel contract."""
         self.log(level, msg, extra=extra, stacklevel=stacklevel + 1)
 
+    # --- Newline helpers ---
+    def newline(self, stacklevel: int = 1) -> None:
+        """
+        Emit a visually minimal blank line without the left sidebar or level prefix.
+        Console: prints a faint space to make the line perceptible.
+        File: writes a plain newline.
+        """
+        self.log(logging.INFO, " ", extra={"_nl": True}, stacklevel=stacklevel + 1)
+
+    def newline_debug(self, stacklevel: int = 1) -> None:
+        self.log(logging.DEBUG, " ", extra={"_nl": True}, stacklevel=stacklevel + 1)
+
+    def newline_info(self, stacklevel: int = 1) -> None:
+        self.log(logging.INFO, " ", extra={"_nl": True}, stacklevel=stacklevel + 1)
+
+    def disable(self) -> 'EnhancedLogger':
+        self.disabled = True
+        return self
+
 def generate_log_filename(script_name: Optional[str] = None) -> str:
     """
     Generate a log filename based on current time and main script name.
@@ -368,7 +393,6 @@ def setup_logging(
         highlight: Whether to enable syntax highlighting in console output.
         enable_file_logging: Whether to enable logging to file.
         log_filename: Optional custom log filename. If None, auto-generates one.
-        persistence_file: Optional path for logging persistence file. If None, uses default.
         print_threads: Whether to print thread names in console output.
         print_time: Whether to print timestamps in console output. Defaults to False.
         reset_log_columns: Whether to reset the persisted column width.
@@ -385,8 +409,8 @@ def setup_logging(
     #     logger.handlers.clear()
 
     # Create a RichHandler for console output
-    if not any(isinstance(handler, CustomRichHandler) for handler in logger.handlers):
-        handler = CustomRichHandler(
+    if not any(isinstance(handler, LogHandler) for handler in logger.handlers):
+        handler = LogHandler(
             rich_tracebacks=True,
             show_path=False,
             show_time=print_time,
@@ -456,13 +480,13 @@ def setup_logging(
             if record.levelno == logging.DEBUG:
                 message = record.getMessage() if hasattr(record, 'getMessage') else str(record.msg)
                 if any(noise in message for noise in [
-                    'HfFileSystem',          # HuggingFace filesystem operations
-                    'read: ',                # File read operations
-                    'readahead:',           # Cache readahead operations
-                    'hits, ',               # Cache hit statistics
-                    'misses,',              # Cache miss statistics
-                    'total requested bytes', # Byte count summaries
-                    'Using selector:',      # Asyncio selector messages
+                    'HfFileSystem',  # HuggingFace filesystem operations
+                    'read: ',  # File read operations
+                    'readahead:',  # Cache readahead operations
+                    'hits, ',  # Cache hit statistics
+                    'misses,',  # Cache miss statistics
+                    'total requested bytes',  # Byte count summaries
+                    'Using selector:',  # Asyncio selector messages
                 ]):
                     return False
             return True
@@ -493,20 +517,20 @@ def save_session_width_to_persistence():
     """Save the current session's max width +10% to persistence."""
     logger = logging.getLogger()
     for handler in logger.handlers:
-        if isinstance(handler, CustomRichHandler):
+        if isinstance(handler, LogHandler):
             handler.save_session_width_to_persistence()
             break
 
 def logging_level_from_str(level_str: str, default: int = logging.INFO) -> int:
     s = str(level_str or "").strip().lower()
     mapping = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warning": logging.WARNING,
-        "warn": logging.WARNING,
-        "error": logging.ERROR,
+        "debug":    logging.DEBUG,
+        "info":     logging.INFO,
+        "warning":  logging.WARNING,
+        "warn":     logging.WARNING,
+        "error":    logging.ERROR,
         "critical": logging.CRITICAL,
-        "fatal": logging.CRITICAL,
+        "fatal":    logging.CRITICAL,
     }
     return mapping.get(s, default)
 
@@ -563,7 +587,7 @@ def get_known_loggers_by_short_name(restrict_prefix: str = "errloom") -> dict[st
                 # Skip private/dunder cache
                 if p.name.startswith("_") and p.name != "__init__.py":
                     continue
-                    
+
                 # Build relative path from package root
                 try:
                     rel = p.relative_to(root_path)
@@ -573,14 +597,14 @@ def get_known_loggers_by_short_name(restrict_prefix: str = "errloom") -> dict[st
 
                 # Build module name
                 parts = [restrict_prefix]
-                
+
                 # Handle __init__.py - module is the package directory
                 if p.name == "__init__.py":
                     parts.extend([x for x in rel.parent.parts if x])
                 else:
                     # Regular .py file - module is the file path without extension
                     parts.extend([x for x in rel.with_suffix("").parts if x])
-                
+
                 modname = ".".join(parts)
                 add_module_modname(modname)
         except Exception:
@@ -681,6 +705,7 @@ def apply_logger_levels(mapping: dict[str, int]) -> None:
     for name, level in expanded.items():
         try:
             logging.getLogger(name).setLevel(level)
+            logging.getLogger(name).disabled = False
         except Exception:
             pass
 
@@ -716,173 +741,6 @@ def getLogger(name: Optional[str] = None) -> EnhancedLogger:
 
     return logger  # type: ignore
 
-# COLORIZE FUNCTIONS
-# ----------------------------------------
-
-# Color scheme mapping for consistent theming across the application
-_COLOR_SCHEME = {
-    # Core entities
-    'session': '[white]',
-    'target': '[bright_green]',
-    'model': '[white]',
-    'client': '[bright_magenta]',
-
-    # Status indicators
-    'error': '[bold red]',
-    'success': '[bold green]',
-    'warning': '[yellow]',
-    'info': '[cyan]',
-    'debug': '[dim]',
-
-    # UI elements
-    'title': '[bold bright_blue]',
-    'path': '[bright_cyan]',
-    'field_label': '[bold cyan]',
-    'rule_title': '[bold cyan]',
-
-    # Mode indicators
-    'mode_dry': '[yellow]',
-    'mode_production': '[green]',
-    'mode_dump': '[blue]',
-
-    # Progress and data
-    'completion': '[bold green]',
-    'progress': '[magenta]',
-    'data': '[bright_yellow]',
-    'deployment': '[bold cyan]',
-
-    # Holoware-specific
-    'loom': '[bright_blue]',
-    'holoware': '[bright_green]',
-    'session_name': '[white]',
-    'placeholder': '[bright_magenta]',
-    'command_name': '[bright_cyan]',
-
-    # Symbols
-    'check_mark': '[green]✓[/]',
-    'cross_mark': '[red]✗[/]',
-    'arrow': '[green]→[/]',
-}
-
-def _colorize(text: str, color_key: str) -> str:
-    """Apply color formatting to text using the color scheme."""
-    color = _COLOR_SCHEME.get(color_key, '[white]')
-    if color.endswith('[/]'):
-        return color  # Symbol colors already include closing tag
-    return f"{color}{text}[/]"
-
-def colorize_session(text: str) -> str:
-    """Colorize session names and identifiers."""
-    return _colorize(text, 'session')
-
-def colorize_target(text: str) -> str:
-    """Colorize target names (holoware, loom names)."""
-    return _colorize(text, 'target')
-
-def colorize_model(text: str) -> str:
-    """Colorize model names."""
-    return _colorize(text, 'model')
-
-def colorize_client(text: str) -> str:
-    """Colorize client type names."""
-    return _colorize(text, 'client')
-
-def colorize_error(text: str) -> str:
-    """Colorize error messages."""
-    return _colorize(text, 'error')
-
-def colorize_success(text: str) -> str:
-    """Colorize success messages."""
-    return _colorize(text, 'success')
-
-def colorize_warning(text: str) -> str:
-    """Colorize warning messages."""
-    return _colorize(text, 'warning')
-
-def colorize_info(text: str) -> str:
-    """Colorize informational messages."""
-    return _colorize(text, 'info')
-
-def colorize_debug(text: str) -> str:
-    """Colorize debug messages."""
-    return _colorize(text, 'debug')
-
-def colorize_title(text: str) -> str:
-    """Colorize titles and headers."""
-    return _colorize(text, 'title')
-
-def colorize_path(text: str) -> str:
-    """Colorize file paths and locations."""
-    return _colorize(text, 'path')
-
-def colorize_mode_dry(text: str) -> str:
-    """Colorize dry mode messages."""
-    return _colorize(text, 'mode_dry')
-
-def colorize_mode_production(text: str) -> str:
-    """Colorize production mode messages."""
-    return _colorize(text, 'mode_production')
-
-def colorize_mode_dump(text: str) -> str:
-    """Colorize dump mode messages."""
-    return _colorize(text, 'mode_dump')
-
-def colorize_field_label(text: str) -> str:
-    """Colorize field labels (like 'Session:', 'Model:')."""
-    return _colorize(text, 'field_label')
-
-def colorize_completion(text: str) -> str:
-    """Colorize completion/training completion messages."""
-    return _colorize(text, 'completion')
-
-def colorize_progress(text: str) -> str:
-    """Colorize progress indicators."""
-    return _colorize(text, 'progress')
-
-def colorize_data(text: str) -> str:
-    """Colorize data-related information."""
-    return _colorize(text, 'data')
-
-def colorize_rule_title(text: str) -> str:
-    """Colorize rule titles for visual separation."""
-    return _colorize(text, 'rule_title')
-
-def colorize_deployment(text: str) -> str:
-    """Colorize deployment-related messages."""
-    return _colorize(text, 'deployment')
-
-def colorize_loom(text: str) -> str:
-    """Colorize loom class names and references."""
-    return _colorize(text, 'loom')
-
-def colorize_holoware(text: str) -> str:
-    """Colorize holoware file names and references."""
-    return _colorize(text, 'holoware')
-
-def colorize_session_name(text: str) -> str:
-    """Colorize session names and identifiers in placeholders."""
-    return _colorize(text, 'session_name')
-
-def colorize_placeholder(text: str) -> str:
-    """Colorize generic placeholders."""
-    return _colorize(text, 'placeholder')
-
-def colorize_command_name(text: str) -> str:
-    """Colorize command names in placeholders."""
-    return _colorize(text, 'command_name')
-
-def colorize_check_mark() -> str:
-    """Standard green checkmark."""
-    return _COLOR_SCHEME['check_mark']
-
-def colorize_cross_mark() -> str:
-    """Standard red cross mark."""
-    return _COLOR_SCHEME['cross_mark']
-
-def colorize_arrow() -> str:
-    """Standard arrow for file operations."""
-    return _COLOR_SCHEME['arrow']
-
 # MAIN
 # ----------------------------------------
 
@@ -897,12 +755,30 @@ def logc(logger=logger_main):
     cl.clear()
 
 def logl(*s, logger=logger_main, stacklevel=1):
+    # First line: show the payload with standard formatting
     logger.info(*s, stacklevel=stacklevel + 1)
-    logger.info("")
+    # Second line: print an empty payload (no left sidebar), but DO show a thin spacer glyph so it's visible
+    # We render a zero-width-ish visible char " " via explicit Text that the handler won't swallow.
+    try:
+        # Prefer EnhancedLogger sentinel-based path for consistent console formatting
+        if isinstance(logger, EnhancedLogger):
+            # Use a single thin space so the blank line is visible without sidebar/levels, and still writes a newline in files
+            logger.log(logging.INFO, " ", extra={"_nl": True, "_nl_space": True}, stacklevel=stacklevel + 1)
+        else:
+            logger.log(logging.INFO, " ", extra={"_nl": True, "_nl_space": True}, stacklevel=stacklevel + 1)
+    except Exception:
+        # Absolute fallback: plain empty line through normal console; file will also have a blank line
+        logger.info("")
 
 def logi(text, logger=logger_main, stacklevel=1):
-    logger.info(colorize_info(text), stacklevel=stacklevel + 1)
-    logger.info("")
+    logger.info(formatting.info(text), stacklevel=stacklevel + 1)
+    try:
+        if isinstance(logger, EnhancedLogger):
+            logger.log(logging.INFO, " ", extra={"_nl": True, "_nl_space": True}, stacklevel=stacklevel + 1)
+        else:
+            logger.log(logging.INFO, " ", extra={"_nl": True, "_nl_space": True}, stacklevel=stacklevel + 1)
+    except Exception:
+        logger.info("")
 
 def log_stacktrace_to_file_only(logger, exception: Exception, context: str = ""):
     """
@@ -950,14 +826,14 @@ class LogContext:
         self.logger = logger
 
     def __enter__(self):
-        log(colorize_info(self.intro), logger=self.logger, stacklevel=2)
+        log(formatting.info(self.intro), logger=self.logger, stacklevel=2)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            logl(f"{colorize_check_mark()} {self.outro}", logger=self.logger, stacklevel=2)
+            logl(f"{formatting.check_mark()} {self.outro}", logger=self.logger, stacklevel=2)
         else:
-            logl(f"{colorize_cross_mark()} {self.outro} failed: {exc_val}", logger=self.logger, stacklevel=2)
+            logl(f"{formatting.cross_mark()} {self.outro} failed: {exc_val}", logger=self.logger, stacklevel=2)
             return False
 
 # GLOBAL INDENT TRACKER - thread-local to handle concurrent logging
@@ -992,6 +868,7 @@ class ContextAwareThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     A ThreadPoolExecutor that automatically propagates the errloom logging indent context
     from the submitting thread to the worker thread.
     """
+
     def submit(self, fn, /, *args, **kwargs):
         """
         Submits a callable to be executed, wrapping it to carry over the logging context.
@@ -1078,127 +955,6 @@ class IndentContext:
         pop()
         return False
 
-# --- Additional Utilities ---
-
-def ellipse(text: str, max_length: int = 50) -> str:
-    """
-    Truncates a string to a maximum length and adds an ellipsis if it's too long.
-    """
-    if len(text) > max_length:
-        return text[:max_length] + '...'
-    return text
-
-def to_json_text(obj, *, indent: int = 4, ensure_ascii: bool = False, max_depth: int = 6, redactions: list[str] | tuple[str, ...] = ()) -> str:
-    """
-    Convert an arbitrary Python object into a JSON-formatted string suitable for logs.
-
-    - Uses double quotes and proper escaping
-    - Supports dataclasses and simple objects by walking __dict__
-    - Limits recursion depth and detects cycles
-    - Supports attribute blacklist via dot-paths (e.g., "foo", "foo.bar")
-    - Falls back to str(obj) if serialization fails
-    """
-    import json
-    try:
-        from dataclasses import asdict, is_dataclass  # type: ignore
-    except Exception:
-        def is_dataclass(_: object) -> bool:  # type: ignore
-            return False
-        def asdict(x: object):  # type: ignore
-            return x
-
-    PRIMITIVES = (str, int, float, bool, type(None), bytes)
-
-    # Normalize blacklist into a set of dot-paths for O(1) checks
-    bl_set: set[str] = set(redactions or ())
-
-    def _is_blacklisted(path: str) -> bool:
-        # Exact path match
-        if path in bl_set:
-            return True
-        # Any parent path with wildcard semantics would be nice, but keep explicit for now
-        return False
-
-    def _safe_str(x: object) -> str:
-        try:
-            return str(x)
-        except Exception:
-            return f"<unprintable {type(x).__name__}>"
-
-    def to_jsonable(v: object, depth: int, seen: set[int], path: str = "") -> object:
-        # Depth guard
-        if depth > max_depth:
-            return f"<max_depth {max_depth} reached: {type(v).__name__}>"
-
-        # Primitives
-        if isinstance(v, PRIMITIVES):
-            if isinstance(v, bytes):
-                # limit size for bytes
-                return v.decode(errors="replace")[:2048]
-            return v
-
-        oid = id(v)
-        if oid in seen:
-            return f"<recursion {type(v).__name__} id={oid}>"
-        seen.add(oid)
-
-        # Dict-like
-        if isinstance(v, dict):
-            out = {}
-            for k, x in v.items():
-                # Ensure keys are strings
-                try:
-                    sk = k if isinstance(k, str) else _safe_str(k)
-                except Exception:
-                    sk = f"<bad_key {type(k).__name__}>"
-                subpath = f"{path}.{sk}" if path else sk
-                if _is_blacklisted(subpath):
-                    out[sk] = "<redacted>"
-                else:
-                    out[sk] = to_jsonable(x, depth + 1, seen, subpath)
-            return out
-
-        # Sequences
-        if isinstance(v, (list, tuple, set)):
-            return [to_jsonable(x, depth + 1, seen, f"{path}[{i}]") for i, x in enumerate(v)]
-
-        # Dataclass
-        try:
-            if is_dataclass(v):  # type: ignore[func-returns-value]
-                return to_jsonable(asdict(v), depth + 1, seen, path)  # type: ignore[arg-type]
-        except Exception:
-            pass
-
-        # Avoid descending into potentially huge/recursive frameworks
-        mod = getattr(v, "__module__", "") or ""
-        if mod.startswith("asyncio.") or mod.startswith("logging") or mod.startswith("rich"):
-            return _safe_str(v)
-
-        # Object with __dict__
-        d = getattr(v, "__dict__", None)
-        if isinstance(d, dict):
-            try:
-                out = {}
-                for k, x in d.items():
-                    sk = str(k)
-                    subpath = f"{path}.{sk}" if path else sk
-                    if _is_blacklisted(subpath):
-                        out[sk] = f"<redacted:{subpath}>"
-                    else:
-                        out[sk] = to_jsonable(x, depth + 1, seen, subpath)
-                return out
-            except Exception:
-                return _safe_str(v)
-
-        # Fallback to str
-        return _safe_str(v)
-
-    try:
-        payload = to_jsonable(obj, 0, set(), "")
-        return json.dumps(payload, ensure_ascii=ensure_ascii, indent=indent)
-    except Exception:
-        return _safe_str(obj)
-
 # RICH HANDLER
 # ----------------------------------------
 
@@ -1221,7 +977,7 @@ def PrintedText(renderable, prefix_cols: int | None = None, width: int | None = 
 
     # Deduct the left prefix from the total, leaving at least MIN_PAYLOAD_WIDTH.
     left_cols = int(prefix_cols) if isinstance(prefix_cols, int) and prefix_cols > 0 else 0
-    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols - 12) # TODO why the fuck do we need to substract 10 ? none of the Rule(...) fit the console size without this.
+    payload_width = max(MIN_PAYLOAD_WIDTH, total_width - left_cols - 12)  # TODO why the fuck do we need to substract 10 ? none of the Rule(...) fit the console size without this.
 
     # Use a dedicated console at the computed payload width.
     c = Console(width=payload_width)
@@ -1230,7 +986,24 @@ def PrintedText(renderable, prefix_cols: int | None = None, width: int | None = 
     return Text.from_ansi(capture.get())
 
 
-class CustomRichHandler(RichHandler):
+class LogHandler(RichHandler):
+    # Override emit to suppress level/time and left sidebar for newline sentinel, while keeping a minimal visible spacer
+    def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "_nl", False):
+            try:
+                # Build a minimal one-line output. If _nl_space is True, print a dim single space.
+                show_space = bool(getattr(record, "_nl_space", False))
+                if show_space:
+                    # Print a single faint space; no left gutter, no level/time
+                    self.console.print(Text.from_markup("[dim] [/dim]"), end="")
+                else:
+                    # Pure newline with no visible character
+                    self.console.print("\n", end="")
+            except Exception:
+                self.console.print("\n", end="")
+            return
+        return super().emit(record)
+
     """
     A custom RichHandler that formats log messages to include the
     class and function name of the caller.
@@ -1282,6 +1055,14 @@ class CustomRichHandler(RichHandler):
         """
         Renders the log message with a prefix containing the caller's context.
         """
+        # Special-case newline records: handled in emit(); return a minimal payload for safety
+        try:
+            if getattr(record, "_nl", False):
+                if getattr(record, "_nl_space", False):
+                    return Text.from_markup("[dim] [/dim]")
+                return Text.from_markup("\n")
+        except Exception:
+            pass
 
         def _align_multiline(txt, left_, extra=0):
             # Push everything after the first line with left width
@@ -1314,7 +1095,7 @@ class CustomRichHandler(RichHandler):
             path = f"[{thread_name}] {path}"
 
         path = f"{path}: "
-        path_w = len(path) - 6 - 3 # -6 for [bold] and 3 for [/]
+        path_w = len(path) - 6 - 3  # -6 for [bold] and 3 for [/]
         path = path.rjust(self.path_width + 2)  # + colon space
 
         idt = "".join(_get_indent_stack())

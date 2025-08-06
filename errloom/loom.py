@@ -6,6 +6,7 @@ from asyncio import Semaphore
 from copy import deepcopy
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import errloom.lib.formatting
 from errloom.aliases import Data
 from errloom.defaults import DATASET_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT
 from errloom.tapestry import Rollout, Tapestry
@@ -284,8 +285,6 @@ class Loom(ABC):
         # self.logger.header_info("")
         self.logger.push_info("WEAVE")
 
-        from errloom import test_rollout_conversation
-
         async def unroll_row(semaphore: Semaphore, state: Rollout, executor: concurrent.futures.Executor) -> Rollout:
             """
             Run a rollout for a given prompt.
@@ -331,9 +330,10 @@ class Loom(ABC):
         tapestry.max_concurrent = self.max_concurrent
 
         if self.dry:
-            self.logger.info(f"Received {len(tapestry.rollouts)} rollouts:")
+            self.logger.newline()
+            self.logger.info(f"--- Received {len(tapestry.rollouts)} rollouts ---")
             for i, roll in enumerate(tapestry.rollouts):
-                self.logger.info_hl(f"{i + 1}. {log.to_json_text(roll, indent=2, redactions=['contexts'])}")
+                self.logger.info_hl(f"{i + 1}. {errloom.lib.formatting.to_json_text(roll, indent=2, redactions=['contexts'])}")
                 self.logger.info(roll.to_rich())
 
         # Dump rollouts to session if requested

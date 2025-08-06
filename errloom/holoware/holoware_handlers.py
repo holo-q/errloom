@@ -3,7 +3,7 @@ from errloom.holoware.holoware import ClassSpan, ContextResetSpan, EgoSpan, ObjS
 from errloom.lib import log
 
 # noinspection PyUnusedLocal
-class HolowareHandlers:
+class SpanHandler:
     """
     Function that match the spans and get invoked when encountered during holoware execution.
     """
@@ -14,9 +14,9 @@ class HolowareHandlers:
         SpanClassName = type(span).__name__
 
         # Create a rich-formatted log message with color
-        if SpanClassName in HolowareHandlers.__dict__:
-            handler = getattr(HolowareHandlers, SpanClassName)
-            handler(holophore, span)
+        if SpanClassName in SpanHandler.__dict__:
+            handler = getattr(SpanHandler, SpanClassName)
+            ret = handler(holophore, span)
         else:
             cls.logger.error(f"Could not find handler in HolowareHandlers for {SpanClassName}")
 

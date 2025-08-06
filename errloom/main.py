@@ -24,7 +24,8 @@ from errloom.aliases import Data
 from errloom.argp import create_client_from_args, errlargs, show_help
 from errloom.holoware.holoware_loom import HolowareLoom
 from errloom.session import Session
-from errloom.lib.log import (colorize_client, colorize_completion, colorize_deployment, colorize_error, colorize_field_label, colorize_mode_dry, colorize_mode_dump, colorize_mode_production, colorize_model, colorize_rule_title, colorize_session, colorize_target, colorize_title, log, logc, logger_main)
+from errloom.lib.log import (log, logc, logger_main)
+from errloom.lib import formatting
 
 # discovery.crawl_package("thauten", [CommModel])
 np.set_printoptions(threshold=5)
@@ -32,7 +33,7 @@ np.set_printoptions(threshold=5)
 def execute_dry_run(n: int):
     client = create_client_from_args(errlargs, dry_run=True)
     HolowareLoom("compressor.hol", client=client, data="agentlans/wikipedia-paragraphs", dry=True, unsafe=errlargs.unsafe).weave(errlargs.n)
-    log(Rule(colorize_mode_dry("DRY RUN COMPLETE")))
+    log(Rule(formatting.mode_dry("DRY RUN COMPLETE")))
 
 def setup_async():
     def setup_executor(loop):
@@ -107,7 +108,7 @@ def main(default_title: Optional[str] = None,
             if loom_class:
                 default_loom = loom_class
             else:
-                log(colorize_error(f"❌ Unknown loom class: {loom_or_ware_arg}"))
+                log(formatting.error(f"❌ Unknown loom class: {loom_or_ware_arg}"))
                 show_help()
                 return
 
@@ -127,7 +128,7 @@ def main(default_title: Optional[str] = None,
     argp.print_errloom_banner()
     log(f"╔══════════════════════════════════════════════════════════════════════════════════╗")
     log(f"║                                                                                  ║")
-    log(f"║                        {colorize_title('🚀 TRAINING SESSION 🚀')}                                    ║")
+    log(f"║                        {formatting.title('🚀 TRAINING SESSION 🚀')}                                    ║")
     log(f"║                                                                                  ║")
     log(f"╚══════════════════════════════════════════════════════════════════════════════════╝")
     log(f"")
@@ -140,24 +141,24 @@ def main(default_title: Optional[str] = None,
 
         # Session info header
         name = default_holoware or LoomClass.__name__
-        log(f"{colorize_field_label('📋 Session:')} {colorize_session(title)}")
-        log(f"{colorize_field_label('🎯 Target:')} {colorize_target(name)}")
-        log(f"{colorize_field_label('🧠 Model:')} {colorize_model(model_name)}")
-        log(f"{colorize_field_label('🔌 Client:')} {colorize_client(client_type)}")
+        log(f"{formatting.field_label('📋 Session:')} {formatting.session(title)}")
+        log(f"{formatting.field_label('🎯 Target:')} {formatting.target(name)}")
+        log(f"{formatting.field_label('🧠 Model:')} {formatting.model(model_name)}")
+        log(f"{formatting.field_label('🔌 Client:')} {formatting.client(client_type)}")
         log("")
 
         # Mode-specific messaging
         if errlargs.dry and client_type != "MockClient":
-            log(colorize_mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
+            log(formatting.mode_dry(f"🧪 DRY MODE: Training disabled, using {client_type} for real completions"))
         elif errlargs.dry:
-            log(colorize_mode_dry(f"🧪 DRY MODE: Using {client_type} for mock completions"))
+            log(formatting.mode_dry(f"🧪 DRY MODE: Using {client_type} for mock completions"))
         elif errlargs.dry is False:
-            log(colorize_mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
+            log(formatting.mode_production(f"🏭 PRODUCTION MODE: Using {client_type} for completions and training"))
         else:
             log(f"[dim]🔄 ACTIVE MODE: Using {client_type} for completions[/]")
 
         log("")
-        log(Rule(colorize_rule_title(f"Initializing {loom_name}"), style="cyan"))
+        log(Rule(formatting.rule_title(f"Initializing {loom_name}"), style="cyan"))
         # ----------------------------------------
 
         if loom is None:
@@ -198,7 +199,7 @@ def main(default_title: Optional[str] = None,
             log(f"Using pre-supplied loom: {loom} ...")
 
     except Exception as e:
-        log(Rule(colorize_error("❌ Initialization Crashed"), style="red"))
+        log(Rule(formatting.error("❌ Initialization Crashed"), style="red"))
         raise
 
     # ----------------------------------------
@@ -210,11 +211,11 @@ def main(default_title: Optional[str] = None,
         if errlargs.command == "train":
             # For training, use the GRPO trainer
             if loom.trainer is None:
-                log(Rule(colorize_error("❌ No trainer available - training requires non-dry mode")))
+                log(Rule(formatting.error("❌ No trainer available - training requires non-dry mode")))
                 return
             log("Starting training...")
             loom.trainer.train()
-            log(Rule(colorize_completion("🏆 TRAINING COMPLETED")))
+            log(Rule(formatting.completion("🏆 TRAINING COMPLETED")))
 
         else:
             # For dry/dump, optionally enter interactive loop
@@ -225,7 +226,6 @@ def main(default_title: Optional[str] = None,
                 import termios
                 import tty
                 from errloom.utils.watch import FileWatcher
-                from errloom.lib.log import colorize_field_label
 
                 reweave_event = threading.Event()
                 watcher = None
@@ -301,9 +301,9 @@ def main(default_title: Optional[str] = None,
 
                         loom_obj.weave(errlargs.n)
                         if errlargs.command == "dump":
-                            log(Rule(colorize_mode_dump(f"💾 DUMP #{run_idx} COMPLETED")))
+                            log(Rule(formatting.mode_dump(f"💾 DUMP #{run_idx} COMPLETED")))
                         else:
-                            log(Rule(colorize_mode_dry(f"🧪 DRY RUN #{run_idx} COMPLETED")))
+                            log(Rule(formatting.mode_dry(f"🧪 DRY RUN #{run_idx} COMPLETED")))
                         if not _wait_for_signal():
                             break
                 finally:
@@ -321,13 +321,13 @@ def main(default_title: Optional[str] = None,
                 # Non-interactive single weave
                 loom.weave(errlargs.n)
                 if errlargs.command == "dry":
-                    log(Rule(colorize_mode_dry("🧪 DRY RUN COMPLETED")))
+                    log(Rule(formatting.mode_dry("🧪 DRY RUN COMPLETED")))
                 elif errlargs.command == "dump":
-                    log(Rule(colorize_mode_dump("💾 DUMP COMPLETED")))
+                    log(Rule(formatting.mode_dump("💾 DUMP COMPLETED")))
                 else:
-                    log(Rule(colorize_completion("✅ ALL WOVEN")))
+                    log(Rule(formatting.completion("✅ ALL WOVEN")))
     except Exception as e:
-        log(Rule(colorize_error("❌ Training Crashed")))
+        log(Rule(formatting.error("❌ Training Crashed")))
         raise
     finally:
         # Save session width to persistence before exiting
@@ -356,8 +356,8 @@ def _print_version_info():
         "flash-attn", "vllm", "liger-kernel", "openai", "rich"
     ]
 
-    log(f"{colorize_field_label('🐍 Python:')} {platform.python_version()}")
-    log(f"{colorize_field_label('💻 Platform:')} {platform.system()} {platform.release()}")
+    log(f"{formatting.field_label('🐍 Python:')} {platform.python_version()}")
+    log(f"{formatting.field_label('💻 Platform:')} {platform.system()} {platform.release()}")
 
     versions = []
     for pkg in packages:
@@ -377,16 +377,15 @@ def _print_version_info():
             versions.append(f"{pkg}==unknown")
 
     # Print in columns for better readability
-    log(f"{colorize_field_label('📦 Packages:')} {' '.join(versions[:4])}")
+    log(f"{formatting.field_label('📦 Packages:')} {' '.join(versions[:4])}")
     if len(versions) > 4:
-        log(f"{colorize_field_label('          ')} {' '.join(versions[4:8])}")
+        log(f"{formatting.field_label('          ')} {' '.join(versions[4:8])}")
     if len(versions) > 8:
-        log(f"{colorize_field_label('          ')} {' '.join(versions[8:])}")
+        log(f"{formatting.field_label('          ')} {' '.join(versions[8:])}")
 
 
 def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | None, default_loom: type | None):
     """Handle the cat command to display holoware code or loom class source."""
-    from errloom.lib.log import colorize_error
     from rich.rule import Rule
 
     logc()
@@ -410,12 +409,12 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
             loom_class_name = default_loom.__name__ if hasattr(default_loom, '__name__') else str(default_loom)
             _display_loom_class_source(loom_class_name)
         else:
-            log(colorize_error("❌ No holoware or loom class specified"))
+            log(formatting.error("❌ No holoware or loom class specified"))
             log("[dim]Please specify a .hol file or loom class name[/]")
             return
 
     except Exception as e:
-        log(colorize_error(f"❌ Error displaying source: {e}"))
+        log(formatting.error(f"❌ Error displaying source: {e}"))
         log("[dim]Check that the file or class exists[/]")
 
     log(Rule(style="dim"))
@@ -423,7 +422,6 @@ def _handle_cat_command(loom_or_ware_arg: str | None, default_holoware: str | No
 
 def _display_holoware_source(holoware_name: str):
     """Display the source code of a holoware file."""
-    from errloom.lib.log import colorize_holoware, colorize_error, colorize_success
     from errloom.holoware.holoware_loader import get_default_loader
     from rich.syntax import Syntax
 
@@ -433,7 +431,7 @@ def _display_holoware_source(holoware_name: str):
         holoware_path = loader.find_holoware_path(holoware_name)
 
         if not holoware_path:
-            log(colorize_error(f"❌ Holoware file not found: {holoware_name}"))
+            log(formatting.error(f"❌ Holoware file not found: {holoware_name}"))
             log("[dim]Searched in: " + ", ".join(loader.search_paths) + "[/]")
             return
 
@@ -441,7 +439,7 @@ def _display_holoware_source(holoware_name: str):
         with open(holoware_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        log(f"{colorize_holoware('📄 Holoware:')} {holoware_name}")
+        log(f"{formatting.holoware('📄 Holoware:')} {holoware_name}")
         log(f"[dim]Path: {holoware_path}[/]")
         log("")
 
@@ -450,15 +448,14 @@ def _display_holoware_source(holoware_name: str):
         log(syntax)
 
         log("")
-        log(colorize_success("✅ Holoware source displayed"))
+        log(formatting.success("✅ Holoware source displayed"))
 
     except Exception as e:
-        log(colorize_error(f"❌ Error reading holoware file: {e}"))
+        log(formatting.error(f"❌ Error reading holoware file: {e}"))
 
 
 def _display_loom_class_source(loom_class_name: str):
     """Display the source code of a loom class."""
-    from errloom.lib.log import colorize_loom, colorize_error, colorize_success
     from errloom.lib.discovery import get_class
     from rich.syntax import Syntax
     import inspect
@@ -468,7 +465,7 @@ def _display_loom_class_source(loom_class_name: str):
         # Get the loom class
         loom_class = get_class(loom_class_name)
         if not loom_class:
-            log(colorize_error(f"❌ Loom class not found: {loom_class_name}"))
+            log(formatting.error(f"❌ Loom class not found: {loom_class_name}"))
             # Show available classes
             from errloom.lib.discovery import get_all_classes
             available_classes = list(get_all_classes().keys())
@@ -479,14 +476,14 @@ def _display_loom_class_source(loom_class_name: str):
         # Get the source file
         source_file = inspect.getfile(loom_class)
         if not source_file or not os.path.exists(source_file):
-            log(colorize_error(f"❌ Source file not found for class: {loom_class_name}"))
+            log(formatting.error(f"❌ Source file not found for class: {loom_class_name}"))
             return
 
         # Read and display the file content
         with open(source_file, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        log(f"{colorize_loom('🔧 Loom Class:')} {loom_class_name}")
+        log(f"{formatting.loom('🔧 Loom Class:')} {loom_class_name}")
         log(f"[dim]File: {source_file}[/]")
         log("")
 
@@ -495,10 +492,10 @@ def _display_loom_class_source(loom_class_name: str):
         log(syntax)
 
         log("")
-        log(colorize_success("✅ Loom class source displayed"))
+        log(formatting.success("✅ Loom class source displayed"))
 
     except Exception as e:
-        log(colorize_error(f"❌ Error reading loom class source: {e}"))
+        log(formatting.error(f"❌ Error reading loom class source: {e}"))
 
 
 def _handle_deployment():
@@ -507,7 +504,7 @@ def _handle_deployment():
     import asyncio
 
     logc()
-    log(Rule(colorize_deployment("Errloom - Remote Deployment"), style="cyan"))
+    log(Rule(formatting.deployment("Errloom - Remote Deployment"), style="cyan"))
     log("")
 
     try:
@@ -516,10 +513,10 @@ def _handle_deployment():
         asyncio.run(main_deploy.main())
 
     except ImportError as e:
-        log(colorize_error(f"❌ Deployment failed: Missing dependency - {e}"))
+        log(formatting.error(f"❌ Deployment failed: Missing dependency - {e}"))
         log("[dim]Make sure all deployment dependencies are installed.[/]")
     except Exception as e:
-        log(colorize_error(f"❌ Deployment failed: {e}"))
+        log(formatting.error(f"❌ Deployment failed: {e}"))
         log("[dim]Check the logs for more details.[/]")
 
     log(Rule(style="dim"))
@@ -539,7 +536,7 @@ def run():
         logger_main.error(traceback.format_exc())
 
         log("")
-        log(Rule(colorize_error("Environment"), style="red"))
+        log(Rule(formatting.error("Environment"), style="red"))
         _print_version_info()
         log("")
     finally:

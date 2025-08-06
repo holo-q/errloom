@@ -41,9 +41,10 @@ from typing import Optional
 from rich.text import Text
 
 from errloom.lib import log
-from errloom.tapestry import FragList
+from errloom.context import Frag, FragList, FragType
 
 logger = log.getLogger(__name__)
+logger_end = log.getLogger(__name__ + ".end")
 
 if typing.TYPE_CHECKING:
     from errloom.holoware.holophore import Holophore
@@ -220,7 +221,7 @@ class Holoware:
         raise ValueError(f"Could not find span matching type {SpanType}")  # TODO better exception type
 
     def __call__(self, holophore: "Holophore"):
-        from errloom.holoware.holoware_handlers import HolowareHandlers
+        from errloom.holoware.holoware_handlers import SpanHandler
 
         # it is require since up above its only imported for type_checking whith ""
         # it is literally the case that both pyright and pycharm's own inspections
@@ -228,6 +229,10 @@ class Holoware:
         # software engineering:
         # noinspection PyUnresolvedReferences
         from errloom.holoware.holophore import Holophore  # noqa: F401
+
+        # Auto-spacing logic
+        import re
+        tag_pattern = re.compile(r"<(\w+)[^>]*>.*?</\1>|<obj\s+id=.*?>", re.DOTALL)
 
         logger.push_debug(f"WARE({self.name})" if self.name else "HOLOWARE()")
 
@@ -261,29 +266,30 @@ class Holoware:
 
         logger.pop()
 
-        def optimize_block_of_3(i):
+        def optimize_block(i):
             """
             The same code example, this time written at the frontier of software engineering.
             The code is self-documenting using imagination engineering.
             """
             if i < 2: return
 
-            # Auto-spacing logic
-            import re
-            tag_pattern = re.compile(r"<(\w+)[^>]*>.*?</\1>|<obj\s+id=.*?>", re.DOTALL)
-
             f1 = holophore.span_fragments.get(self.spans[i - 2].uuid, FragList.EMPTY)
             f2 = holophore.span_fragments.get(self.spans[i - 1].uuid, FragList.EMPTY)
             f3 = holophore.span_fragments.get(self.spans[i].uuid, FragList.EMPTY)
-            s1 = f1.string
-            s2 = f2.string
-            s3 = f3.string
+            s1 = f1.string.strip()
+            s2 = f2.string.strip()
+            s3 = f3.string.strip()
 
             def count_tail(s, char="\n"): return len(s) - len(s.rstrip(char))
             def count_head(s, char="\n"): return len(s) - len(s.rstrip(char))
 
             lc = count_tail(s1) + count_head(s2)
             rc = count_tail(s2) + count_head(s3)
+
+            logger.debug("optimize_block:")
+            logger.debug(f"- F1: {f1}")
+            logger.debug(f"- F2: {f2}")
+            logger.debug(f"- F3: {f3}")
 
             # Add newline if a tag-block span is not properly spaced from its neighbors
             is_mid_tag = tag_pattern.search(s2)
@@ -294,23 +300,44 @@ class Holoware:
                 for _ in range(3 - rc):
                     f2[-1].text = f2[-1].text + '\n'
 
+        def optimize_think_tags(i):
+            """Optimize think tags by stripping content between them when empty."""
+            if i < 0: return
+
+            f = holophore.span_fragments.get(self.spans[i].uuid, FragList.EMPTY)
+            if not f: return
+
+            s = f.string
+
+            if tag_pattern.search(s):
+                # Use the existing tag_pattern to find and optimize think tags
+                new_content = re.sub(r'<think>\s*\n*\s*</think>', '<think></think>', s)
+
+                # Update the fragments
+                if f:
+                    # Clear existing fragments and add the optimized content
+                    f.clear()
+                    f.append(Frag(text=new_content, ego=None, type=FragType.FROZEN))
+                    logger.debug(f"Optimized think tags at span {i}")
+
 
         # --- Lifecycle: Main ---
         logger.push_debug("(2:main)")
         for i, span in enumerate(self.spans):
             holophore._span = span
 
+            # Log header
             SpanClassName = type(span).__name__
             if not isinstance(span, (TextSpan, ObjSpan)):
-                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
+                SpanHandler.logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
             else:
-                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{i}] <|{SpanClassName}|>[/]")
+                SpanHandler.logger.debug(f"[{span.get_color()}]\\[{i}] <|{SpanClassName}|>[/]")
 
             logger.push('.' * (len(str(i)) + 2))  # TODO spread=true to spread it down across multiline outputs
 
-            HolowareHandlers.handle(holophore, span)
-
-            optimize_block_of_3(i - 1)
+            # Handle
+            SpanHandler.handle(holophore, span)
+            optimize_block(i - 1)
 
             span_fragments = holophore.span_fragments.get(span.uuid, FragList.EMPTY)
             appended = span_fragments.length > 0 if span_fragments else False
@@ -334,21 +361,22 @@ class Holoware:
         logger.pop()
 
         # --- Lifecycle: End ---
-        logger.push_debug("(3:end)")
-        logger.debug("Span Bindings:")
-        logger.debug_hl(holophore.span_bindings)
+        l = logger_end
+        l.push_debug("(3:end)")
+        l.debug("\n--- Bindings ---")
+        l.debug_hl(holophore.span_bindings)
         for uid, target in holophore.span_bindings.items():
             if hasattr(target, '__holo_end__'):
                 span = holophore.find_span(uid)
                 # TODO extract to call_class_init (formalizes the api)
                 kspan, kwspan = holophore.get_holofunc_args(span)
                 holophore.invoke(target, '__holo_end__', kspan, kwspan)
-        logger.debug("Span Fragments:")
+        l.debug("\n--- Fragments ---")
         for uid, fragments in holophore.span_fragments.items():
             span = holophore.find_span(uid)
-            logger.debug(f"[{span.get_color()}]\\[{span.uuid[:8]}...][/] {span.__class__.__name__}")
-            logger.debug(Text(fragments.string, style="dim italic"))
-        logger.pop()
+            l.debug(f"[{span.get_color()}]\\[{span.uuid[:8]}...][/] {span.__class__.__name__}")
+            l.debug(Text(fragments.string, style="dim italic"))
+        l.pop()
 
         holophore._holowares.remove(self)
 

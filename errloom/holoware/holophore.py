@@ -2,7 +2,8 @@ import inspect
 import typing
 
 from errloom.holoware.holoware import Span
-from errloom.tapestry import FragList, FragType, Rollout
+from errloom.tapestry import Rollout
+from errloom.context import FragList, FragType
 from errloom.lib import log
 
 if typing.TYPE_CHECKING:

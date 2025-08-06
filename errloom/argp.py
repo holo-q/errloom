@@ -5,7 +5,9 @@ from typing import Tuple
 from errloom import defaults
 from errloom.holoware.holoware_loom import HolowareLoom
 from errloom.lib import log
-from errloom.storage import save_last_args, load_last_args, has_last_args
+from errloom.lib import formatting
+from errloom.storage import save_last_args, load_last_args
+
 
 # Standard arguments for an Errloom training script
 # Or simply using errloom directly as a standalone program
@@ -13,72 +15,6 @@ from errloom.storage import save_last_args, load_last_args, has_last_args
 
 logger = log.getLogger(__name__)
 
-def colorize_command(command: str) -> str:
-    """
-    Colorize command examples with different colors for different parts.
-
-    Args:
-        command: The command string to colorize
-
-    Returns:
-        Rich markup string with appropriate colors applied
-    """
-    from errloom.lib.log import (colorize_loom, colorize_holoware, colorize_session_name,
-                                 colorize_placeholder, colorize_command_name)
-
-    # Split command into parts
-    parts = command.split()
-
-    if not parts:
-        return command
-
-    colored_parts = []
-
-    for i, part in enumerate(parts):
-        if i == 0 and part == "uv":
-            colored_parts.append(f"[bright_blue]{part}[/]")
-        elif i == 1 and part == "run":
-            colored_parts.append(f"[bright_blue]{part}[/]")
-        elif i == 2 and part == "main":
-            colored_parts.append(f"[cyan]{part}[/]")
-        elif part.endswith(".hol"):
-            colored_parts.append(f"[bright_green]{part}[/]")
-        elif part in ["dry", "train", "dump", "new", "resume", "vllm"]:
-            # Commands - bright cyan
-            colored_parts.append(f"[bright_cyan]{part}[/]")
-        elif part.startswith("--"):
-            colored_parts.append(f"[yellow]{part}[/]")
-        elif part.startswith("-"):
-            colored_parts.append(f"[bright_yellow]{part}[/]")
-        elif part.isdigit():
-            colored_parts.append(f"[magenta]{part}[/]")
-        elif ":" in part and ("." in part or "localhost" in part or part.startswith("127.")):
-            # IP addresses, URLs, or localhost:port
-            colored_parts.append(f"[magenta]{part}[/]")
-        # elif part == "<loom/holoware/session_name>":
-            # Special handling for the complex placeholder
-            colored_text = "<" + colorize_loom("loom").replace("[/]", "") + "/" + \
-                          colorize_holoware("holoware").replace("[/]", "") + "/" + \
-                          colorize_session_name("session_name").replace("[/]", "") + ">"
-            colored_parts.append(colored_text)
-        elif part == "<command>":
-            # Special handling for command placeholder
-            colored_text = "<" + colorize_command_name("command").replace("[/]", "") + ">"
-            colored_parts.append(colored_text)
-        elif part == "<session_name>":
-            # Special handling for session_name placeholder
-            colored_text = "<" + colorize_session_name("session_name").replace("[/]", "") + ">"
-            colored_parts.append(colored_text)
-        elif part.startswith("<") and part.endswith(">"):
-            # Generic placeholders
-            colored_parts.append(colorize_placeholder(part))
-        elif part == "..." or part == "…":
-            # Ellipsis for abbreviated commands
-            colored_parts.append(f"[dim]{part}[/]")
-        else:
-            colored_parts.append(f"[white]{part}[/]")
-
-    return " ".join(colored_parts)
 
 
 def print_errloom_banner():
@@ -103,7 +39,7 @@ def print_errloom_banner():
 
 def show_help():
     """Display comprehensive help for errloom commands"""
-    from errloom.lib.log import log, colorize_field_label
+    from errloom.lib.log import log
     from errloom.holoware.holoware_loader import get_default_loader
     from rich.rule import Rule
 
@@ -130,77 +66,77 @@ def show_help():
 
     # Basic Usage
     log(f"[bold cyan]Basic Usage:[/bold cyan]")
-    log(f"  {colorize_command('uv run main <holoware> <command> [n] [options]')}")
-    log(f"  {colorize_command('uv run main <loom_class> <command> [n] [options]')}")
+    log(f"  {formatting.command('uv run main <holoware> <command> [n] [options]')}")
+    log(f"  {formatting.command('uv run main <loom_class> <command> [n] [options]')}")
     log("")
 
     # Commands
     log(f"[bold cyan]Commands:[/bold cyan]")
-    log(f"  {colorize_command('dry')}     [dim]# Run rollouts without training (uses MockClient by default)[/]")
-    log(f"  {colorize_command('train')}   [dim]# Run full training with rollouts and optimization[/]")
-    log(f"  {colorize_command('dump')}    [dim]# Generate and save rollouts to project directory[/]")
-    log(f"  {colorize_command('cat')}     [dim]# Display holoware code or loom class source[/]")
+    log(f"  {formatting.command('dry')}     [dim]# Run rollouts without training (uses MockClient by default)[/]")
+    log(f"  {formatting.command('train')}   [dim]# Run full training with rollouts and optimization[/]")
+    log(f"  {formatting.command('dump')}    [dim]# Generate and save rollouts to project directory[/]")
+    log(f"  {formatting.command('cat')}     [dim]# Display holoware code or loom class source[/]")
     log("")
 
     # Arguments
     log(f"[bold cyan]Positional Arguments:[/bold cyan]")
-    log(f"  {colorize_field_label('holoware')}      [dim]# .hol file or shorthand (qa, tool, codemath, doublecheck, smola)[/]")
-    log(f"  {colorize_field_label('loom_class')}    [dim]# Loom class name for direct loom usage[/]")
-    log(f"  {colorize_field_label('command')}       [dim]# One of: dry, train, dump[/]")
-    log(f"  {colorize_field_label('n')}             [dim]# Number of dataset rows to process (default: 10 for train, 1 for dry/dump)[/]")
+    log(f"  {formatting.field_label('holoware')}      [dim]# .hol file or shorthand (qa, tool, codemath, doublecheck, smola)[/]")
+    log(f"  {formatting.field_label('loom_class')}    [dim]# Loom class name for direct loom usage[/]")
+    log(f"  {formatting.field_label('command')}       [dim]# One of: dry, train, dump[/]")
+    log(f"  {formatting.field_label('n')}             [dim]# Number of dataset rows to process (default: 10 for train, 1 for dry/dump)[/]")
     log("")
 
     # Examples section
     log(f"[bold cyan]Quick Examples:[/bold cyan]")
-    log(f"  {colorize_command('uv run main qa.hol dry')}                              [dim]# Quick dry run with 1 sample[/]")
-    log(f"  {colorize_command('uv run main tool.hol train 50')}                       [dim]# Train with 50 samples[/]")
-    log(f"  {colorize_command('uv run main codemath.hol dry 5 --debug')}              [dim]# Debug dry run with 5 samples[/]")
-    log(f"  {colorize_command('uv run main smola.hol dump 3')}                        [dim]# Generate and save 3 rollouts[/]")
-    log(f"  {colorize_command('uv run main qa.hol cat')}                              [dim]# Display holoware code[/]")
-    log(f"  {colorize_command('uv run main HolowareLoom cat')}                        [dim]# Display loom class source[/]")
+    log(f"  {formatting.command('uv run main qa.hol dry')}                              [dim]# Quick dry run with 1 sample[/]")
+    log(f"  {formatting.command('uv run main tool.hol train 50')}                       [dim]# Train with 50 samples[/]")
+    log(f"  {formatting.command('uv run main codemath.hol dry 5 --debug')}              [dim]# Debug dry run with 5 samples[/]")
+    log(f"  {formatting.command('uv run main smola.hol dump 3')}                        [dim]# Generate and save 3 rollouts[/]")
+    log(f"  {formatting.command('uv run main qa.hol cat')}                              [dim]# Display holoware code[/]")
+    log(f"  {formatting.command('uv run main HolowareLoom cat')}                        [dim]# Display loom class source[/]")
     log("")
 
     # Testing Examples
     log(f"[bold cyan]Testing Examples:[/bold cyan]")
-    log(f"  {colorize_command('uv run main prompt.hol train 1 --micro-test')}         [dim]# Minimal test mode[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train 2 --local-test')}         [dim]# Local test mode[/]")
-    log(f"  {colorize_command('uv run main prompt.hol train 1 --cpu --test-steps 2')} [dim]# CPU debug mode[/]")
-    log(f"  {colorize_command('uv run main compressor.hol train 1 --cpu --dry')}      [dim]# Dry training mode (no backprop)[/]")
+    log(f"  {formatting.command('uv run main prompt.hol train 1 --micro-test')}         [dim]# Minimal test mode[/]")
+    log(f"  {formatting.command('uv run main prompt.hol train 2 --local-test')}         [dim]# Local test mode[/]")
+    log(f"  {formatting.command('uv run main prompt.hol train 1 --cpu --test-steps 2')} [dim]# CPU debug mode[/]")
+    log(f"  {formatting.command('uv run main compressor.hol train 1 --cpu --dry')}      [dim]# Dry training mode (no backprop)[/]")
     log("")
 
     # Advanced Examples
     log(f"[bold cyan]Advanced Examples:[/bold cyan]")
-    log(f"  {colorize_command('uv run main qa.hol train 100 --vllm --batch 16')}      [dim]# Distributed training[/]")
-    log(f"  {colorize_command('uv run main custom_loom train 50 --model llama-7b')}   [dim]# Custom loom with specific model[/]")
-    log(f"  {colorize_command('uv run main tool.hol train 200 --data custom_dataset')} [dim]# Training with custom dataset[/]")
+    log(f"  {formatting.command('uv run main qa.hol train 100 --vllm --batch 16')}      [dim]# Distributed training[/]")
+    log(f"  {formatting.command('uv run main custom_loom train 50 --model llama-7b')}   [dim]# Custom loom with specific model[/]")
+    log(f"  {formatting.command('uv run main tool.hol train 200 --data custom_dataset')} [dim]# Training with custom dataset[/]")
     log("")
 
     # Client Options
     log(f"[bold cyan]Client Options:[/bold cyan]")
-    log(f"  {colorize_command('--vllm')}         [dim]# Use VLLM for distributed training[/]")
-    log(f"  {colorize_command('--openai')}       [dim]# Use OpenAI API (requires OPENAI_API_KEY)[/]")
-    log(f"  {colorize_command('--openrouter')}   [dim]# Use OpenRouter API (requires OPENROUTER_API_KEY)[/]")
-    log(f"  {colorize_command('--lmstudio')}     [dim]# Use LM Studio local server[/]")
-    log(f"  {colorize_command('--client URL')}   [dim]# Custom OpenAI-compatible endpoint[/]")
+    log(f"  {formatting.command('--vllm')}         [dim]# Use VLLM for distributed training[/]")
+    log(f"  {formatting.command('--openai')}       [dim]# Use OpenAI API (requires OPENAI_API_KEY)[/]")
+    log(f"  {formatting.command('--openrouter')}   [dim]# Use OpenRouter API (requires OPENROUTER_API_KEY)[/]")
+    log(f"  {formatting.command('--lmstudio')}     [dim]# Use LM Studio local server[/]")
+    log(f"  {formatting.command('--client URL')}   [dim]# Custom OpenAI-compatible endpoint[/]")
     log("")
 
     # Testing Options
     log(f"[bold cyan]Testing & Debug Options:[/bold cyan]")
-    log(f"  {colorize_command('--cpu')}          [dim]# Run on CPU (slow but unlimited memory)[/]")
-    log(f"  {colorize_command('--micro-test')}   [dim]# Minimal memory usage for testing[/]")
-    log(f"  {colorize_command('--local-test')}   [dim]# Optimized for local development[/]")
-    log(f"  {colorize_command('--test-steps N')} [dim]# Limit training to N steps[/]")
-    log(f"  {colorize_command('--debug')}        [dim]# Enable debug logging[/]")
-    log(f"  {colorize_command('--unsafe')}       [dim]# Disable safe mode (crashes on errors)[/]")
+    log(f"  {formatting.command('--cpu')}          [dim]# Run on CPU (slow but unlimited memory)[/]")
+    log(f"  {formatting.command('--micro-test')}   [dim]# Minimal memory usage for testing[/]")
+    log(f"  {formatting.command('--local-test')}   [dim]# Optimized for local development[/]")
+    log(f"  {formatting.command('--test-steps N')} [dim]# Limit training to N steps[/]")
+    log(f"  {formatting.command('--debug')}        [dim]# Enable debug logging[/]")
+    log(f"  {formatting.command('--unsafe')}       [dim]# Disable safe mode (crashes on errors)[/]")
     log("")
 
     # Deployment
     log(f"[bold cyan]Deployment:[/bold cyan]")
-    log(f"  {colorize_command('uv run main --vastai')}                               [dim]# Deploy to VastAI[/]")
-    log(f"  {colorize_command('uv run main --vastai-gui')}                           [dim]# VastAI deployment GUI[/]")
+    log(f"  {formatting.command('uv run main --vastai')}                               [dim]# Deploy to VastAI[/]")
+    log(f"  {formatting.command('uv run main --vastai-gui')}                           [dim]# VastAI deployment GUI[/]")
     log("")
 
-    log(f"[dim]Use {colorize_command('uv run main <command> --help')} for detailed options.[/]")
+    log(f"[dim]Use {formatting.command('uv run main <command> --help')} for detailed options.[/]")
     log("")
     log(Rule(style="dim"))
 

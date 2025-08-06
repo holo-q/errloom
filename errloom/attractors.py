@@ -6,7 +6,7 @@ from rich.console import Console
 from errloom import Attractor
 from errloom.holoware.holophore import Holophore
 from errloom.holoware.holoware import ClassSpan, Holoware, TextSpan
-from errloom.lib.log import ellipse
+from errloom.lib.formatting import ellipse
 
 if TYPE_CHECKING:
     pass

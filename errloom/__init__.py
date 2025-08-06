@@ -7,7 +7,7 @@ from errloom.tapestry import Rollout
 log.setup_logging(
     level="info",
     highlight=False,
-    print_paths=True,
+    print_paths=False,
     print_threads=False,
     reset_log_columns=False,
 )
@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # Now we can actually setup logging for real
 # Determine base level: --debug bare wins; else --log-level (default info)
 _base_level_str = 'debug' if (isinstance(errlargs.debug, str) and errlargs.debug == '') else errlargs.log_level
+
+# TODO this does not work. It seems that once we've initialized once, we can't do it again
 log.setup_logging(
     level=_base_level_str,
     highlight=False,
@@ -37,9 +39,11 @@ log.setup_logging(
 )
 
 # Defaults
-# log.disable_logger("errloom.tapestry")
-# log.disable_logger("errloom.lib.discovery")
-# log.disable_logger("errloom.holoware.holoware_parser")
+log.disable_logger("errloom.tapestry")
+log.disable_logger("errloom.lib.discovery")
+log.disable_logger("errloom.holoware.holoware_parser")
+log.disable_logger("errloom.holoware.holoware_handlers")
+log.disable_logger("errloom.holoware.holoware.end")
 
 # Initialize logging early based on args
 from errloom.lib.log import logging_level_from_str, parse_logs_arg, apply_logger_levels

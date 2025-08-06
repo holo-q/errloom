@@ -3,7 +3,8 @@ import random
 import string
 import unittest
 
-from errloom.tapestry import AutoMask, Context, FragType, Rollout
+from errloom.tapestry import Rollout
+from errloom.context import AutoMask, Context, FragType
 from tests.base import ErrloomTest
 
 
@@ -14,7 +15,7 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_only_system(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="SYS", type=FragType.FROZEN)
+        ctx.add_frag(ego=None, text="SYS", type=FragType.FROZEN)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -25,9 +26,9 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_consecutive_users_aggregate(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="S", type=FragType.FROZEN)  # becomes system
-        ctx.add_frag(ego="user", content="U1", type=FragType.FROZEN)
-        ctx.add_frag(ego="user", content="U2", type=FragType.REINFORCE)
+        ctx.add_frag(ego=None, text="S", type=FragType.FROZEN)  # becomes system
+        ctx.add_frag(ego="user", text="U1", type=FragType.FROZEN)
+        ctx.add_frag(ego="user", text="U2", type=FragType.REINFORCE)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -41,10 +42,10 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_interleave_user_assistant_user(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="S", type=FragType.FROZEN)  # system
-        ctx.add_frag(ego="user", content="U1", type=FragType.FROZEN)
-        ctx.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
-        ctx.add_frag(ego="user", content="U2", type=FragType.FROZEN)
+        ctx.add_frag(ego=None, text="S", type=FragType.FROZEN)  # system
+        ctx.add_frag(ego="user", text="U1", type=FragType.FROZEN)
+        ctx.add_frag(ego="assistant", text="A1", type=FragType.REINFORCE)
+        ctx.add_frag(ego="user", text="U2", type=FragType.FROZEN)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -64,12 +65,12 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_unknown_roles_normalize_to_user_and_break_aggregation(self):
         ctx = Context()
-        ctx.add_frag(ego=None, content="S1", type=FragType.FROZEN)
-        ctx.add_frag(ego="unknown", content="U1", type=FragType.FROZEN)  # -> user
-        ctx.add_frag(ego="user", content="U2", type=FragType.REINFORCE)  # aggregates
+        ctx.add_frag(ego=None, text="S1", type=FragType.FROZEN)
+        ctx.add_frag(ego="unknown", text="U1", type=FragType.FROZEN)  # -> user
+        ctx.add_frag(ego="user", text="U2", type=FragType.REINFORCE)  # aggregates
         # A separate normalized user block when role changes away and back later
-        ctx.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
-        ctx.add_frag(ego="tool", content="U3", type=FragType.FROZEN)  # -> user
+        ctx.add_frag(ego="assistant", text="A1", type=FragType.REINFORCE)
+        ctx.add_frag(ego="tool", text="U3", type=FragType.FROZEN)  # -> user
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -134,8 +135,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
     def test_assistant_tail_and_user_tail_closure(self):
         # Assistant-tail last
         ctx1 = Context()
-        ctx1.add_frag(ego=None, content="S", type=FragType.FROZEN)
-        ctx1.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
+        ctx1.add_frag(ego=None, text="S", type=FragType.FROZEN)
+        ctx1.add_frag(ego="assistant", text="A1", type=FragType.REINFORCE)
         s1 = ctx1.to_api_string()
         expected1 = "\n".join([
             "<|im_start|>system",
@@ -149,8 +150,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
         # User-tail last
         ctx2 = Context()
-        ctx2.add_frag(ego=None, content="S", type=FragType.FROZEN)
-        ctx2.add_frag(ego="user", content="U1", type=FragType.FROZEN)
+        ctx2.add_frag(ego=None, text="S", type=FragType.FROZEN)
+        ctx2.add_frag(ego="user", text="U1", type=FragType.FROZEN)
         s2 = ctx2.to_api_string()
         expected2 = "\n".join([
             "<|im_start|>system",
@@ -184,8 +185,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
     def test_to_api_messages_render_dry_keeps_empty(self):
         ctx = Context()
         # Create empty fragments (whitespace) to verify render_dry handling
-        ctx.add_frag(ego=None, content="   ", type=FragType.FROZEN)
-        ctx.add_frag(ego="user", content="", type=FragType.FROZEN)
+        ctx.add_frag(ego=None, text="   ", type=FragType.FROZEN)
+        ctx.add_frag(ego="user", text="", type=FragType.FROZEN)
 
         msgs_default = ctx.to_api_messages(render_dry=False)
         msgs_dry = ctx.to_api_messages(render_dry=True)
@@ -213,7 +214,7 @@ class ContextToTextExhaustiveTest(ErrloomTest):
                 # Short random alpha to avoid newlines complicating from_text matching
                 content = "".join(rng.choice(string.ascii_letters) for _ in range(rng.randint(0, 6)))
                 ftype = rng.choice(types_pool)
-                ctx.add_frag(ego=role, content=content, type=ftype)
+                ctx.add_frag(ego=role, text=content, type=ftype)
 
             # Roundtrip via text and compare the aggregated messages lists.
             s = ctx.to_api_string()
