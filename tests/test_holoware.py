@@ -98,7 +98,7 @@ class HolowareExecutionTest(HoloTest):
         context = holophore.contexts[0]
         # Assert directly on fragments: single user text fragment rendered in rich
         self.assertEqual(len(context.fragments), 1)
-        self.assertEqual(context.fragments[0].content, "Hello, world!")
+        self.assertEqual(context.fragments[0].text, "Hello, world!")
 
     def test_holoware_run_ego_change(self):
         code = "<|o_o|>User message.<|@_@|>Assistant response."
@@ -109,9 +109,9 @@ class HolowareExecutionTest(HoloTest):
         frags = context.fragments
         # Based on rich output, we get two text fragments only (roles normalized on render)
         self.assertEqual(len(frags), 2)
-        self.assertIn("User message.", frags[0].content)
-        self.assertIn("Assistant response.", frags[1].content)
-        self.assertEqual(holophore.ego, "assistant")
+        self.assertIn("User message.", frags[0].text)
+        self.assertIn("Assistant response.", frags[1].text)
+        self.assertEqual(holophore._ego, "assistant")
 
     def test_holoware_run_obj_span(self):
         code = "<|o_o|>Value is <|my_var|>."
@@ -122,7 +122,7 @@ class HolowareExecutionTest(HoloTest):
         frags = context.fragments
         # From rich, content split across lines: "Value is <obj..." then "."
         self.assertGreaterEqual(len(frags), 2)
-        self.assertIn("<obj id=my_var>injected_value</obj>", "".join(f.content for f in frags))
+        self.assertIn("<obj id=my_var>injected_value</obj>", "".join(f.text for f in frags))
 
     def test_holoware_run_class_lifecycle(self):
         code = "<|o_o|><|HoloTest|>"
@@ -141,7 +141,7 @@ class HolowareExecutionTest(HoloTest):
         frags = context.fragments
         # Expect at least one fragment with class output
         self.assertGreaterEqual(len(frags), 1)
-        self.assertTrue(any("Holo! kargs=[], kwargs={}" in f.content for f in frags))
+        self.assertTrue(any("Holo! kargs=[], kwargs={}" in f.text for f in frags))
 
     def test_holoware_run_class_with_args(self):
         code = "<|o_o|><|HoloTest karg1 karg2 key1=val1|>"
@@ -170,8 +170,8 @@ class HolowareExecutionTest(HoloTest):
 
         # assistant content fragment containing wrapped sample
         self.assertGreaterEqual(len(frags), 1)
-        self.assertTrue(any(f.content == "<test>" for f in frags))
-        self.assertTrue(any(f.content == "mocked_sample</test>" for f in frags))
+        self.assertTrue(any(f.text == "<test>" for f in frags))
+        self.assertTrue(any(f.text == "mocked_sample</test>" for f in frags))
 
     def test_data_assignment_across_contexts(self):
         # First context samples with id 'compressed' into a <compress> fence.
@@ -191,7 +191,7 @@ class HolowareExecutionTest(HoloTest):
 
         # Second context should include object injection with the sampled payload
         self.assertEqual(len(holophore.contexts), 2)
-        context1_content = "".join(frag.content for frag in holophore.contexts[1].fragments)
+        context1_content = "".join(frag.text for frag in holophore.contexts[1].fragments)
         self.assertIn("<obj id=compressed>mocked_sample</obj>", context1_content)
 
     def test_holoware_run_context_reset(self):
@@ -200,11 +200,11 @@ class HolowareExecutionTest(HoloTest):
 
         self.assertEqual(len(holophore.contexts), 2)
         frags0 = holophore.contexts[0].fragments
-        self.assertTrue(any(f.content == "First context." for f in frags0))
+        self.assertTrue(any(f.text == "First context." for f in frags0))
 
         frags1 = holophore.contexts[1].fragments
-        self.assertTrue(any(f.content == "Second context." for f in frags1))
-        self.assertEqual(holophore.ego, "system")
+        self.assertTrue(any(f.text == "Second context." for f in frags1))
+        self.assertEqual(holophore._ego, "system")
 
     def test_holoware_with_body(self):
         code = """
@@ -232,7 +232,7 @@ class HolowareExecutionTest(HoloTest):
 
         context = holophore.contexts[0]
         frags = context.fragments
-        self.assertTrue(any("Body text: I am a body." in f.content for f in frags))
+        self.assertTrue(any("Body text: I am a body." in f.text for f in frags))
 
 
 COMPRESSOR_HOL = """<|+++|>
@@ -336,9 +336,9 @@ class CompressorHolowareExecutionTest(HoloTest):
 
 
         # 5. Check the final rendered output for each context
-        context0_content = "".join(frag.content for frag in holophore.contexts[0].fragments)
-        context1_content = "".join(frag.content for frag in holophore.contexts[1].fragments)
-        context2_content = "".join(frag.content for frag in holophore.contexts[2].fragments)
+        context0_content = "".join(frag.text for frag in holophore.contexts[0].fragments)
+        context1_content = "".join(frag.text for frag in holophore.contexts[1].fragments)
+        context2_content = "".join(frag.text for frag in holophore.contexts[2].fragments)
 
         # Context 0: Compression
         self.assertIn("BINGO: Compress the following text losslessly", context0_content)

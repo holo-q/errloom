@@ -2,9 +2,8 @@ import inspect
 import typing
 
 from errloom.holoware.holoware import Span
-from errloom.tapestry import Rollout
+from errloom.tapestry import FragList, FragType, Rollout
 from errloom.lib import log
-
 
 if typing.TYPE_CHECKING:
     from errloom.loom import Loom
@@ -23,23 +22,18 @@ class Holophore:
     def __init__(self, loom, rollout: Rollout, env: dict):
         self._loom = loom
         self._rollout = rollout
-
         self.env = env
-        self.span_bindings = {}
-        self.active_holowares:list['Holoware'] = list()
+        self.span_bindings: dict[str, Span|type|object] = {}
+        self.span_fragments: dict[str, FragList] = {}
+
+        # execution state
+        self._holowares: list['Holoware'] = list()
+        self._span: Span | None = None
+        self._ego: str = "system"
+
         self.errors = 0
 
-        self.last_insertion = ""
-        self._ego = "system"
-
-    @property
-    def ego(self):
-        return self._ego
-
-    def change_ego(self, ego):
-        self._ego = ego
-
-    def get_class(self, classname:str):
+    def get_class(self, classname: str):
         Class = self.env.get(classname)
         if not Class:
             from errloom.lib.discovery import get_class
@@ -47,7 +41,7 @@ class Holophore:
         return Class
 
     def find_span(self, uid):
-        for ware in self.active_holowares:
+        for ware in self._holowares:
             for span in ware.spans:
                 if span.uuid == uid:
                     return span
@@ -59,31 +53,20 @@ class Holophore:
     def ensure_context(self):
         self._rollout.ensure_context()
 
+    def add_frag(self, type: FragType, text: str):
+        frag = self._rollout.add_frag(self._ego, type, text)
+        if self._span:
+            if self._span.uuid not in self.span_fragments:
+                self.span_fragments[self._span.uuid] = FragList()
+            self.span_fragments[self._span.uuid].append(frag)
+
     def add_reinforced(self, content: str):
         """Add text to reinforce (unmasked in training)."""
-        self.ensure_context()
-        self._rollout.add_reinforced(self.ego, content)
-        self.last_insertion += content
+        self.add_frag(FragType.REINFORCE, content)
 
     def add_masked(self, content: str):
         """Add text to mask (ignored in training)."""
-        self.ensure_context()
-        self._rollout.add_frozen(self.ego, content)
-        self.last_insertion += content
-
-    # @indent
-    # def flush(self):
-    #     if not self.textbuf:
-    #         logger.warning("textbuf is already empty.")
-    #         return
-    #
-    #     # buftext <- self.textbuf
-    #     text, self.textbuf = "".join(self.textbuf), []
-    #
-    #     if self.context.messages and self.context.messages[-1]['role'] == self.ego:
-    #         self.add_text(text)
-    #     else:
-    #         self.add_message(self.ego, text)
+        self.add_frag(FragType.FROZEN, content)
 
     def __getattr__(self, name):
         # Delegate attribute access to the original rollout, then loom
@@ -129,6 +112,7 @@ class Holophore:
         If `filter_missing_arguments` is True, it inspects the function signature
         and only passes keyword arguments that are expected by the function.
         """
+
         def _filter_kwargs(func, passed_kwargs):
             if not filter_missing_arguments or not passed_kwargs:
                 return passed_kwargs
@@ -163,7 +147,7 @@ class Holophore:
 
         return None
 
-    def invoke__holo__(self, phore:'Holophore', span:Span) -> str:
+    def invoke__holo__(self, phore: 'Holophore', span: Span) -> str:
         """
         Invoke the __holo__ trigger function on a span's bound object instance.
         E.g. for the ClassSpans this is the instantiated class they refer.

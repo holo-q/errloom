@@ -99,11 +99,11 @@ class HolowareHandlers:
     @classmethod
     def ContextResetSpan(cls, holophore:Holophore, span:ContextResetSpan):
         holophore.new_context()
-        holophore.change_ego("system")
+        holophore._ego = "system"
 
     @classmethod
     def EgoSpan(cls, holophore:Holophore, span:EgoSpan):
-        holophore.change_ego(span.ego)
+        holophore._ego = span.ego
 
     @classmethod
     def ClassSpan(cls, holophore: Holophore, span: ClassSpan):

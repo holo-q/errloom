@@ -3,7 +3,7 @@ import random
 import string
 import unittest
 
-from errloom.tapestry import AutoMask, Context, FragmentType, Rollout
+from errloom.tapestry import AutoMask, Context, FragType, Rollout
 from tests.base import ErrloomTest
 
 
@@ -14,7 +14,7 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_only_system(self):
         ctx = Context()
-        ctx.add_fragment(role=None, content="SYS", type=FragmentType.FROZEN)
+        ctx.add_frag(ego=None, content="SYS", type=FragType.FROZEN)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -25,9 +25,9 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_consecutive_users_aggregate(self):
         ctx = Context()
-        ctx.add_fragment(role=None, content="S", type=FragmentType.FROZEN)  # becomes system
-        ctx.add_fragment(role="user", content="U1", type=FragmentType.FROZEN)
-        ctx.add_fragment(role="user", content="U2", type=FragmentType.REINFORCE)
+        ctx.add_frag(ego=None, content="S", type=FragType.FROZEN)  # becomes system
+        ctx.add_frag(ego="user", content="U1", type=FragType.FROZEN)
+        ctx.add_frag(ego="user", content="U2", type=FragType.REINFORCE)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -41,10 +41,10 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_to_api_string_interleave_user_assistant_user(self):
         ctx = Context()
-        ctx.add_fragment(role=None, content="S", type=FragmentType.FROZEN)  # system
-        ctx.add_fragment(role="user", content="U1", type=FragmentType.FROZEN)
-        ctx.add_fragment(role="assistant", content="A1", type=FragmentType.REINFORCE)
-        ctx.add_fragment(role="user", content="U2", type=FragmentType.FROZEN)
+        ctx.add_frag(ego=None, content="S", type=FragType.FROZEN)  # system
+        ctx.add_frag(ego="user", content="U1", type=FragType.FROZEN)
+        ctx.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
+        ctx.add_frag(ego="user", content="U2", type=FragType.FROZEN)
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -64,12 +64,12 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_unknown_roles_normalize_to_user_and_break_aggregation(self):
         ctx = Context()
-        ctx.add_fragment(role=None, content="S1", type=FragmentType.FROZEN)
-        ctx.add_fragment(role="unknown", content="U1", type=FragmentType.FROZEN)  # -> user
-        ctx.add_fragment(role="user", content="U2", type=FragmentType.REINFORCE)  # aggregates
+        ctx.add_frag(ego=None, content="S1", type=FragType.FROZEN)
+        ctx.add_frag(ego="unknown", content="U1", type=FragType.FROZEN)  # -> user
+        ctx.add_frag(ego="user", content="U2", type=FragType.REINFORCE)  # aggregates
         # A separate normalized user block when role changes away and back later
-        ctx.add_fragment(role="assistant", content="A1", type=FragmentType.REINFORCE)
-        ctx.add_fragment(role="tool", content="U3", type=FragmentType.FROZEN)  # -> user
+        ctx.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
+        ctx.add_frag(ego="tool", content="U3", type=FragType.FROZEN)  # -> user
         s = ctx.to_api_string()
         expected = "\n".join([
             "<|im_start|>system",
@@ -134,8 +134,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
     def test_assistant_tail_and_user_tail_closure(self):
         # Assistant-tail last
         ctx1 = Context()
-        ctx1.add_fragment(role=None, content="S", type=FragmentType.FROZEN)
-        ctx1.add_fragment(role="assistant", content="A1", type=FragmentType.REINFORCE)
+        ctx1.add_frag(ego=None, content="S", type=FragType.FROZEN)
+        ctx1.add_frag(ego="assistant", content="A1", type=FragType.REINFORCE)
         s1 = ctx1.to_api_string()
         expected1 = "\n".join([
             "<|im_start|>system",
@@ -149,8 +149,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
         # User-tail last
         ctx2 = Context()
-        ctx2.add_fragment(role=None, content="S", type=FragmentType.FROZEN)
-        ctx2.add_fragment(role="user", content="U1", type=FragmentType.FROZEN)
+        ctx2.add_frag(ego=None, content="S", type=FragType.FROZEN)
+        ctx2.add_frag(ego="user", content="U1", type=FragType.FROZEN)
         s2 = ctx2.to_api_string()
         expected2 = "\n".join([
             "<|im_start|>system",
@@ -184,8 +184,8 @@ class ContextToTextExhaustiveTest(ErrloomTest):
     def test_to_api_messages_render_dry_keeps_empty(self):
         ctx = Context()
         # Create empty fragments (whitespace) to verify render_dry handling
-        ctx.add_fragment(role=None, content="   ", type=FragmentType.FROZEN)
-        ctx.add_fragment(role="user", content="", type=FragmentType.FROZEN)
+        ctx.add_frag(ego=None, content="   ", type=FragType.FROZEN)
+        ctx.add_frag(ego="user", content="", type=FragType.FROZEN)
 
         msgs_default = ctx.to_api_messages(render_dry=False)
         msgs_dry = ctx.to_api_messages(render_dry=True)
@@ -202,7 +202,7 @@ class ContextToTextExhaustiveTest(ErrloomTest):
 
     def test_randomized_roundtrip_equivalence(self):
         roles_pool = [None, "system", "user", "assistant", "unknown", "tool"]
-        types_pool = [FragmentType.FROZEN, FragmentType.REINFORCE]
+        types_pool = [FragType.FROZEN, FragType.REINFORCE]
         # Fixed seed for determinism
         rng = random.Random(1337)
         for _ in range(25):
@@ -213,7 +213,7 @@ class ContextToTextExhaustiveTest(ErrloomTest):
                 # Short random alpha to avoid newlines complicating from_text matching
                 content = "".join(rng.choice(string.ascii_letters) for _ in range(rng.randint(0, 6)))
                 ftype = rng.choice(types_pool)
-                ctx.add_fragment(role=role, content=content, type=ftype)
+                ctx.add_frag(ego=role, content=content, type=ftype)
 
             # Roundtrip via text and compare the aggregated messages lists.
             s = ctx.to_api_string()

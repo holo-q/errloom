@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from rich import box
 from rich.console import Group
@@ -16,26 +16,41 @@ from errloom.lib import log
 
 logger = log.getLogger(__name__)
 
-class FragmentType(Enum):
+class FragType(Enum):
     """Type of text fragment for training purposes."""
     FROZEN = "frozen"  # Input text, typically masked
     REINFORCE = "reinforced"  # Text to reinforce (unmasked)
 
 @dataclass
-class TextFragment:
+class Frag:
     """
     A fragment of text with training metadata.
     """
-    content: str
+    text: str
     ego: Optional[str]
-    type: FragmentType
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    type: FragType
 
     def __str__(self):
-        return f"TextFragment(ego={self.ego}, content={log.ellipse(self.content, 50)})"
+        return f"Frag({self.ego}->{log.ellipse(self.text, 50)})"
 
     def __repr__(self):
-        return f"TextFragment(ego={self.ego}, content={log.ellipse(self.content, 50)})"
+        return f"Frag({self.ego}->{log.ellipse(self.text, 50)})"
+
+class FragList(list[Frag]):
+    EMPTY: ClassVar[FragList] = None  # type: ignore
+
+    @property
+    def string(self):
+        ret = ""
+        for frag in self:
+            ret += frag.text
+        return ret
+
+    @property
+    def length(self):
+        return len(self)
+
+FragList.EMPTY = FragList()
 
 class AutoMask(Enum):
     FREEZE_ALL = 0
@@ -50,29 +65,27 @@ class Context:
     TODO maybe invalidatation and auto-bake with cached backing field, auto baked when messages or text accessed by property
     """
     text: str = ""
-    fragments: List[TextFragment] = field(default_factory=list)
+    fragments: FragList = field(default_factory=FragList)
 
-    def add_fragment(self, role: Optional[str], content: str, type: FragmentType, print_log: bool = True, **metadata):
+    def add_frag(self, ego: Optional[str], content: str, type: FragType, prints: bool = True) -> Frag:
         """Add a text fragment with training metadata."""
-        self.fragments.append(
-            TextFragment(
-                content=content,
-                type=type,
-                ego=role,
-                metadata=metadata
-            ))
-        if print_log:
-            logger.debug(f"add_fragment: {role} -> {log.ellipse(content, 45)}")
+        frag = Frag(text=content, type=type, ego=ego)
+        self.fragments.append(frag)
+        if prints:
+            logger.debug(f"add_fragment :: {ego} -> {log.ellipse(content, 45)}")
+        return frag
 
-    def add_frozen(self, role: Optional[str], content: str):
+    def add_frozen(self, role: Optional[str], content: str) -> Frag:
         """Add text to mask (ignored in training)."""
-        self.add_fragment(role, content, FragmentType.FROZEN, print_log=False)
-        logger.debug(f"[dim]add_frozen: {role} -> {log.ellipse(content, 45)}[/]")
+        ret = self.add_frag(role, content, FragType.FROZEN, prints=False)
+        logger.debug(f"add_frozen :: [black on white]{role} -> {log.ellipse(content, 45)}[/]")
+        return ret
 
-    def add_reinforced(self, role: Optional[str], content: str):
+    def add_reinforced(self, role: Optional[str], content: str) -> Frag:
         """Add text to reinforce (unmasked in training)."""
-        self.add_fragment(role, content, FragmentType.REINFORCE, print_log=False)
-        logger.debug(f"[dim]add_reinforced: {role} -> {log.ellipse(content, 45)}[/]")
+        ret = self.add_frag(role, content, FragType.REINFORCE, prints=False)
+        logger.debug(f"add_reinforced: [black on white]{role} -> {log.ellipse(content, 45)}[/]")
+        return ret
 
     def to_api_messages(self, render_dry: bool = False) -> APIChat:
         """
@@ -98,18 +111,20 @@ class Context:
 
         logger.debug(f"to_api_messages: Processing {len(self.fragments)} fragments")
 
-        for idx, frag in enumerate(self.fragments):
-            normalized_role = _normalize_role(frag.ego, is_first=(idx == 0))
-            ellipsed_content = log.ellipse(frag.content.replace('\n', '\\n'), 45).strip()
-            logger.debug(f"- Fragment {idx}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{ellipsed_content}[/]")
+        # TODO there may be some code here that we can move to FragList
+
+        for i, frag in enumerate(self.fragments):
+            normalized_role = _normalize_role(frag.ego, is_first=(i == 0))
+            ellipsed_content = log.ellipse(frag.text.replace('\n', '\\n'), 45).strip()
+            logger.debug(f"- Fragment {i}: [dim]{frag.ego}[/]->{normalized_role} :: [dim]{ellipsed_content}[/]")
 
             if current_role is None:
                 # First fragment
                 current_role = normalized_role
-                content = [frag.content]
+                content = [frag.text]
             elif normalized_role == current_role:
                 # Same role, accumulate content
-                content.append(frag.content)
+                content.append(frag.text)
             else:
                 # Role changed, finalize previous message
                 s = "".join(content)
@@ -117,7 +132,7 @@ class Context:
                     messages.append({"role": current_role, "content": s.strip()})
                     # logger.debug(f"Role changed from {current_role} to {normalized_role}, added message with {len(s)} chars")
                 current_role = normalized_role
-                content = [frag.content]
+                content = [frag.text]
 
         # flush tail
         if current_role is not None:
@@ -151,6 +166,8 @@ class Context:
             content = msg.get("content", "")
             blocks.append(f"<|im_start|>{role}\n{content}\n<|im_end|>")
 
+        # TODO there may be some code here that we can move to FragList
+
         # Inspect raw fragments to decide on open assistant tail
         # Normalize last fragment role like in to_api_messages
         def _normalize_role(raw: Optional[str], is_first: bool) -> str:
@@ -168,7 +185,7 @@ class Context:
             # If trailing assistant fragment exists with empty content, open assistant header
             if last_norm == "assistant":
                 # If the last assistant fragment has no content, signal open assistant turn.
-                last_content = self.fragments[last_idx].content or ""
+                last_content = self.fragments[last_idx].text or ""
                 if last_content == "":
                     suffix = "<|im_start|>assistant"
                     if blocks:
@@ -178,46 +195,13 @@ class Context:
 
         return "\n".join(blocks)
 
-    # def _update_messages_from_fragments(self):
-    #     """Update _messages from fragments for chat mode."""
-    #     self._messages.clear()
-    #     current_role = None
-    #     current_content = ""
-    #
-    #     for fragment in self.fragments:
-    #         if fragment.role != current_role:
-    #             # Role change - finish previous message
-    #             if current_role and current_content:
-    #                 self._messages.append({'role': current_role, 'content': current_content})
-    #             current_role = fragment.role
-    #             current_content = fragment.content
-    #         else:
-    #             # Same role - accumulate content
-    #             current_content += fragment.content
-    #
-    #     # Add final message
-    #     if current_role and current_content:
-    #         self._messages.append({'role': current_role, 'content': current_content})
-    #
-    # def _update_text_from_fragments(self):
-    #     """Update text from fragments for completion mode."""
-    #     self.text = "".join(fragment.content for fragment in self.fragments)
-
-    # def set_mode(self, mode: Literal["chat", "completion"]):
-    #     """Set the context mode and update internal structures."""
-    #     self.mode = mode
-    #     if mode == "chat":
-    #         self._update_messages_from_fragments()
-    #     else:
-    #         self._update_text_from_fragments()
-
-
-    def extract_fence(self, wrapper_tag: Optional[str], role: str = 'assistant') -> Optional[str]:
+    def extract_xml_tag(self, tag: Optional[str], role: str = 'assistant') -> Optional[str]:
         """
-        Extract content from a dynamic wrapper tag, e.g., <compress>...</compress>
+        Extract content from a dynamic wrapper tag, e.g., <think>...</think>
+        by searching backwards from the last message.
 
         Args:
-            wrapper_tag: The tag name to extract content from
+            tag: The tag name to extract content from (e.g. think)
             role: Role to search within (default: 'assistant')
 
         Returns:
@@ -226,28 +210,29 @@ class Context:
         import re
         messages = self.to_api_messages()
 
-        if not wrapper_tag:
+        if not tag:
             # Return last message content if no tag specified
             for msg in reversed(messages):
                 if role is None or msg.get("role") == role:
                     return msg.get("content", "").strip()
             return None
 
-        tag = wrapper_tag.lower()
+        t = tag.lower()
 
         for msg in reversed(messages):
             if role is not None and msg.get("role") != role:
                 continue
             content = msg.get("content", "")
-            matches = list(re.finditer(fr'<{tag}>\s*(.*?)\s*(?:</{tag}>|$)', content, re.DOTALL))
+            matches = list(re.finditer(fr'<{t}>\s*(.*?)\s*(?:</{t}>|$)', content, re.DOTALL))
             if matches:
                 return matches[-1].group(1).strip()
 
         return None
 
-    def extract_mdjson(self, role: str = 'assistant') -> Optional[str]:  # TODO return dict
+    def extract_markdown_json(self, role: str = 'assistant') -> Optional[str]:  # TODO return dict
         """
-        Extract markdown JSON block from context messages, e.g.:
+        Extract markdown JSON block from context messages
+        by searching backwards from the last message, e.g.:
 
         ```json
         {
@@ -298,16 +283,16 @@ class Context:
         Create a Context from OpenAI API format messages, applying AutoMask.
         """
 
-        def mask_for(role: Optional[str]) -> FragmentType:
+        def mask_for(role: Optional[str]) -> FragType:
             if masking == AutoMask.FREEZE_ALL:
-                return FragmentType.FROZEN
+                return FragType.FROZEN
             if masking == AutoMask.REINFORCE_ALL:
-                return FragmentType.REINFORCE
+                return FragType.REINFORCE
             if masking == AutoMask.REINFORCE_USER:
-                return FragmentType.REINFORCE if role == "user" else FragmentType.FROZEN
+                return FragType.REINFORCE if role == "user" else FragType.FROZEN
             if masking == AutoMask.REINFORCE_ASSISTANT:
-                return FragmentType.REINFORCE if role == "assistant" else FragmentType.FROZEN
-            return FragmentType.FROZEN
+                return FragType.REINFORCE if role == "assistant" else FragType.FROZEN
+            return FragType.FROZEN
 
         context = Context(text=text)
         for msg in api_context:
@@ -318,7 +303,7 @@ class Context:
             if content is None:
                 content = ""
             ftype = mask_for(role)
-            context.add_fragment(role=role, content=content, type=ftype)
+            context.add_frag(ego=role, content=content, type=ftype)
         return context
 
     @staticmethod
@@ -420,7 +405,7 @@ class Context:
 
             # Render role header
             # ----------------------------------------
-            if imsg >0:
+            if imsg > 0:
                 ret.append("\n", style="white")
                 ret.append("\n", style="white")
 
@@ -432,7 +417,6 @@ class Context:
             ret.append("\n")
 
             ret.append(hlcontent)
-
 
         return ret
 
@@ -485,25 +469,31 @@ class Rollout:
             raise RuntimeError("No contexts available - call new_context() first")
         return self.contexts[-1]
 
-    def new_context(self):
-        self.contexts.append(Context())
+    def new_context(self) -> Context:
+        ret = Context()
+        self.contexts.append(ret)
+        return ret
 
     def ensure_context(self):
         if len(self.contexts) == 0:
             self.new_context()
 
-    def add_reinforced(self, ego: Optional[str], content: str):
+    def add_reinforced(self, ego: Optional[str], content: str) -> Frag:
         """Add text to reinforce (unmasked in training)."""
-        self.active_context.add_reinforced(ego, content)
+        return self.active_context.add_reinforced(ego, content)
 
-    def add_frozen(self, ego: Optional[str], content: str):
+    def add_frozen(self, ego: Optional[str], content: str) -> Frag:
         """Add text to mask (ignored in training)."""
-        # Ensure a default role for masked content so dry-run rendering has something to show
-        if ego is None:
-            # Heuristic: if there are no fragments in this context, treat as system; else user
-            frag_count = len(self.active_context.fragments)
-            ego = "system" if frag_count == 0 else "user"
-        self.active_context.add_frozen(ego, content)
+        return self.active_context.add_frozen(ego, content)
+
+    def add_frag(self,
+                 ego: Optional[str],
+                 type: FragType,
+                 content: str,
+                 prints: bool = True) -> Frag:
+        """Add a text fragment with training metadata."""
+        self.ensure_context()
+        return self.active_context.add_frag(ego, content, type, prints)
 
     # def bake_tokens(self):
     #     """Bake mask/samples fields from fragment data."""
@@ -555,34 +545,34 @@ class Rollout:
         """
         return self.active_context.to_api_string()
 
-    def extract_fence(self, wrapper_tag: Optional[str], role: str = "assistant") -> Optional[str]:
+    def extract_fence(self, wrapper_tag: Optional[str], ego: str = "assistant") -> Optional[str]:
         """
         Extract content from a dynamic wrapper tag across all contexts.
 
         Args:
             wrapper_tag: The tag name to extract content from
-            role: Role to search within (default: 'assistant')
+            ego: Ego to search within (default: 'assistant')
 
         Returns:
             Extracted content or None if not found
         """
         for context in self.contexts:
-            result = context.extract_fence(wrapper_tag, role)
+            result = context.extract_xml_tag(wrapper_tag, ego)
             if result:
                 return result
         return None
 
-    def extract_json(self, role: str = "assistant") -> Optional[str]:
+    def extract_json(self, ego: str = "assistant") -> Optional[str]:
         """
         Extract JSON from the current context.
 
         Args:
-            role: Role to search within (default: 'assistant')
+            ego: Ego to search within (default: 'assistant')
 
         Returns:
             Extracted JSON string or None if not found
         """
-        return self.active_context.extract_mdjson(role)
+        return self.active_context.extract_markdown_json(ego)
 
     def to_rich(self) -> Panel:
         out = []
@@ -596,7 +586,7 @@ class Rollout:
             # If nothing made it through (e.g. all masked/empty), provide a placeholder to avoid blank panel
             if not msgs:
                 tmp_ctx = Context()
-                tmp_ctx.add_fragment(role="system", content="[empty context]", type=FragmentType.FROZEN)
+                tmp_ctx.add_frag(ego="system", content="[empty context]", type=FragType.FROZEN)
                 out.append(tmp_ctx.to_rich())
                 continue
 

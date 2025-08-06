@@ -41,6 +41,7 @@ from typing import Optional
 from rich.text import Text
 
 from errloom.lib import log
+from errloom.tapestry import FragList
 
 logger = log.getLogger(__name__)
 
@@ -232,7 +233,7 @@ class Holoware:
 
         # --- Lifecycle: Start ---
         holophore.invoke(self, "__holo_start__", [holophore], {})
-        holophore.active_holowares.append(self)
+        holophore._holowares.append(self)
 
         logger.push_debug("(1:start)")
         for span in self.spans:
@@ -243,6 +244,7 @@ class Holoware:
                 if not Cls:
                     raise Exception(f"Class '{classname}' not found in environment or registry.")
                 if getattr(Cls, '_is_holostatic', False):
+                    assert isinstance(Cls, type)
                     holophore.span_bindings[span.uuid] = Cls
                 else:
                     # TODO extract to call_class_init (formalizes the api)
@@ -259,30 +261,74 @@ class Holoware:
 
         logger.pop()
 
+        def optimize_block_of_3(i):
+            """
+            The same code example, this time written at the frontier of software engineering.
+            The code is self-documenting using imagination engineering.
+            """
+            if i < 2: return
+
+            # Auto-spacing logic
+            import re
+            tag_pattern = re.compile(r"<(\w+)[^>]*>.*?</\1>|<obj\s+id=.*?>", re.DOTALL)
+
+            f1 = holophore.span_fragments.get(self.spans[i - 2].uuid, FragList.EMPTY)
+            f2 = holophore.span_fragments.get(self.spans[i - 1].uuid, FragList.EMPTY)
+            f3 = holophore.span_fragments.get(self.spans[i].uuid, FragList.EMPTY)
+            s1 = f1.string
+            s2 = f2.string
+            s3 = f3.string
+
+            def count_tail(s, char="\n"): return len(s) - len(s.rstrip(char))
+            def count_head(s, char="\n"): return len(s) - len(s.rstrip(char))
+
+            lc = count_tail(s1) + count_head(s2)
+            rc = count_tail(s2) + count_head(s3)
+
+            # Add newline if a tag-block span is not properly spaced from its neighbors
+            is_mid_tag = tag_pattern.search(s2)
+            if is_mid_tag:
+                logger.debug(f"Auto-spacing: lc={lc} rc={rc}")
+                for _ in range(3 - lc):
+                    f2[0].text = '\n' + f2[0].text
+                for _ in range(3 - rc):
+                    f2[-1].text = f2[-1].text + '\n'
+
+
         # --- Lifecycle: Main ---
         logger.push_debug("(2:main)")
-        for ispan, span in enumerate(self.spans):
+        for i, span in enumerate(self.spans):
+            holophore._span = span
+
             SpanClassName = type(span).__name__
             if not isinstance(span, (TextSpan, ObjSpan)):
-                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{ispan}] <|{span}|>[/]")
+                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{i}] <|{span}|>[/]")
             else:
-                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{ispan}] <|{SpanClassName}|>[/]")
+                HolowareHandlers.logger.debug(f"[{span.get_color()}]\\[{i}] <|{SpanClassName}|>[/]")
 
-            logger.push('.' * (len(str(ispan)) + 2))
+            logger.push('.' * (len(str(i)) + 2))  # TODO spread=true to spread it down across multiline outputs
 
             HolowareHandlers.handle(holophore, span)
-            has_inserted = bool(holophore.last_insertion)
-            if has_inserted:
-                logger.debug(Text(holophore.last_insertion, style="dim italic"))  # TODO if we could find a 'oduble dim' color that would be better
-                holophore.last_insertion = ""
+
+            optimize_block_of_3(i - 1)
+
+            span_fragments = holophore.span_fragments.get(span.uuid, FragList.EMPTY)
+            appended = span_fragments.length > 0 if span_fragments else False
+            if appended:
+                assert span_fragments is not None
+                import re
+                s = span_fragments.string
+                s = re.sub(r'^\s*$', r'\\n', s, flags=re.MULTILINE)
+                logger.debug(Text(s, style="dim italic"))  # TODO if we could find a 'double dim' color that would be better
             else:
                 # logger.debug(Text("<no text>", style="dim italic"))
                 pass
 
             logger.pop()
-            if has_inserted:
+            if appended:
                 logger.debug("")
 
+        holophore._span = None
         if holophore.errors > 0:
             raise RuntimeError(f"Failed to instantiate {holophore.errors} classes.")
         logger.pop()
@@ -297,9 +343,14 @@ class Holoware:
                 # TODO extract to call_class_init (formalizes the api)
                 kspan, kwspan = holophore.get_holofunc_args(span)
                 holophore.invoke(target, '__holo_end__', kspan, kwspan)
+        logger.debug("Span Fragments:")
+        for uid, fragments in holophore.span_fragments.items():
+            span = holophore.find_span(uid)
+            logger.debug(f"[{span.get_color()}]\\[{span.uuid[:8]}...][/] {span.__class__.__name__}")
+            logger.debug(Text(fragments.string, style="dim italic"))
         logger.pop()
 
-        holophore.active_holowares.remove(self)
+        holophore._holowares.remove(self)
 
         logger.pop()
         return holophore
@@ -336,6 +387,7 @@ class Holoware:
         ret = cls.parse(content)
         ret.name = Path(filepath).name
         return ret
+
 
     def __repr__(self):
         return f"Holoware({self.filepath})"
@@ -393,7 +445,7 @@ class Holoware:
                     if isinstance(next, TextSpan):
                         out.append(f"'{next.display_text}{'...' if len(next.text) > 30 else ''}'", style="white")
                     else:
-                        append_span(next) # TODO this could do weird things with multiline spans
+                        append_span(next)  # TODO this could do weird things with multiline spans
                     append_args(next)
                     iprocessed.add(inext)
 
@@ -479,7 +531,6 @@ class Holoware:
             out.append("\n\n")
 
         return out
-
 
 
 # def format_prompt(input: Union[Holoware, str, MessageListStr], **kwargs) -> Union[str, MessageListStr]:

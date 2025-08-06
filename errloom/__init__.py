@@ -6,7 +6,7 @@ from errloom.tapestry import Rollout
 # To make logs palatable during argp setup
 log.setup_logging(
     level="info",
-    highlight=True,
+    highlight=False,
     print_paths=True,
     print_threads=False,
     reset_log_columns=False,
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _base_level_str = 'debug' if (isinstance(errlargs.debug, str) and errlargs.debug == '') else errlargs.log_level
 log.setup_logging(
     level=_base_level_str,
-    highlight=True,
+    highlight=False,
     enable_file_logging=True,
     print_time=False,
     print_paths=errlargs.print_paths,  # TODO userconf override flag
